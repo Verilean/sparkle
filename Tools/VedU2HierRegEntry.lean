@@ -1230,7 +1230,9 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
     if freshCtx then setMCtx {}
     let runChild : TermElabM Unit := do
       try discard <| (if ved.compose.multiOut.get (← getOptions) && cm.outputs.length > 1 then
-            checkU1E cdecl base cstmt cm .generated (cm.outputs.map (·.name))
+            -- the struct script's order check through the one-pass hashed `OrderOkLeafFast` (`Tools/VedU1OrderFast.lean`)
+            withOptions (fun o => Tools.VedU1StructSeq.ved.sseq.fastOrder.set o true) <|
+              checkU1E cdecl base cstmt cm .generated (cm.outputs.map (·.name))
           else if (regsOf cm.body).isEmpty then Tools.VedH3ChildEntry.checkCombChild cdecl cdom base cstmt cm
           else checkU1E cdecl base cstmt cm (.built (buildDeepWith cdecl cdecl ctbl)))
       catch e => refuse decl "child" m!"child {cm.name}: {e.toMessageData}"

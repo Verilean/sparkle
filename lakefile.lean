@@ -568,6 +568,9 @@ lean_lib «Tests.Ved.VedMemShapeCheck» where
 lean_lib «Tests.Ved.VedMemOrderCheck» where
   roots := #[`Tests.Ved.VedMemOrderCheck]
 
+lean_lib «Tests.Ved.U1OrderFastCheck» where
+  roots := #[`Tests.Ved.U1OrderFastCheck]
+
 lean_lib «Tests.Ved.VedMemWidthCheck» where
   roots := #[`Tests.Ved.VedMemWidthCheck]
 
@@ -1804,6 +1807,9 @@ lean_lib «Tools.VedMemNest» where
 
 lean_lib «Tools.VedMemOrder» where
   roots := #[`Tools.VedMemOrder]
+
+lean_lib «Tools.VedU1OrderFast» where
+  roots := #[`Tools.VedU1OrderFast]
 
 lean_lib «Tools.VedMemWidth» where
   roots := #[`Tools.VedMemWidth]

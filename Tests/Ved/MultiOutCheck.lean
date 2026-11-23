@@ -571,3 +571,40 @@ def topq (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 
     acceptK ``topq `Tests.Ved.MultiOutCheck.kidq
 
 end Tests.Ved.MultiOutCheck
+
+/-! ## Unit 7: the struct child script with `ved.sseq.fastOrder` and `ved.sseq.share` (both default off)
+
+`ved.sseq.fastOrder`: the script's order fact through `Tools.VedU1OrderFast.orderOkLeafFast_sound` and its width fact through
+`Tools.VedMemWidth.WidthStmt_of_parts` (the quadratic String `Nodup` / order checks of the leaf are killed at 23 GB on
+R184's `wPointOp`, 560 statements / 563 wires).  `ved.sseq.share`: the packing stage as `ved_pack_wire_all`.  The child
+theorem (type `U1Stmt`, std3, no `sorryAx`) is accepted with each option alone and with both, for the sequential 2-output
+struct child `kidr`; the default (both off) is the unit-3 check above. -/
+
+namespace Tests.Ved.MultiOutCheck
+
+open Lean Elab Command Term Meta
+open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics Sparkle.Core.Domain Sparkle.Core.Signal
+open Tools.VedU1Contract Tools.VedU1Hier Tools.VedU2Hier Tools.VedU2HierRegEntry Tests.Ved.ComposeCheckUtil
+
+def kidOptCheck (tag : String) (fo sh : Bool) : CommandElabM Unit := do
+  let (_, d) ← synthOf ``topr
+  let some cm := d.modules.head? | throwError "no child"
+  liftTermElabM do
+    withOptions (fun o => (o.setBool `ved.sseq.fastOrder fo).setBool `ved.sseq.share sh) do
+      let (b, _, names) ← Tools.VedU1StructOut.stmtOfStruct ``kidr
+      let thm ← Tools.VedU1Entry.checkU1E ``kidr (``kidr ++ Name.mkSimple tag) b cm .generated names
+      let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+      unless ti.type.getAppFn.isConstOf ``Tools.VedU1Contract.U1Stmt do throwError "{thm}: type is not U1Stmt"
+      let axs ← collectAxioms thm
+      unless axs.all (std3.contains ·) do throwError "{thm}: axioms outside std3: {axs}"
+      if axs.contains ``sorryAx then throwError "{thm}: sorryAx"
+      -- the leaf fast lemma is used exactly when the option is on
+      let usesFast := (ti.value.getUsedConstants.contains ``Tools.VedU1OrderFast.orderOkLeafFast_sound)
+      unless usesFast == fo do throwError "{thm}: orderOkLeafFast_sound used = {usesFast}, option = {fo}"
+      logInfo m!"CHILD THEOREM kidr fastOrder={fo} share={sh}: {thm} U1Stmt, std3, no sorryAx, orderOkLeafFast_sound used = {usesFast}"
+
+#eval kidOptCheck "ved_fo1" true false
+#eval kidOptCheck "ved_sh1" false true
+#eval kidOptCheck "ved_fs1" true true
+
+end Tests.Ved.MultiOutCheck

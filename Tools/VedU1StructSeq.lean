@@ -2,6 +2,9 @@ import Lean
 import Tools.VedU1Contract
 import Tools.VedU1Loop
 import Tools.VedU1StructSeqTac
+import Tools.VedU1OrderFast
+import Tools.VedMemWidth
+import Tools.VedU1WireShare
 
 /-!
 # Structure result with registers (`Signal.loop`), several output ports
@@ -33,6 +36,24 @@ open Lean Meta Elab Term
 register_option ved.sseq.dbg : Nat := {
   defValue := 0
   descr := "ved.sseq.dbg: stop the structure-with-registers script after stage k (0: off)"
+}
+
+/-- Default off: prove the script's `OrderOk M B` through the one-pass hashed check `OrderOkLeafFast`
+(`Tools/VedU1OrderFast.lean`, `orderOkLeafFast_sound`) instead of the quadratic `decide +kernel` of `OrderOk` itself
+(the 560 statements of R184's `wPointOp` exceed 23 GB there), and `WidthStmt` through `WidthStmt_of_parts`
+(`Tools/VedMemWidth.lean`).  Set by the multi-output child loop. -/
+register_option ved.sseq.fastOrder : Bool := {
+  defValue := false
+  descr := "ved.sseq.fastOrder: struct script proves OrderOk via orderOkLeafFast_sound (default off)"
+}
+
+/-- Default off: the packing stage (`all_goals (try ved_pack_simp)`) is `ved_pack_wire_all` as in the single-register loop
+script (`Tools/VedU1Entry.lean`, `Tools/VedU1Wire.lean`): a goal below `shareMinTree` nodes read as a TREE keeps
+`try ved_pack_simp`, a larger one is wired (`ved_wire`, equalities per shared wire) and its failure is the failure of the
+step (not a budget exhaustion).  Candidate for `wScalarMul` (R184), whose `ved_pack_simp` stage exhausts the heartbeats. -/
+register_option ved.sseq.share : Bool := {
+  defValue := false
+  descr := "ved.sseq.share: struct script packs with ved_pack_wire_all (sharing-aware for large goals), default off"
 }
 
 /-- The generated (untrusted) script for `U1Stmt C M f` where `f` is the statement TERM (the bundled
@@ -104,6 +125,9 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
     else `(tactic| all_goals (first
         | (ved_ss_leafwise <;> ved_ss_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
         | ved_ss_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod]))
+  let packT : TSyntax `tactic ←
+    if ved.sseq.share.get (← getOptions) then `(tactic| ved_pack_wire_all)
+    else `(tactic| all_goals (try ved_pack_simp))
   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| ved_ss_unfold [$exHelp,*] ($sI + 1))],
     #[← `(tactic| ved_ss_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, Signal.fst, Signal.snd, $ex1,*])],
@@ -114,7 +138,7 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
     #[← `(tactic| all_goals (try ved_ss_wide_simp [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_bv]))],
     #[← `(tactic| all_goals (try ved_bit_simp))],
     #[← `(tactic| all_goals (try ved_or_lit))],
-    #[← `(tactic| all_goals (try ved_pack_simp))],
+    #[packT],
     #[← `(tactic| all_goals (try ved_ss_xor_ones))],
     #[← `(tactic| all_goals (try ved_bits_facts)), ← `(tactic| all_goals (try ved_mul_facts)),
       ← `(tactic| all_goals (try ved_pack_simp)),
@@ -150,11 +174,21 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
   let sb : TSyntax `tactic := if dbgS == 92 then stopT else skipT
   let sc : TSyntax `tactic := if dbgS == 93 then stopT else skipT
   let sd : TSyntax `tactic := if dbgS == 94 then stopT else skipT
+  let hordT : TSyntax `tactic ←
+    if ved.sseq.fastOrder.get (← getOptions) then
+      `(tactic| have hord : OrderOk $M $B = true := Tools.VedU1OrderFast.orderOkLeafFast_sound (by decide +kernel))
+    else `(tactic| have hord : OrderOk $M $B = true := (by decide +kernel))
+  -- the same option: `WidthStmt`'s wire-name `Nodup` is String-quadratic in the kernel too (563 wires of `wPointOp`:
+  -- killed at 23 GB), `Tools.VedMemWidth.WidthStmt_of_parts` is the one-pass table form (sound, std3)
+  let widT : TSyntax `term ←
+    if ved.sseq.fastOrder.get (← getOptions) then
+      `(Tools.VedMemWidth.WidthStmt_of_parts _ _ (by decide +kernel) (by decide +kernel))
+    else `(by decide +kernel)
   `(by
       $sa
-      have hord : OrderOk $M $B = true := (by decide +kernel)
+      $hordT
       $sb
-      refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
+      refine ⟨by decide +kernel, by decide +kernel, $widT, ⟨$B, hord⟩, ?_⟩
       $sc
       apply outputs_of_order $B hord
       refine $oStep $C $M $B $f $O (by decide +kernel) ?R ?h0 ?hstep

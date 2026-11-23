@@ -182,15 +182,22 @@ elab "ved_ss_leafwise" : tactic => do
 the goal to stderr (debugging the per-goal cost of the closing stage). -/
 elab "ved_ss_timed " t:tactic : tactic => do
   let g ← getMainGoal
-  let sz := (← instantiateMVars (← g.getType)).approxDepth
+  let tgt0 ← instantiateMVars (← g.getType)
+  let sz := tgt0.approxDepth
+  -- the pointer-memoised TREE size (`Tools.VedU1Loop.treeSizeVal`: the size the tree-walking tactics pay for) next to the
+  -- depth; one visit per pointer
+  let tree := Tools.VedU1Loop.treeSizeVal tgt0
+  let nh ← g.withContext do pure (← getLCtx).size
+  let hb0 ← IO.getNumHeartbeats
   if let some path ← IO.getEnv "VED_MS_LOG" then
     let h ← IO.FS.Handle.mk path .append
-    h.putStrLn s!"VED MS start {← IO.monoMsNow} depth={sz}"
+    h.putStrLn s!"VED MS start {← IO.monoMsNow} depth={sz} tree={tree} goals={(← getGoals).length} hbtotal={hb0 / 1000}"
     h.flush
   let t0 ← IO.monoMsNow
   let r ← try evalTactic t; pure true catch _ => pure false
   let t1 ← IO.monoMsNow
-  let msg := s!"VED MS goal {g.name} depth={sz} {t1 - t0}ms ok={r}"
+  let hb1 ← IO.getNumHeartbeats
+  let msg := s!"VED MS goal {g.name} depth={sz} tree={tree} hyps={nh} {t1 - t0}ms hb={(hb1 - hb0) / 1000} ok={r}"
   match ← IO.getEnv "VED_MS_LOG" with
   | some path =>
     let h ← IO.FS.Handle.mk path .append
