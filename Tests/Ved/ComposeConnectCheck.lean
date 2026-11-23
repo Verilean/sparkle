@@ -1422,4 +1422,81 @@ run_cmd do
   logInfo m!"compose connect noReach controls: 4 refused"
 
 
+/-! ## Unit 20: the fusion side goals `hWA`/`hWB` without unfolding candidates (`fuseOne`, option `ved.compose.noReach`)
+
+With the option the `hWA`/`hWB` scripts of `fuseOne` carry no `reachDefs` candidates.  The assertion below (a proof-term scan, not a
+`#print`): the fused declaration is accepted (`checkChain`), it has at least one `hWA`/`hWB` theorem, and in none of them (nor in the
+`hOs` theorems) occurs an equation lemma of a definition the real child reaches.  Copies of `indepTx`, `wsTx`, `ws2Tx`, `dmTx`. -/
+
+def indepTxN (go go2 : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (indepC go).b + (indepC go2).b
+
+def wsTxN (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (wsP go).tx
+
+def ws2TxN (go go2 : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (ws2P go go2).tx
+
+def dmTxN (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (dmP go).b
+
+/-- After the entry: the number of `hWA`/`hWB` theorems of `decl` is positive and no `hWA`/`hWB`/`hOs` proof of `decl` uses an equation
+lemma of a definition the children `kids` reach. -/
+def checkNoReachFuse (decl : Name) (kids : List Name) (kidThms : List Name) (nRegs : Nat) : CommandElabM Unit := do
+  unless Tools.VedComposeMultiCircuit.ved.compose.noReach.get (← getOptions) do throwError "the option ved.compose.noReach is not on"
+  checkChain decl kidThms nRegs
+  let env ← getEnv
+  let reach := (kids.flatMap fun k => (Tools.VedU2HierMultiGen.reachDefs env k 6 #[]).toList).eraseDups
+  let mut nW : Nat := 0
+  for (c, ci) in env.constants.map₂.toList do
+    let isW := match c with | .str _ s => s.endsWith "_hWA" || s.endsWith "_hWB" || s.endsWith "_hOs" | _ => false
+    if decl.isPrefixOf c && isW then
+      let .thmInfo t := ci | throwError "{c} is not a theorem"
+      unless (match c with | .str _ s => s.endsWith "_hOs" | _ => false) do nW := nW + 1
+      for u in t.value.getUsedConstants do
+        if let .str p x := u then
+          if x.startsWith "eq_" && reach.contains p then throwError "{c}: the equation lemma {u} of a reached child definition occurs"
+  if nW == 0 then throwError "{decl}: no hWA/hWB theorem found"
+  logInfo m!"compose connect noReach fuse OK: hWA/hWB theorems present (count > 0) without equation lemmas of reached child definitions (reach set {reach.length})"
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact
+---
+info: compose connect noReach fuse OK: hWA/hWB theorems present (count > 0) without equation lemmas of reached child definitions (reach set 1) -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+set_option ved.compose.noReach true in
+run_cmd checkNoReachFuse ``indepTxN [``mkA] [`Tests.Ved.ComposeConnectCheck.indepTxN.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 2
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact
+---
+info: compose connect noReach fuse OK: hWA/hWB theorems present (count > 0) without equation lemmas of reached child definitions (reach set 1) -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+set_option ved.compose.noReach true in
+run_cmd checkNoReachFuse ``wsTxN [``mkA] [`Tests.Ved.ComposeConnectCheck.wsTxN.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 2
+
+/-- info: compose connect chain OK: 3 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact
+---
+info: compose connect noReach fuse OK: hWA/hWB theorems present (count > 0) without equation lemmas of reached child definitions (reach set 1) -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+set_option ved.compose.noReach true in
+run_cmd checkNoReachFuse ``ws2TxN [``mkA] [`Tests.Ved.ComposeConnectCheck.ws2TxN.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 3
+
+/-- info: compose connect chain OK: 3 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact
+---
+info: compose connect noReach fuse OK: hWA/hWB theorems present (count > 0) without equation lemmas of reached child definitions (reach set 1) -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+set_option ved.compose.noReach true in
+run_cmd checkNoReachFuse ``dmTxN [``mkA] [`Tests.Ved.ComposeConnectCheck.dmTxN.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 3
+
 end Tests.Ved.ComposeConnectCheck

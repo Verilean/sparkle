@@ -356,7 +356,7 @@ def fuseOne (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) 
   withLocalDeclD `xz τ fun xz => collect (abs.instantiate1 xz)
   let siteKid ← siteKid.get; let siteFn ← siteFn.get; let siteTy ← siteTy.get
   let envNow ← getEnv
-  let reachL := ", ".intercalate ((kids.toList.flatMap fun k => (reachDefs envNow k.decl 6 #[]).toList.map fun c => toString (userName c)).eraseDups)
+  let reachL := if Tools.VedComposeMultiCircuit.ved.compose.noReach.get (← getOptions) then "" else ", ".intercalate ((kids.toList.flatMap fun k => (reachDefs envNow k.decl 6 #[]).toList.map fun c => toString (userName c)).eraseDups)
   let mut pwNames : Array Name := #[]
   if pw then
     let kidsUsed := siteKid.toList.eraseDups
