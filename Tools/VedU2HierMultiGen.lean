@@ -714,7 +714,10 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
           let OPEN := "open Sparkle.Core Sparkle.Core.Signal in"
           let envNow ← getEnv
           let reach := (kids.toList.flatMap fun k => (reachDefs envNow k.decl 6 #[]).toList.map fun c => toString (userName c))
-          let reachL := ", ".intercalate reach.eraseDups
+          -- option `ved.compose.noReach`: no unfolding candidates of the children's bodies in `hOs`
+          let noReach := Tools.VedComposeMultiCircuit.ved.compose.noReach.get (← getOptions)
+          let reachL := if noReach then "" else ", ".intercalate reach.eraseDups
+          let reachOs := if reachL.isEmpty then "" else reachL ++ ", "
           -- hcF
           let hcFName := base ++ Name.mkSimple (openSuf ++ "_hcF")
           let hcFTy ← mkForallFVars xs (← withLocalDeclD `o osTy fun o => withLocalDeclD `t natTy fun t =>
@@ -772,7 +775,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
             let hyp ← agreeBelow x y t
             let c := mkAppN eConst #[mkAppN osConst (xs ++ #[x]), mkAppN osConst (xs ++ #[y]), t]
             mkForallFVars #[t, x, y] (← mkArrow hyp c))
-          let hOsOld := s!"simp only [{osU}, {reachL}, {plumbingL}, {sigvalL}, hx, and_self, and_true]"
+          let hOsOld := s!"simp only [{osU}, {reachOs}{plumbingL}, {sigvalL}, hx, and_self, and_true]"
           let hOsClose := if pwNames.isEmpty then hOsOld else
             s!"first | (simp only [{osU}, {", ".intercalate (pwNames.toList.map fun n => toString (userName n))}, {plumbingL}, {sigvalL}, hx, and_self, and_true]; done) | ({hOsOld})"
           proveByScript decl hOsName hOsTy s!"by
