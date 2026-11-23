@@ -59,12 +59,14 @@ set_option ved.compose.multiOut true in
 
 #print axioms Tests.Ved.MultiOutProbe.probeTop.ved_u1
 
-/-- the stored module constant evaluated to a `Module`, its registers read by `regsOf` (not by matching the printed text) -/
-unsafe def storedRegs (n : Name) : CommandElabM (List (String × String × String × Int)) := do
-  let m ← liftTermElabM <| Meta.evalExpr Sparkle.IR.AST.Module (mkConst ``Sparkle.IR.AST.Module) (mkConst n)
-  pure (Tools.VedU1Contract.regsOf m.body)
-
-@[implemented_by storedRegs] opaque storedRegsOf (n : Name) : CommandElabM (List (String × String × String × Int))
+/-- `regsOf` (`Tools.VedU1Contract`) applied to the body of the stored module constant `n`, reduced by `whnf` (not by matching the printed
+text): does the stored module have a register statement? -/
+def storedHasReg (n : Name) : CommandElabM Bool := liftTermElabM do
+  let e := mkApp (mkConst ``Tools.VedU1Contract.regsOf) (mkApp (mkConst ``Sparkle.IR.AST.Module.body) (mkConst n))
+  let r ← whnf e
+  if r.isAppOf ``List.cons then return true
+  if r.isAppOf ``List.nil then return false
+  throwError "regsOf of the stored module {n} did not reduce to a list constructor: {r}"
 
 /-! ### Unit 3: the child theorem of a SEQUENTIAL struct child (one register), by the standard `#ved_u1` command
 
@@ -87,7 +89,7 @@ No acceptance of a PARENT over such a child is claimed (see docs/VED-COMPOSE-CON
   let some (.thmInfo ti) := env.find? thm | throwError "{thm}: not a theorem in the environment"
   unless ti.type.getAppFn.isConstOf ``Tools.VedU1Contract.U1Stmt do throwError "{thm}: not a U1Stmt"
   let some (.defnInfo _) := env.find? (`Tests.Ved.MultiOutProbe.kidSeq.ved_mod) | throwError "no module constant"
-  let hasReg : Bool := !(← storedRegsOf `Tests.Ved.MultiOutProbe.kidSeq.ved_mod).isEmpty
+  let hasReg : Bool ← storedHasReg `Tests.Ved.MultiOutProbe.kidSeq.ved_mod
   unless hasReg do throwError "the stored module has no register (regsOf)"
   let axs ← liftCoreM (collectAxioms thm)
   if axs.contains ``sorryAx then throwError "sorryAx"
@@ -123,7 +125,7 @@ set_option ved.compose.multiOut true in
   unless ti.value.getUsedConstants.contains kidThm do throwError "the child's theorem {kidThm} does not occur in the proof"
   let kidMod := `Tests.Ved.MultiOutProbe.probeTopSeq.ved_child.Tests.Ved.MultiOutProbe.kidSeq.ved_mod
   let some (.defnInfo _) := env.find? kidMod | throwError "no child module constant"
-  unless !(← storedRegsOf kidMod).isEmpty do throwError "the child module has no register (regsOf)"
+  unless (← storedHasReg kidMod) do throwError "the child module has no register (regsOf)"
   let axs ← liftCoreM (collectAxioms thm)
   if axs.contains ``sorryAx then throwError "sorryAx"
   unless axs.all (fun a => [``propext, ``Classical.choice, ``Quot.sound].contains a) do throwError "axioms outside std3: {axs}"
