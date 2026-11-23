@@ -520,3 +520,54 @@ def tope (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 
     acceptK ``tope `Tests.Ved.MultiOutCheck.kidr
 
 end Tests.Ved.MultiOutCheck
+
+/-! ## Unit 6: TWO different sequential struct children in one parent (R184's `wSign` then `wMul`)
+
+The parent's child loop is one `TermElabM`.  The struct sequential script names its holes `?R ?h0 ?hstep`; in one metavariable
+context the second child's `?R` denotes the FIRST child's (assigned) mvar, and the second child is refused
+("ved_ss_R: no invariant mvar ?R in the goal").  Under `ved.compose.multiOut` the entry elaborates each child in a fresh
+context.  The control below runs the two child checks in one `TermElabM` WITHOUT the fresh context (the old behaviour)
+and pins the refusal; the entry accepts `topq`. -/
+
+namespace Tests.Ved.MultiOutCheck
+
+open Lean Elab Command Term Meta
+open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics Sparkle.Core.Domain Sparkle.Core.Signal
+open Tools.VedU1Contract Tools.VedU1Hier Tools.VedU2Hier Tools.VedU2HierRegEntry Tests.Ved.ComposeCheckUtil
+
+@[hardware_module] def kidq {dom : DomainConfig} (x y : Signal dom (BitVec 4)) : P2 dom :=
+  circuit do
+    let r ← Signal.reg 0#4
+    let rS := (r : Signal dom (BitVec 4))
+    r <~ x + y
+    return ({ s := rS, d := rS + y } : P2 dom)
+
+def topq (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c1 := kidr accS inp
+    let c2 := kidq c1.s inp
+    acc <~ (c2.s + c2.d : Signal defaultDomain (BitVec 4))
+    return accS
+
+-- control: both child checks in ONE `TermElabM`, one metavariable context (the old child loop): the second is refused
+#eval show CommandElabM Unit from do
+  let (_, d) ← synthOf ``topq
+  unless d.modules.length == 2 do throwError "topq: expected 2 child modules, found {d.modules.length}"
+  liftTermElabM do
+    let mut refused : Option String := none
+    for cm in d.modules do
+      let decl := cm.name.toName
+      let (b, _, names) ← Tools.VedU1StructOut.stmtOfStruct decl
+      try discard <| Tools.VedU1Entry.checkU1E decl (``topq ++ `ved_oneCtx ++ decl) b cm .generated names
+      catch e => refused := some (← e.toMessageData.toString)
+    let some msg := refused | throwError "control: the second struct child was accepted in a shared metavariable context (expected the old refusal)"
+    unless (msg.splitOn "no invariant mvar").length > 1 do throwError "control: unexpected refusal: {msg.take 300}"
+    logInfo m!"CONTROL (shared mctx, old behaviour): second sequential struct child refused: {msg.take 200}"
+
+#eval show CommandElabM Unit from do
+  withScope (withMO true) do
+    acceptK ``topq `Tests.Ved.MultiOutCheck.kidq
+
+end Tests.Ved.MultiOutCheck

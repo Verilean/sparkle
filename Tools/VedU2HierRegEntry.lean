@@ -1218,11 +1218,22 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   for (cm, cdecl, cstmt, cdom, ctbl) in pre do
     let base := (decl ++ `ved_child) ++ cdecl
     Tools.VedU2HierDbg.phaseLog s!"p1: child {cdecl} begin (registers={(regsOf cm.body).length}, body={cm.body.length})"
-    try discard <| (if ved.compose.multiOut.get (← getOptions) && cm.outputs.length > 1 then
-          checkU1E cdecl base cstmt cm .generated (cm.outputs.map (·.name))
-        else if (regsOf cm.body).isEmpty then Tools.VedH3ChildEntry.checkCombChild cdecl cdom base cstmt cm
-        else checkU1E cdecl base cstmt cm (.built (buildDeepWith cdecl cdecl ctbl)))
-    catch e => refuse decl "child" m!"child {cm.name}: {e.toMessageData}"
+    -- option `ved.compose.multiOut`: each child theorem is elaborated in a FRESH metavariable context.  This loop is one
+    -- `TermElabM`; the struct sequential script (`Tools.VedU1StructSeq`) names its holes `?R ?h0 ?hstep`, and `?x` of an
+    -- already used user name denotes the EXISTING (here: assigned) mvar, so the second struct child with registers saw no
+    -- `?R` ("ved_ss_R: no invariant mvar", R184's `wMul` after `wSign`).  The statement term is instantiated first; the
+    -- context is put back afterwards (the child's constants stay in the environment).
+    let cstmt ← instantiateMVars cstmt
+    let mctx0 ← getMCtx
+    let freshCtx := ved.compose.multiOut.get (← getOptions)
+    if freshCtx then setMCtx {}
+    let runChild : TermElabM Unit := do
+      try discard <| (if ved.compose.multiOut.get (← getOptions) && cm.outputs.length > 1 then
+            checkU1E cdecl base cstmt cm .generated (cm.outputs.map (·.name))
+          else if (regsOf cm.body).isEmpty then Tools.VedH3ChildEntry.checkCombChild cdecl cdom base cstmt cm
+          else checkU1E cdecl base cstmt cm (.built (buildDeepWith cdecl cdecl ctbl)))
+      catch e => refuse decl "child" m!"child {cm.name}: {e.toMessageData}"
+    tryFinally runChild (if freshCtx then setMCtx mctx0 else pure ())
     -- a child with several outputs: its theorem's function (the bundle lambda) as a constant, the parent's proof applies the
     -- child theorem to it
     if ved.compose.multiOut.get (← getOptions) && cm.outputs.length > 1 then
