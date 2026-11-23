@@ -3,6 +3,7 @@ import Tools.VedU1Contract
 import Tools.VedU1Loop
 import Tools.VedU1StructSeqTac
 import Tools.VedU1StructWires
+import Tools.VedU1StructSlice
 import Tools.VedU1OrderFast
 import Tools.VedMemWidth
 import Tools.VedU1WireShare
@@ -75,7 +76,7 @@ elab "ved_ss_pack_share" : tactic => do
     -- a goal whose tree is at least `packRatio` times its DAG (and `packRatioMin` nodes): the unfolded register/output value
     -- is read as a tree by `ved_pack_simp` (measured, wScalarMul: tree up to ~150 x DAG); `ved_wire_bits` (equalities per
     -- shared wire) first, its failure message logged (it names the missing proposition), then the ordinary route
-    let ratioRoute := sz ≥ packRatioMin && sz ≥ packRatio * dag
+    let ratioRoute := (← getOptions).getBool `ved.sseq.ratio true && sz ≥ packRatioMin && sz ≥ packRatio * dag
     let mut done := false
     if ratioRoute then
       let ok0 ← try
@@ -148,6 +149,30 @@ register_option ved.sseq.wires : Bool := {
   descr := "ved.sseq.wires: struct script names the loop once (opaque L, value lemma), default off"
 }
 
+/-- Default TRUE (unchanged behaviour): under `ved.sseq.share` a packing goal with tree >= `packRatio` x DAG goes through `ved_wire_bits`
+first.  Set to false to skip that attempt (measured, wScalarMul with `ved.sseq.slice`: it fails on all 66 high-ratio goals, 5-8 s and
+about half of each goal's heartbeats before `ved_pack_wire` runs anyway). -/
+register_option ved.sseq.ratio : Bool := {
+  defValue := true
+  descr := "ved.sseq.ratio: ved_ss_pack_share tries ved_wire_bits first on high tree/DAG goals (default true)"
+}
+
+/-- Default off: the three local slice facts of the packed register file (`Tools/VedU1StructSlice.lean`: `ved_slice_div`,
+`ved_slice_mod`, `ved_slice_modM`) join the simp sets of every stage, so a read of register `k` becomes `x_k % 2^w_k` where the
+pack is first formed, instead of the whole `K`-register pack inlined at every read. -/
+register_option ved.sseq.slice : Bool := {
+  defValue := false
+  descr := "ved.sseq.slice: slice lemmas of the packed register file in the stage simp sets, default off"
+}
+
+/-- Default off: the let/have chain of the source value `hvsrc` is reduced by an explicit loop (`ved_ss_zeta`, sharing kept) and the
+user's definition unfolded there, before the first `simp at hvsrc` (whose recursive zeta stops with "maximum recursion depth" on
+R184's `wPointOp`). -/
+register_option ved.sseq.zeta : Bool := {
+  defValue := false
+  descr := "ved.sseq.zeta: non-recursive zeta of the source value before simp (default off)"
+}
+
 /-- The generated (untrusted) script for `U1Stmt C M f` where `f` is the statement TERM (the bundled
 lambda `fun xs => bundle2 (D xs).f₁ (bundle2 …)` of a structure / product result, or any term of the
 table's type) and `C`'s module has the registers `regs` (name, width) of `Signal.loop`s.  Every output
@@ -155,6 +180,9 @@ port of the contract is closed: ONE loop invariant ("register n = toNat of the l
 the module's value of EACH port is compared with `srcOf C f ins <port> s` (one conjunct per port). -/
 def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term) (regs : List (String × Nat))
     (helpers : Array Name) : TermElabM Syntax := do
+  let helpers := if ved.sseq.slice.get (← getOptions)
+    then helpers ++ #[``Tools.VedU1StructSlice.ved_slice_div, ``Tools.VedU1StructSlice.ved_slice_mod,
+      ``Tools.VedU1StructSlice.ved_slice_modM] else helpers
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
   let C := mkCIdent contractN
@@ -219,6 +247,8 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
     tacs := tacs.push (← wrap (← `(tactic| ved_ss_vsrc $vI $hv)))
   else
     tacs := tacs.push (← wrap (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = (applyIns ($C).table.ins ($C).inNames $insI $f).val $sI := ⟨_, rfl⟩)))
+  if ved.sseq.zeta.get (← getOptions) then
+    tacs := tacs.push (← wrap (← `(tactic| ved_ss_zeta $hv [$fI:ident])))
   tacs := tacs.push (← wrap (← `(tactic| ved_ss_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, Signal.fst, Signal.snd, $exHelp,*] at $hv:ident)))
   if wires then
     let rPats ← (hs.toList).mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)
