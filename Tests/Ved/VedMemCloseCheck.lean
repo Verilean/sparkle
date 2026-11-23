@@ -4,6 +4,7 @@ import Tools.VedMemEntry
 import Tools.VedMemLoop
 import Tools.VedMemS94Fix
 import Tools.VedMemS94Peel
+import Tools.VedMemS94Gen
 import Tools.VedMemPack
 
 /-!
@@ -2108,5 +2109,160 @@ run_cmd peelDagHitsCheck false
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.peelDagGateD -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedOk ``peelDagGateD
+
+/-! ## `ved.mem.s94GenOnce` (sparkle-ved-mem-s94, fourteenth unit)
+
+The loop states are generalised once on the shared goal (stamp 95, `ved_loop_gen_once`), without `Bool` case splits; the loop values that the stage-99 simp creates later are
+replaced by the tuple of the kept equation (`ved_loop_gen_resid`); the old per-goal `ved_loop_gen_mem` is the fallback. -/
+
+declare_signal_state GState
+  | fsm  : BitVec 2  := 0#2
+  | idx  : BitVec 5  := 0#5
+  | flag : Bool := false
+  | last : BitVec 16 := 0#16
+
+/-- a loop with a `Bool` state component (the write enable of the first memory depends on it) -/
+def genBool {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let state := Signal.loop fun state =>
+    let fsm := GState.fsm state
+    let idx := GState.idx state
+    let flag := GState.flag state
+    let isProcess := fsm === (1#2 : Signal dom _)
+    let readAddr4 := idx.map (BitVec.extractLsb' 0 4 ·)
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn readAddr4
+    let enable := Signal.mux flag isProcess (Signal.pure false)
+    let outMemRead := Signal.memory readAddr4 inputCoeff enable (Signal.pure 0#4)
+    let fsmNext := Signal.mux start (Signal.pure 1#2) (Signal.mux (idx === (15#5 : Signal dom _)) (Signal.pure 0#2) fsm)
+    let idxNext := Signal.mux isProcess (idx + 1#5) (Signal.pure 0#5)
+    let flagNext := Signal.mux start (Signal.pure true) (Signal.mux isProcess (Signal.pure false) flag)
+    bundleAll! [Signal.register 0#2 fsmNext, Signal.register 0#5 idxNext, Signal.register false flagNext, Signal.register 0#16 outMemRead]
+  GState.last state
+
+def genOnceA {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+def genOnceB {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+def genOnceC {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+def genOnceD {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+def genOnceE {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := genBool start writeEn writeAddr writeData
+def genOnceF {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := genBool start writeEn writeAddr writeData
+
+/-- (once, clean, left) must be as given: the tactic ran / the residual step found nothing left / it ran the old tactic -/
+def genOnceCheck (once : Bool) (clean : Bool) (left : Bool) : CommandElabM Unit := do
+  let a ← Tools.VedMemS94Gen.genOnceHits.get
+  let c ← Tools.VedMemS94Gen.genResidClean.get
+  let l ← Tools.VedMemS94Gen.genResidLeft.get
+  unless (a ≥ 1) == once && (c ≥ 1) == clean && (l ≥ 1) == left do throwError "genOnce counters: once {a} clean {c} left {l}"
+  logInfo m!"genOnce counters ok: once={once} clean={clean} left={left}"
+  Tools.VedMemS94Gen.genOnceHits.set 0
+  Tools.VedMemS94Gen.genResidClean.set 0
+  Tools.VedMemS94Gen.genResidLeft.set 0
+
+run_cmd Tools.VedMemS94Gen.genOnceHits.set 0
+run_cmd Tools.VedMemS94Gen.genResidClean.set 0
+run_cmd Tools.VedMemS94Gen.genResidLeft.set 0
+
+-- (G1) ON, two memories: accepted, stored type exact, std3, the tactic ran (counter >= 1), nothing left for the old tactic
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+set_option ved.mem.s94GenOnce true in
+#ved_u1_mem genOnceA
+
+/-- info: genOnce counters ok: once=true clean=true left=false -/
+#guard_msgs in
+run_cmd genOnceCheck true true false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.genOnceA -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``genOnceA
+
+-- (G2) OFF: accepted, counters 0 (the per-goal tactic only)
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+#ved_u1_mem genOnceB
+
+/-- info: genOnce counters ok: once=false clean=false left=false -/
+#guard_msgs in
+run_cmd genOnceCheck false false false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.genOnceB -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``genOnceB
+
+-- (G3) ON, the tactic refuses (test seam): the old per-goal tactic is the fallback, accepted
+run_cmd Tools.VedMemS94Gen.genOnceRefuse.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+set_option ved.mem.s94GenOnce true in
+#ved_u1_mem genOnceC
+run_cmd Tools.VedMemS94Gen.genOnceRefuse.set false
+
+/-- info: genOnce counters ok: once=false clean=false left=true -/
+#guard_msgs in
+run_cmd genOnceCheck false false true
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.genOnceC -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``genOnceC
+
+-- (G4) ON, the tactic fails after its work (test seam): state restored, old per-goal tactic, accepted
+run_cmd Tools.VedMemS94Gen.genOnceFailLate.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+set_option ved.mem.s94GenOnce true in
+#ved_u1_mem genOnceD
+run_cmd Tools.VedMemS94Gen.genOnceFailLate.set false
+
+/-- info: genOnce counters ok: once=false clean=false left=true -/
+#guard_msgs in
+run_cmd genOnceCheck false false true
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.genOnceD -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``genOnceD
+
+-- (G5) ON, a loop with a `Bool` state component (no Bool split anywhere): accepted
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+set_option ved.mem.s94GenOnce true in
+#ved_u1_mem genOnceE
+
+/-- info: genOnce counters ok: once=true clean=true left=false -/
+#guard_msgs in
+run_cmd genOnceCheck true true false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.genOnceE -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``genOnceE
+
+-- (G6) OFF on the same Bool loop: accepted, counters 0
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+#ved_u1_mem genOnceF
+
+/-- info: genOnce counters ok: once=false clean=false left=false -/
+#guard_msgs in
+run_cmd genOnceCheck false false false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.genOnceF -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``genOnceF
 
 end Tests.Ved.VedMemCloseCheck
