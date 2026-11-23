@@ -7,8 +7,10 @@ import Tools.VedComposeMultiCircuit
 
 This file is a COPY of the private wrapper `synth_icmpResponderByte` of `Tests/IP/Net/ICMPTest.lean` (the executed name is
 `_private._stdin.0.synth_icmpResponderByte`-like, of this file, not the fixed inventory constant): a local real-IP-content
-result, NOT a fixed ledger row, NOT in CI.  The responder and the parser are two wired closed circuits, so it needs
-`ved.compose.step`, `ved.compose.connect`, `sparkle.deepExportState` and `ved.compose.multiCircuit`.  Run by hand, ONE process, guarded:
+result, NOT a fixed ledger row, NOT in CI.  The responder and the parser are two wired closed circuits.  This file sets
+`ved.compose.step`, `ved.compose.connect`, `sparkle.deepExportState` and `ved.compose.multiCircuit`; the fixed row R227 was
+also accepted by the standard harness WITHOUT `ved.compose.multiCircuit` (int25, observed single run), so `multiCircuit` is not
+required for this row: what turned the refusal into acceptance is the `sparkle.deepExportState` routeB fix.  Run by hand, ONE process, guarded:
 
     python3 -I rss_guard.py 23068672 timeout 890 kjob lake env lean <abs>/Tests/Ved/ComposeConnectR227Check.lean
 

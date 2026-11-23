@@ -24,7 +24,7 @@ namespace Tools.VedComposeMultiCircuit
 
 register_option ved.compose.multiCircuit : Bool := {
   defValue := false
-  descr := "VED compose: a declaration of TWO wired closed circuits (the second reads the first) is fused into one circuit over the appended registers"
+  descr := "VED compose: wired closed circuits of a declaration (a chain or fan-in of K >= 2 circuits read by an outer run, or an output function over closed circuits) are fused into one circuit over the appended registers"
 }
 
 /-- Append of two register files. -/
