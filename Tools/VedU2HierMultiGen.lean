@@ -543,6 +543,7 @@ def fuseShared (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Exp
   for (dx, dr) in topDs do
     cnt.modify fun m => m.insert dx (m.getD dx 0 + 1)
     unless (← ord.get).any (·.1 == dx) do sharedVisit skip ord cnt dx dr
+  Tools.VedU2HierDbg.openTick s!"fuseShared: read graph {(← ord.get).size} circuits, {topDs.size} read by the top, readers per circuit {(← cnt.get).toList.map (·.2)}"
   unless (← cnt.get).toList.any (·.2 ≥ 2) do return none
   let ord ← ord.get
   Tools.VedU2HierDbg.openTick s!"fuseShared: {ord.size} circuits, one fusion each"
