@@ -1445,4 +1445,99 @@ info: compose connect RegsOkNF controls: 1 accepted, 2 refused by the kernel -/
 #guard_msgs in
 run_cmd normControls
 
+/-! ## A dead trailing register slot (unit 23; `Tools/VedH3ChildChainLemmas.lean`, `RegsOkNFp`)
+
+`slotUnused c n` is a closed Bool the entry evaluates by the kernel on the open parent's deep circuit.  Controls on small hand-built
+`Cdo` values (width-4 registers, one 4-bit input; these are toys, not real-IP circuits): a circuit whose extra slot is read by nobody
+(its own next-state cone reads it: allowed) is accepted; an extra slot read by a parent register's cone, or by the output, is refused;
+a circuit with the dead register in the MIDDLE (so the live register that follows sits in the "extra" range and the output reads it) is
+refused: only a TRAILING dead slot block is supported.  The generator's refusal on the real declaration (used slot / option off) is in the
+report of unit 23, not here. -/
+
+section DeadSlot
+open Tools.VedH3ChildChain
+
+private abbrev G2 : List Nat := [4, 4] ++ [4]
+private abbrev G3 : List Nat := [4, 4, 4] ++ [4]
+private def a2 : CExpr G2 4 := CExpr.var ⟨0, by decide⟩
+private def b2 : CExpr G2 4 := CExpr.var ⟨1, by decide⟩
+private def i2 : CExpr G2 4 := CExpr.var ⟨2, by decide⟩
+private def a3 : CExpr G3 4 := CExpr.var ⟨0, by decide⟩
+private def b3 : CExpr G3 4 := CExpr.var ⟨1, by decide⟩
+private def c3 : CExpr G3 4 := CExpr.var ⟨2, by decide⟩
+private def i3 : CExpr G3 4 := CExpr.var ⟨3, by decide⟩
+
+/-- registers: live `a` (slot 0), extra slot 1; input slot 2.  `next a = a + in`, `next extra = extra + 1` (self-read), `out = a`. -/
+private def toyDead : Cdo [4, 4] [4] 4 where
+  inits := fun _ => BitVec.ofNat _ 0
+  next := fun i => match i with
+    | ⟨0, _⟩ => .add a2 i2
+    | ⟨1, _⟩ => .add b2 (.const 4 1)
+  out := a2
+
+/-- the live register's next-state cone reads the extra slot. -/
+private def toyUsedNext : Cdo [4, 4] [4] 4 where
+  inits := fun _ => BitVec.ofNat _ 0
+  next := fun i => match i with
+    | ⟨0, _⟩ => .add a2 b2
+    | ⟨1, _⟩ => .add b2 (.const 4 1)
+  out := a2
+
+/-- the output reads the extra slot. -/
+private def toyUsedOut : Cdo [4, 4] [4] 4 where
+  inits := fun _ => BitVec.ofNat _ 0
+  next := fun i => match i with
+    | ⟨0, _⟩ => .add a2 i2
+    | ⟨1, _⟩ => .add b2 (.const 4 1)
+  out := b2
+
+/-- registers `a`, dead `b` (middle), live `c`: a parent with the registers `a`, `c` has |Γp| = 2, slot 2 (= `c`) is in the "extra" range and the output reads it. -/
+private def toyMiddle : Cdo [4, 4, 4] [4] 4 where
+  inits := fun _ => BitVec.ofNat _ 0
+  next := fun i => match i with
+    | ⟨0, _⟩ => .add a3 i3
+    | ⟨1, _⟩ => .add b3 (.const 4 1)
+    | ⟨2, _⟩ => .add c3 i3
+  out := c3
+
+example : slotUnused toyDead 1 = true := by decide +kernel
+example : slotUnused toyUsedNext 1 = false := by decide +kernel
+example : slotUnused toyUsedOut 1 = false := by decide +kernel
+example : slotUnused toyMiddle 2 = false := by decide +kernel
+-- the prefix is the whole register file: nothing is extra, accepted
+example : slotUnused toyUsedNext 2 = true := by decide +kernel
+-- the lemmas applied: the register step and the output over the first slot do not read the extra slot's value
+example (ρ ρ' : CEnv [4, 4]) (ρi : CEnv [4]) (hr : ∀ j : Fin 2, j.val < 1 → ρ j = ρ' j) :
+    (toyDead.next ⟨0, by decide⟩).denote (CEnv.join ρ ρi) = (toyDead.next ⟨0, by decide⟩).denote (CEnv.join ρ' ρi) :=
+  Cdo.next_prefix_irrel toyDead 1 (by decide +kernel) ρ ρ' ρi hr ⟨0, by decide⟩ (by decide)
+example (ρ ρ' : CEnv [4, 4]) (ρi : CEnv [4]) (hr : ∀ j : Fin 2, j.val < 1 → ρ j = ρ' j) :
+    toyDead.out.denote (CEnv.join ρ ρi) = toyDead.out.denote (CEnv.join ρ' ρi) :=
+  Cdo.out_prefix_irrel toyDead 1 (by decide +kernel) ρ ρ' ρi hr
+end DeadSlot
+
+/-- `RegsOkNFp` on the accepted `multiTwo` (two registers): the full list is `RegsOkNF`; a prefix of one register checks slot 0 only (so a
+wrong wire for slot 0 is refused and slot 1 is skipped, which is sound only under `slotUnused`: here slot 1 is a LIVE register, so this
+is a control of the Bool's skipping, not an acceptance of `multiTwo` with one register). -/
+def deadRegsControls : CommandElabM Unit := liftTermElabM do
+  let isTrue (t : String) : TermElabM Bool := do kernelEqual (← elabText t) (toExpr true)
+  let C := "Tools.VedComposeConnect"
+  let M := "Tests.Ved.ComposeConnectCheck.multiTwo"
+  let nm := s!"{M}.ved_open_Tests_Ved_ComposeConnectCheck_multiTwo_nm"
+  let deep := s!"{M}.ved_open_Tests_Ved_ComposeConnectCheck_multiTwo_deep"
+  let tabTxt :=
+    s!"([(\"_tmp_a_4\", 0), (\"_tmp_a_15\", 1), (\"_gen_start\", 2), (\"_gen_inp\", 3), (\"_tmp_op_b_9\", 4), (\"_tmp_op_b_12\", 5), (\"_gen_k1\", 4), (\"_gen_k2\", 5)] : List (String × Nat))"
+  let needed := "([\"_tmp_a_4\", \"_tmp_a_15\", \"_gen_start\", \"_gen_inp\", \"_tmp_op_b_9\", \"_gen_k1\", \"_tmp_op_b_12\", \"_gen_k2\"] : List String)"
+  let regsNp (xs : String) :=
+    s!"{C}.RegsOkNFp {deep} {nm} {M}.ved_design {M}.ved_mod {M}.ved_body {needed} {tabTxt} 28 28 28 ([{xs}] : List String)"
+  let real := "\"_tmp_reg_input_3\", \"_tmp_reg_input_14\""
+  unless ← isTrue (regsNp real) do throwError "control void: RegsOkNFp rejects the real table"
+  unless ← isTrue (regsNp "\"_tmp_reg_input_3\"") do throwError "control void: RegsOkNFp rejects the real slot 0 alone"
+  if ← isTrue (regsNp "\"_tmp_reg_input_14\"") then throwError "RegsOkNFp accepts a wrong wire for slot 0"
+  if ← isTrue (regsNp "\"_tmp_reg_input_14\", \"_tmp_reg_input_3\"") then throwError "RegsOkNFp accepts exchanged register input wires"
+  logInfo m!"compose connect RegsOkNFp controls: 2 accepted, 2 refused by the kernel"
+
+/-- info: compose connect RegsOkNFp controls: 2 accepted, 2 refused by the kernel -/
+#guard_msgs in
+run_cmd deadRegsControls
+
 end Tests.Ved.ComposeConnectCheck
