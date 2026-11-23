@@ -1,5 +1,6 @@
 import Lean
 import Tools.VedU1StructSeqTac
+import Tools.VedU1WireShare
 
 /-!
 # Opaque loop for the structure-with-registers script (`ved.sseq.wires`, sparkle-ved-multiout unit 10)
@@ -78,7 +79,8 @@ elab "ved_ss_R2 " ins:ident " [" ns:str,* "]" ws:num,* : tactic => withMainConte
   let mut tgt ← instantiateMVars (← g.getType)
   for d in ← getLCtx do
     unless d.isImplementationDetail do tgt := mkApp tgt (← instantiateMVars d.type)
-  let loops := loopsOf tgt
+  -- the DAG walk (`loopsOf` reads `tgt` as a tree: with the zeta'd source value among the hypotheses, 135M nodes = 380 s on wPointOp)
+  let loops := Tools.VedU1WireShare.loopsDag tgt
   if loops.isEmpty then
     let shown := (← ppExpr tgt).pretty.take 3000
     throwError "ved_ss_R2: no Signal.loop in the goal: {shown}"
