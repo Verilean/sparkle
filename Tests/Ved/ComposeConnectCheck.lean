@@ -234,8 +234,9 @@ def checkRow (decl : Name) (kidThm : Name) (nRegs : Nat) : CommandElabM Unit := 
     std3Only thm
     -- the child's REAL theorem is in the proof
     unless ti.value.getUsedConstants.contains kidThm do throwError "{thm}: the child theorem {kidThm} does not occur"
-    let nr := countApps ti.value ``Tools.VedComposeConnect.reg_connect
-    let no := countApps ti.value ``Tools.VedComposeConnect.out_connect
+    -- `reg_connectN` / `out_connectN`: the normalised comparison selected under `ved.compose.multiCircuit`
+    let nr := countApps ti.value ``Tools.VedComposeConnect.reg_connect + countApps ti.value ``Tools.VedComposeConnect.reg_connectN
+    let no := countApps ti.value ``Tools.VedComposeConnect.out_connect + countApps ti.value ``Tools.VedComposeConnect.out_connectN
     unless nr == nRegs && no == 1 do throwError "{decl}: reg_connect sites {nr} (expected {nRegs}), out_connect sites {no} (expected 1)"
     logInfo m!"compose connect OK: {nRegs} registers by reg_connect, 1 port by out_connect, child theorem {kidThm}, std3, type ==, same artifact"
 
@@ -588,8 +589,9 @@ def checkChain (decl : Name) (kidThms : List Name) (nRegs : Nat) : CommandElabM 
     std3Only thm
     for k in kidThms do
       unless ti.value.getUsedConstants.contains k do throwError "{thm}: the child theorem {k} does not occur"
-    let nr := countApps ti.value ``Tools.VedComposeConnect.reg_connect
-    let no := countApps ti.value ``Tools.VedComposeConnect.out_connect
+    -- `reg_connectN` / `out_connectN`: the normalised comparison selected under `ved.compose.multiCircuit`
+    let nr := countApps ti.value ``Tools.VedComposeConnect.reg_connect + countApps ti.value ``Tools.VedComposeConnect.reg_connectN
+    let no := countApps ti.value ``Tools.VedComposeConnect.out_connect + countApps ti.value ``Tools.VedComposeConnect.out_connectN
     unless nr == nRegs && no == 1 do throwError "{decl}: reg_connect sites {nr} (expected {nRegs}), out_connect sites {no} (expected 1)"
     logInfo m!"compose connect chain OK: {nRegs} registers by reg_connect, 1 port by out_connect, {kidThms.length} child theorems, std3, type ==, same artifact"
 
@@ -1362,5 +1364,52 @@ run_cmd do
   unless bad do throwError "control: the wrong register-step goal was accepted"
   logInfo m!"compose connect closer controls: 2 accepted, 1 refused"
 
+
+/-! ## Controls of the normalised comparison (`ved.compose.multiCircuit`; unit 22)
+
+The fidelity literal of a register has `1 ++ (byte ++ 0)` as `concat [1, concat [byte, 0]]`, the Verilog cone `{1, byte, 0}` as
+`concat [1, byte, 0]`.  `RegsOkNF` compares `flat n` of both sides (`flat_sound`).  Kernel evaluation of the comparison itself:
+nested against flat and flat against nested are accepted, a wrong bit order and a wrong shift amount are refused, and the old
+comparison (`eqE` without `flat`) refuses the nested/flat pair; then `RegsOkNF` on the accepted `multiTwo`. -/
+
+def normControls : CommandElabM Unit := liftTermElabM do
+  let isTrue (t : String) : TermElabM Bool := do kernelEqual (← elabText t) (toExpr true)
+  let C := "Tools.VedComposeConnect"
+  let E := "Sparkle.IR.AST.Expr"
+  let sel (cat : String) (sh : Nat) :=
+    s!"({E}.op .mux [{E}.ref \"c\", {cat}, {E}.op .shr [{E}.ref \"s\", {E}.const {sh} 10], {E}.ref \"e\"])"
+  let one := s!"{E}.const 1 1"
+  let zero := s!"{E}.const 0 1"
+  let b := s!"{E}.ref \"b\""
+  let nested := s!"{E}.concat [{one}, {E}.concat [{b}, {zero}]]"
+  let flatC := s!"{E}.concat [{one}, {b}, {zero}]"
+  let wrongOrder := s!"{E}.concat [{one}, {E}.concat [{zero}, {b}]]"
+  let eqN (x y : String) := s!"{C}.eqE ({C}.flat 12 {x}) ({C}.flat 12 {y})"
+  unless ← isTrue (eqN (sel nested 1) (sel flatC 1)) do throwError "control void: nested vs flat rejected"
+  unless ← isTrue (eqN (sel flatC 1) (sel nested 1)) do throwError "control void: flat vs nested rejected"
+  if ← isTrue (eqN (sel flatC 1) (sel wrongOrder 1)) then throwError "the normalised comparison accepts a wrong bit order"
+  if ← isTrue (eqN (sel flatC 1) (sel nested 2)) then throwError "the normalised comparison accepts a wrong shift amount"
+  if ← isTrue s!"{C}.eqE {sel nested 1} {sel flatC 1}" then throwError "control void: the old comparison accepts nested vs flat"
+  logInfo m!"compose connect normalised comparison controls: 2 accepted, 2 refused (old comparison refuses nested vs flat) by the kernel"
+  -- RegsOkNF on the accepted multiTwo
+  let M := "Tests.Ved.ComposeConnectCheck.multiTwo"
+  let nm := s!"{M}.ved_open_Tests_Ved_ComposeConnectCheck_multiTwo_nm"
+  let deep := s!"{M}.ved_open_Tests_Ved_ComposeConnectCheck_multiTwo_deep"
+  let tabTxt (o0 o1 : Nat) :=
+    s!"([(\"_tmp_a_4\", 0), (\"_tmp_a_15\", 1), (\"_gen_start\", 2), (\"_gen_inp\", 3), (\"_tmp_op_b_9\", {o0}), (\"_tmp_op_b_12\", {o1}), (\"_gen_k1\", {o0}), (\"_gen_k2\", {o1})] : List (String × Nat))"
+  let needed := "([\"_tmp_a_4\", \"_tmp_a_15\", \"_gen_start\", \"_gen_inp\", \"_tmp_op_b_9\", \"_gen_k1\", \"_tmp_op_b_12\", \"_gen_k2\"] : List String)"
+  let regsN (o0 o1 : Nat) (xs : String) :=
+    s!"{C}.RegsOkNF {deep} {nm} {M}.ved_design {M}.ved_mod {M}.ved_body {needed} {tabTxt o0 o1} 28 28 28 ([{xs}] : List String)"
+  let real := "\"_tmp_reg_input_3\", \"_tmp_reg_input_14\""
+  unless ← isTrue (regsN 4 5 real) do throwError "control void: RegsOkNF rejects the real table"
+  if ← isTrue (regsN 5 4 real) then throwError "RegsOkNF accepts swapped oracle slots"
+  if ← isTrue (regsN 4 5 "\"_tmp_reg_input_14\", \"_tmp_reg_input_3\"") then throwError "RegsOkNF accepts exchanged register input wires"
+  logInfo m!"compose connect RegsOkNF controls: 1 accepted, 2 refused by the kernel"
+
+/-- info: compose connect normalised comparison controls: 2 accepted, 2 refused (old comparison refuses nested vs flat) by the kernel
+---
+info: compose connect RegsOkNF controls: 1 accepted, 2 refused by the kernel -/
+#guard_msgs in
+run_cmd normControls
 
 end Tests.Ved.ComposeConnectCheck
