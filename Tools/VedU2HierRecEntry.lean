@@ -1,6 +1,9 @@
 import Tools.VedU2HierEntry
+import Tools.VedU2HierMultiOut
+import Tools.VedU1StructOut
 import Tools.VedU2HierRecOr
 import Tools.VedU2HierRecReg
+import Tools.VedU2HierRecCausal
 
 /-!
 # The nested entry (option `ved.compose.nested`, default OFF; CANDIDATE, Tools/VedU2HierRec.lean)
@@ -44,6 +47,20 @@ universe u in
 theorem bundle2_val {dom : Sparkle.Core.Domain.DomainConfig} {α β : Type u} (a : Sparkle.Core.Signal.Signal dom α)
     (b : Sparkle.Core.Signal.Signal dom β) (t : Nat) :
     (Sparkle.Core.Signal.bundle2 a b).val t = (a.val t, b.val t) := rfl
+
+/-- The statement function and the declaration domain of `declName`: its own (a `Signal` result), or with option
+`ved.compose.multiOut` a STRUCTURE result read through `Tools.VedU1StructOut.stmtOfStruct` (the bundle lambda over the ORIGINAL
+declaration, ports = field names; the third component is `(the declaration's own function, the port names)`). -/
+def readDeclStmt (declName : Name) : TermElabM (Lean.Expr × Nat × Option (Lean.Expr × List String)) := do
+  let (stmt0, nDom0) ← try specialiseDomain declName catch e => refuse declName "table" e.toMessageData
+  match ← (try pure (Except.ok (← readTableOfType declName (← inferType stmt0))) catch e => pure (Except.error e)) with
+  | .ok _ => pure (stmt0, nDom0, none)
+  | .error e0 =>
+    if ved.compose.multiOut.get (← getOptions) then
+      match ← (try pure (Except.ok (← Tools.VedU1StructOut.stmtOfStruct declName)) catch e => pure (Except.error e)) with
+      | .ok (b, nd, names) => pure (b, nd, some (stmt0, names))
+      | .error _ => throw e0
+    else throw e0
 
 /-- The sub-design of a middle module: the modules of the parent's design reachable from it by
 instances (a sublist of `d.modules`, in its order), the middle module as top. -/
@@ -109,8 +126,12 @@ def ensureMid (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandE
   let nmC := HNames.ofBase cdecl
   unless (← getEnv).contains cdecl do
     liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: no declaration of that name"
-  let (cstmt, cdom) ← liftTermElabM <| try specialiseDomain cdecl
+  -- (option `ved.compose.multiOut`: a struct-result middle module is read through the struct reader, its ports are its module's)
+  let (cstmt, cdom, cstructP) ← liftTermElabM <| try readDeclStmt cdecl
     catch e => refuse decl "child" m!"middle module {cm.name}: {e.toMessageData}"
+  if let some (_, names) := cstructP then
+    unless cm.outputs.map (·.name) == names do
+      liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: the module's output ports {cm.outputs.map (·.name)} are not the declaration's projections' ports {names}"
   let ctbl ← liftTermElabM <| try readTableOfType cdecl (← inferType cstmt)
     catch e => refuse decl "child" m!"middle module {cm.name}: {e.toMessageData}"
   let thmR := cdecl ++ `ved_u2r
@@ -143,10 +164,14 @@ def ensureMid (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandE
     #[Lean.mkConst nmC.contract, Lean.mkConst nmC.mod, Lean.mkConst nmC.design, cstmt]
   let expectR := mkAppN (Lean.mkConst ``Tools.VedU2HierRec.U2HRStmtR)
     #[Lean.mkConst nmC.contract, Lean.mkConst nmC.mod, Lean.mkConst nmC.design, cstmt]
+  -- option `ved.compose.multiOut`: the middle module's own entry states `U2HRStmtK` (an all-leaf sub-design: equivalent to `U2HRStmtR`)
+  let expectK := mkAppN (Lean.mkConst ``Tools.VedU2Hier.U2HRStmtK)
+    #[Lean.mkConst nmC.contract, Lean.mkConst nmC.mod, Lean.mkConst nmC.design, cstmt]
   let isS := ti.type == expectS
   let isR := ti.type == expectR
-  unless isS || isR do
-    liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: the stored theorem {thmS} is neither U2HRStmt nor U2HRStmtR over the stored constants and the declaration"
+  let isK := ti.type == expectK
+  unless isS || isR || isK do
+    liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: the stored theorem {thmS} is neither U2HRStmt nor U2HRStmtK nor U2HRStmtR over the stored constants and the declaration"
   let some (.defnInfo cmi) := env.find? nmC.mod
     | liftTermElabM <| refuse decl "child" m!"{nmC.mod} missing"
   unless cmi.value == toExpr cm do
@@ -166,8 +191,12 @@ def ensureMid (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandE
     liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: a depth-1 theorem over a design with a non-leaf module"
   -- (3) the recursive statement on the sub-design, from the stored depth-1 theorem
   let hl ← liftTermElabM <| mkEqRefl (Lean.mkConst ``Bool.true)
-  let val := mkAppN (Lean.mkConst ``Tools.VedU2HierRec.U2HRStmtR_of_S)
-    #[Lean.mkConst nmC.contract, Lean.mkConst nmC.mod, Lean.mkConst nmC.design, cstmt, hl, Lean.mkConst thmS]
+  let val := if isK then
+      mkAppN (Lean.mkConst ``Iff.mpr) #[expectR, expectK,
+        mkAppN (Lean.mkConst ``Tools.VedU2HierRec.U2HRStmtR_iff_K) #[Lean.mkConst nmC.contract, Lean.mkConst nmC.mod, Lean.mkConst nmC.design, cstmt, hl],
+        Lean.mkConst thmS]
+    else mkAppN (Lean.mkConst ``Tools.VedU2HierRec.U2HRStmtR_of_S)
+      #[Lean.mkConst nmC.contract, Lean.mkConst nmC.mod, Lean.mkConst nmC.design, cstmt, hl, Lean.mkConst thmS]
   try
     liftTermElabM <| withOptions (fun o => o.setBool `Elab.async false) do
       addDecl (.thmDecl { name := thmR, levelParams := [], type := expectR, value := val })
@@ -227,13 +256,16 @@ def transformN (base : String) (nm : HNames) (kids : List Kid) (mids : List MidI
   let P := nm.user
   let T := "Tools.VedU2HierRec"
   let T2 := "Tools.VedU2Hier"
+  -- (a struct-result middle module is applied through its stored bundle constant)
+  let bundleOf : List String := kids.map fun k =>
+    if k.c.outputs.length > 1 then toString (userName (k.nm.mod.getPrefix ++ `ved_bundle)) else declTerm k.decl k.nDom
   let kids := kids.map fun k => { k with nm := namesUser k.nm }
   let mut ls : Array String := (base.splitOn "\n").toArray
   let midA := (mids.map fun mi => userName mi.dC).toArray
   let n := mids.length
   -- (1) shape
   ls := ls.map fun l =>
-    if l.startsWith "  have hS : " then l.replace s!"{T2}.HierShapeS" s!"{T}.HierShapeR"
+    if l.startsWith "  have hS : " then (l.replace s!"{T2}.HierShapeS" s!"{T}.HierShapeR").replace s!"{T2}.HierShapeK" s!"{T}.HierShapeR"
     else if l.startsWith "  have hne := " then s!"  have hne : ∀ x ∈ {P.design}.modules, x ≠ {P.mod} := ({T}.hierR_names hS).2"
     else l
   let origRefine := (ls.find? (·.startsWith "  refine ⟨by")).getD ""
@@ -289,7 +321,7 @@ def transformN (base : String) (nm : HNames) (kids : List Kid) (mids : List MidI
     for (ii, _) in insts.zipIdx do
       let k := kids[ii.kid]!
       let dC := midA[ii.kid]!
-      let G := declTerm k.decl k.nDom
+      let G := bundleOf[ii.kid]!
       let ind := if nI == 1 then "    " else "    · "
       let ind2 := if nI == 1 then "    " else "      "
       X := X ++ [
@@ -302,14 +334,21 @@ def transformN (base : String) (nm : HNames) (kids : List Kid) (mids : List MidI
   ls := ls.extract 0 (iSupp + 2) ++ succInst.toArray ++ ls.extract (iSupp + 2) ls.size
   -- (4) the final refine and the instance fact
   ls := ls.map fun l =>
-    if l.startsWith "  refine Tools.VedU2Hier.outputsOnHS_of_oracle" then
+    if l.startsWith "  refine Tools.VedU2Hier.outputsOnHS_of_stepRKH_multi " then
+      (l.replace "Tools.VedU2Hier.outputsOnHS_of_stepRKH_multi " s!"{T}.outputsOnHSR_of_stepRKH ").replace "hS hadm hsupp hsch" "hS hadm hsucc"
+    else if l.startsWith "  refine Tools.VedU2Hier.outputsOnHS_of_oracle" then
       (l.replace "Tools.VedU2Hier.outputsOnHS_of_oracle" s!"{T}.outputsOnHSR_of_oracle").replace "hS hadm hnoreg hsupp hsch" "hS hadm hnoreg hsucc"
     else if l.startsWith "  refine Tools.VedU2Hier.outputsOnHS_of_stepR " then
       (l.replace "Tools.VedU2Hier.outputsOnHS_of_stepR " s!"{T}.outputsOnHSR_of_stepR ").replace "hS hadm hsupp hsch" "hS hadm hsucc"
     else l
   ls := ls.map fun l =>
-    if l.contains "Tools.VedU2Hier.kid_inst " then
-      let l1 := l.replace "Tools.VedU2Hier.kid_inst " s!"{T}.kid_inst_R "
+    if l.contains "Tools.VedU2Hier.kid_seq_multi " then
+      let idx := (insts.zipIdx.find? (fun (ii, _) => l.contains s!"{sq ii.iname}")).map (·.1.kid) |>.getD 0
+      let k := kids[idx]!
+      (l.replace "Tools.VedU2Hier.kid_seq_multi " s!"{T}.kid_seq_R ").replace s!"{k.nm.mod} (by decide) {k.nm.contract}"
+        s!"{k.nm.mod} (by decide) hnl{idx} hordc{idx} {userName mids[idx]!.dC} hsub{idx} {k.nm.contract}"
+    else if l.contains "Tools.VedU2Hier.kid_inst " || l.contains "Tools.VedU2Hier.kid_inst_multi " then
+      let l1 := (l.replace "Tools.VedU2Hier.kid_inst_multi " s!"{T}.kid_inst_R ").replace "Tools.VedU2Hier.kid_inst " s!"{T}.kid_inst_R "
       let idx := (insts.zipIdx.find? (fun (ii, _) => l1.contains s!"{sq ii.iname}")).map (·.1.kid) |>.getD 0
       let k := kids[idx]!
       let tail := s!"{k.nm.mod} (by decide)"
@@ -318,6 +357,7 @@ def transformN (base : String) (nm : HNames) (kids : List Kid) (mids : List MidI
     else l
   -- (5) the closed-run lemmas of the register script, by their recursive analogues
   if reg then
+    ls := ls.map fun l => l.replace s!"{T2}.runHSTrace_cycle " s!"{T}.runHSRTrace_cycle "
     ls := ls.map fun l =>
       ((((l.replace s!"{T2}.st0H " s!"{T}.st0HR ").replace s!"{T2}.runHS_inputs " s!"{T}.runHS_inputsR ").replace
         s!"{T2}.closed_run_asgOf " s!"{T}.closed_run_asgOfR ").replace s!"{T2}.closed_run_reg " s!"{T}.closed_run_regR ").replace
@@ -325,7 +365,7 @@ def transformN (base : String) (nm : HNames) (kids : List Kid) (mids : List MidI
   let txt := "\n".intercalate ls.toList
   -- the text transformation must have removed every depth-1 block: a leftover marker makes the script fail (refused at `[proof]`
   -- with the marker named), it is never silently accepted
-  let markers := ["HierShapeS", "hierS_ne", "hierK_", "HierShapeK", "outputsOnHS_of", "ChildSucc", "hsch", "exists_arrHS", "hmods", "Tools.VedU2Hier.kid_inst ", "kid_inst_multi"]
+  let markers := ["HierShapeS", "hierS_ne", "hierK_", "HierShapeK", "outputsOnHS_of", "ChildSucc", "hsch", "exists_arrHS", "hmods", "Tools.VedU2Hier.kid_inst ", "kid_inst_multi", "kid_seq_multi", "runHSTrace_cycle"]
   match markers.find? (fun mk => (txt.splitOn mk).length > 1) with
   | some mk => return txt ++ s!"\n  ved_nested_transform_incomplete_{mk.replace "." "_" |>.replace " " "_"}"
   | none => return txt

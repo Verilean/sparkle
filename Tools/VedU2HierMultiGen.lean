@@ -500,6 +500,10 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
             let kid := kids[key.1]!
             unless multiOutOn && (structs[j]!).isSome && !(regsOf kid.c.body).isEmpty do continue
             let psE := toExpr kid.tbl.ins
+            -- a NON-LEAF (middle) child's theorem is the recursive statement: its causality is `bundle_causal_agree_R` (`Tools/VedU2HierRecCausal.lean`)
+            let causalFn := match envNow.find? kid.nm.thm with
+              | some (.thmInfo ti) => if ti.type.getAppFn.isConstOf `Tools.VedU2HierRec.U2HRStmtR then "Tools.VedU2HierRec.bundle_causal_agree_R" else "Tools.VedU2Hier.bundle_causal_agree"
+              | _ => "Tools.VedU2Hier.bundle_causal_agree"
             let argsName := base ++ Name.mkSimple (openSuf ++ s!"_sargs{j}")
             let argsTup ← mkTuple (key.2.map realCalls)
             let argsTy ← mkForallFVars (xs.push live) (Lean.mkApp (Lean.mkConst ``Tools.VedU1Hier.ArgSigs) psE)
@@ -549,7 +553,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
                 mkForallFVars #[t, x, y] (← mkArrow hyp concl))
               proveByScript decl leafName leafTy s!"by
   intro {intros} t x y h i hi
-  have key := Tools.VedU2Hier.bundle_causal_agree {toString (userName kid.nm.thm)} ({argsU} {intros} x) ({argsU} {intros} y) i ({hobsU} {intros} t x y h i hi)
+  have key := {causalFn} {toString (userName kid.nm.thm)} ({argsU} {intros} x) ({argsU} {intros} y) i ({hobsU} {intros} t x y h i hi)
   have key2 := congrArg (fun v => {pathOf kid.tbl.out l "v"}) key
   exact key2"
               seqLeaf := seqLeaf.set! idx (some leafName)

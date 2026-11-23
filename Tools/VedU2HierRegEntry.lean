@@ -1775,15 +1775,15 @@ partial def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle
     (checkU2HRCore decl stmt nDom m d clkRstOverride tamper (structP := structP)
       -- option `ved.compose.nested`: the entry on a middle module (its own module value and sub-design)
       (fun cdecl cm dC => do
-        let (stmt', nDom') ← liftTermElabM <| try specialiseDomain cdecl catch e => refuse cdecl "table" e.toMessageData
-        let (thm, _, _) ← checkU2HR cdecl stmt' nDom' cm dC
+        let (stmt', nDom', sp') ← liftTermElabM <| Tools.VedU2HierRecEntry.readDeclStmt cdecl
+        let (thm, _, _) ← checkU2HR cdecl stmt' nDom' cm dC (structP := sp')
         return thm))
 
 /-- Option `ved.compose.nested` (Tools/VedU2HierRecEntry.lean): the entry on a MIDDLE module, run first on its own
 declaration (its own synthesis, the H2b checker `checkU2HR`). -/
 def midEntryN (declName : Name) (cm : Sparkle.IR.AST.Module) (dC : Design) : CommandElabM Name := do
-  let (stmt, nDom) ← liftTermElabM <| try specialiseDomain declName catch e => refuse declName "table" e.toMessageData
-  let (thm, _, _) ← checkU2HR declName stmt nDom cm dC
+  let (stmt, nDom, sp) ← liftTermElabM <| Tools.VedU2HierRecEntry.readDeclStmt declName
+  let (thm, _, _) ← checkU2HR declName stmt nDom cm dC (structP := sp)
   return thm
 
 /-- The entry: ONE `synthesizeCombinational`; a register-free parent is H2a's `checkU2H`
