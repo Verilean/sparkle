@@ -32,8 +32,36 @@ namespace Tools.VedU2HierMultiGen
 open Lean Meta Elab Term
 open Tools.VedU1Contract Tools.VedU1Entry Tools.VedU1HierEntry Tools.VedU2HierEntry Tools.VedU1Deep
 
-/-- The `runCircuitH` application a declaration's value reduces to, with the projection (if any) wrapped around it. -/
-partial def findRun (e : Lean.Expr) (fuel : Nat) : MetaM (Option (Lean.Expr × (Lean.Expr → Lean.Expr))) := do
+/-- Head normal form of a declaration's value for the pure-wiring top (VED compose multiCircuit, connect17): the user's own
+definitions at the head are unfolded and a projection of a structure constructor is reduced; nothing below the head is touched.
+The children's calls are left alone. -/
+partial def normTop (kids : Array Kid) (e : Lean.Expr) (fuel : Nat) : MetaM Lean.Expr := do
+  match fuel with
+  | 0 => return e
+  | f + 1 =>
+    let e ← zetaReduce (← whnfCore e)
+    let env ← getEnv
+    match e.getAppFn with
+    | .const n _ =>
+      if kids.any (·.decl == n) then return e
+      if let some pi := env.getProjectionFnInfo? n then
+        if e.getAppNumArgs == pi.numParams + 1 then
+          let s ← normTop kids e.appArg! f
+          if s.getAppFn.isConstOf pi.ctorName && s.getAppNumArgs > pi.numParams + pi.i then
+            return ← normTop kids (s.getArg! (pi.numParams + pi.i)) f
+          else return mkApp e.appFn! s
+        else return e
+      else if Tools.VedU2HierStGen.userModule env n && (env.find? n).any (·.isDefinition) then
+        match ← unfoldDefinition? e with
+        | some e' => normTop kids e' f
+        | none => return e
+      else return e
+    | _ => return e
+
+/-- The `runCircuitH` application a declaration's value reduces to, with the projection (if any) wrapped around it.  With `ctor`
+(option `ved.compose.multiCircuit`), a projection of a structure constructor (the wiring top `{ out := tx.txLine }.out`) is also
+reduced, which the default path refuses. -/
+partial def findRun (e : Lean.Expr) (fuel : Nat) (ctor : Bool := false) : MetaM (Option (Lean.Expr × (Lean.Expr → Lean.Expr))) := do
   match fuel with
   | 0 => return none
   | f + 1 =>
@@ -43,11 +71,19 @@ partial def findRun (e : Lean.Expr) (fuel : Nat) : MetaM (Option (Lean.Expr × (
     match e.getAppFn with
     | .const n _ =>
       if env.isProjectionFn n && e.getAppNumArgs > 0 then
-        match ← findRun e.appArg! f with
+        match ← findRun e.appArg! f ctor with
         | some (r, w) => return some (r, fun x => mkApp e.appFn! (w x))
-        | none => return none
+        | none =>
+          if ctor then
+            if let some pi := env.getProjectionFnInfo? n then
+              if e.getAppNumArgs == pi.numParams + 1 then
+                let s ← normTop #[] e.appArg! 24
+                if s.getAppFn.isConstOf pi.ctorName && s.getAppNumArgs > pi.numParams + pi.i then
+                  return ← findRun (s.getArg! (pi.numParams + pi.i)) f ctor
+            return none
+          else return none
       else match ← unfoldDefinition? e with
-        | some e' => findRun e' f
+        | some e' => findRun e' f ctor
         | none => return none
     | _ => return none
 
@@ -339,7 +375,7 @@ def fuseOne (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) 
   addDefnRegular waName (← inferType waE) waE
   addDefnRegular wbName (← inferType wbE) wbE
   let waC := Lean.mkConst waName; let wbC := Lean.mkConst wbName
-  let satOf (αs w t : Lean.Expr) : MetaM Lean.Expr := mkAppM ``Tools.VedComposeMultiCircuit.sat #[αs, w, t]
+  let satOf (αs w t : Lean.Expr) : MetaM Lean.Expr := mkAppOptM ``Tools.VedComposeMultiCircuit.sat #[some dom, some αs, some w, some t]
   let names := (List.range xs.size).map fun i => s!"a{i}"
   let intros := " ".intercalate names
   let OPEN := "open Sparkle.Core Sparkle.Core.Signal in"
@@ -469,6 +505,30 @@ def fuseTwo (decl : Name) (kids : Array Kid) (pw : Bool) (stmt : Lean.Expr) (xs 
   catch e => refuse decl "open" m!"the kernel refused the fused-circuit equation: {e.toMessageData}"
   return some (fusedRun, fuseEqName)
 
+/-- VED compose multiCircuit, pure-wiring top (connect17): a declaration whose value has no circuit of its own but is an output
+function of closed circuits (`f (stageA ..).x (stageB ..).y`, after unfolding the user's wiring definitions and reducing
+projections of constructors).  The value `V` is the output of a circuit with NO registers, `runCircuitH (αs := []) () (fun _ h => (V, h))`
+(the equation `V = outer` is definitional), so the fusion of the circuits it reads is the same as for a circuit with an outer run.
+`none` when the value contains no closed circuit. -/
+def outerRun (kids : Array Kid) (dom body0 : Lean.Expr) : MetaM (Option (Lean.Expr × (Lean.Expr → Lean.Expr))) := do
+  let v ← normTop kids body0 24
+  let cs ← innerRuns (kids.map (·.decl)) v #[]
+  if cs.isEmpty then return none
+  let ρ ← inferType v
+  let nilL := mkApp (Lean.mkConst ``List.nil [levelOne]) (mkSort levelOne)
+  let lbl {α} (what : String) (x : MetaM α) : MetaM α := try x catch e => throwError "multiCircuit outer run ({what}): {e.toMessageData}"
+  let instH ← lbl "HasDomain" <| synthInstance (← mkAppM ``Sparkle.Core.HasDomain #[ρ, dom])
+  let instW ← lbl "HListWireable" <| synthInstance (← mkAppOptM ``Sparkle.Core.HListWireable #[some nilL])
+  let instI ← lbl "Inhabited" <| synthInstance (← mkAppM ``Inhabited #[← mkAppM ``Sparkle.Core.HList #[nilL]])
+  let unit ← mkAppOptM ``Unit.unit #[]
+  let proto ← lbl "runCircuitH" <| mkAppOptM ``Sparkle.Core.runCircuitH #[some dom, some nilL, some ρ, some instH, some instW, some instI, some unit]
+  let .forallE _ bodyTy _ _ ← whnf (← inferType proto) | throwError "multiCircuit: runCircuitH has an unexpected type"
+  let .forallE _ regsTy circ _ ← whnf bodyTy | throwError "multiCircuit: the body of runCircuitH has an unexpected type"
+  let .forallE _ wTy _ _ ← whnf circ | throwError "multiCircuit: the Circuit type has an unexpected shape"
+  let body ← withLocalDeclD `regs regsTy fun r => withLocalDeclD `h wTy fun h => do
+    mkLambdaFVars #[r, h] (← mkAppM ``Prod.mk #[v, h])
+  return some (mkApp proto body, id)
+
 /-- The analysis and the generated constants.  `pw` (option `ved.compose.step`): the proof of `hOs` uses the children's
 pointwise lemmas (`mkPointwise`) instead of unfolding them; the produced definitions are the same. -/
 def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable) (kids : Array Kid)
@@ -482,7 +542,15 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
     let dflt := Lean.mkConst ``Sparkle.Core.Domain.defaultDomain
     let args : Array Lean.Expr := (Array.replicate nDom dflt) ++ xs
     let body0 := (mkAppN ci.value args).headBeta
-    let some (run, wrap) ← findRun body0 24
+    let multi := Tools.VedComposeMultiCircuit.ved.compose.multiCircuit.get (← getOptions)
+    let some (run, wrap) ← (do
+        match ← findRun body0 24 multi with
+        | some (r, w) =>
+          -- a wrapper that itself holds closed circuits (`a.x + b.y`: only the last operand was found) is a wiring top
+          if multi && !(← innerRuns (kids.map (·.decl)) (w (mkSort levelZero)) #[]).isEmpty then
+            pure ((← outerRun kids dflt body0).orElse fun _ => some (r, w))
+          else pure (some (r, w))
+        | none => if multi then outerRun kids dflt body0 else pure none)
       | refuse decl "open" m!"the declaration's value does not reduce to a `circuit do` (runCircuitH)"
     Tools.VedU2HierDbg.openTickE "findRun end" body0
     -- VED compose multiCircuit (option, default off): two wired closed circuits are one circuit over the appended registers

@@ -316,4 +316,49 @@ theorem fuse_run (iA : HList αA) (iB : HList αB)
 
 end Fuse
 
+/-! ### Independent fusion (unit 17): two closed circuits, neither reads the other
+
+`indepBody bodyA bodyB g` is the body of ONE `runCircuitH` over `αA ++ αB`, whose output is `g` (the declaration's output function)
+of the two circuits' results.  `fuse_indep`: that run is `g (run A) (run B)`.  Derived from `fuse_run` (B reads A only through
+the closed argument `a := run A`, which `bodyB'` hands to `g`; the writes of B do not read it). -/
+
+section Indep
+variable {dom : DomainConfig} {αA αB : List Type} {ρA ρB ρ : Type} [HasDomain ρA dom] [HasDomain ρB dom] [HasDomain ρ dom]
+
+/-- The body of the fused run of two independent circuits: both bodies on their own part of the state, output `g`. -/
+@[reducible] def indepBody
+    (bodyA : RegList dom (HList αA) (Circuit.SigList dom αA) αA → Circuit dom (Circuit.SigList dom αA) ρA)
+    (bodyB : RegList dom (HList αB) (Circuit.SigList dom αB) αB → Circuit dom (Circuit.SigList dom αB) ρB)
+    (g : ρA → ρB → ρ) :
+    RegList dom (HList (αA ++ αB)) (Circuit.SigList dom (αA ++ αB)) (αA ++ αB) →
+      Circuit dom (Circuit.SigList dom (αA ++ αB)) ρ :=
+  fun _regs holds =>
+    let LA := liveOfSigs αA (stake αA holds)
+    let LB := liveOfSigs αB (sdrop αA holds)
+    let rA := bodyA (mkRegList LA αA (fun s => s) (fun f => f)) (mkHolds αA LA)
+    let rB := bodyB (mkRegList LB αB (fun s => s) (fun f => f)) (mkHolds αB LB)
+    (g rA.fst rB.fst, sappend αA rA.snd rB.snd)
+
+variable [HListWireable αA] [HListWireable αB] [HListWireable (αA ++ αB)]
+  [Inhabited (HList αA)] [Inhabited (HList αB)] [Inhabited (HList (αA ++ αB))]
+
+/-- Two independent closed circuits are ONE `runCircuitH` over the appended registers whose output is `g` of the two results,
+when each write function is pointwise in the state it reads (the same facts as for `fuse_run`; B's writes do not read A). -/
+theorem fuse_indep (iA : HList αA) (iB : HList αB)
+    (bodyA : RegList dom (HList αA) (Circuit.SigList dom αA) αA → Circuit dom (Circuit.SigList dom αA) ρA)
+    (bodyB : RegList dom (HList αB) (Circuit.SigList dom αB) αB → Circuit dom (Circuit.SigList dom αB) ρB)
+    (g : ρA → ρB → ρ)
+    (hWA : ∀ t (x y : Signal dom (HList αA)), x.val t = y.val t →
+      sat αA (writesA bodyA x) t = sat αA (writesA bodyA y) t)
+    (hWB : ∀ t (x y : Signal dom (HList αB)), x.val t = y.val t →
+      sat αB ((bodyB (mkRegList x αB (fun s => s) (fun f => f)) (mkHolds αB x)).snd) t
+        = sat αB ((bodyB (mkRegList y αB (fun s => s) (fun f => f)) (mkHolds αB y)).snd) t) :
+    runCircuitH (αs := αA ++ αB) (happend αA iA iB) (indepBody bodyA bodyB g)
+      = g (runCircuitH (αs := αA) iA bodyA) (runCircuitH (αs := αB) iB bodyB) := by
+  have h := fuse_run (τ := ρA) iA iB bodyA id
+    (fun a regs => fun holds => (g a (bodyB regs holds).fst, (bodyB regs holds).snd)) hWA
+    (fun t x x' y y' _ hy => hWB t y y' hy)
+  exact h
+end Indep
+
 end Tools.VedComposeMultiCircuit

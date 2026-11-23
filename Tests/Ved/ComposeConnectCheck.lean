@@ -1056,4 +1056,110 @@ run_cmd do
   cc3Controls
   logInfo m!"compose connect three-circuit controls: 5 refused"
 
+/-! ### Pure-wiring tops (connect17): the declaration's value is an output function over closed circuits, no outer circuit
+
+`indepTx`: `(indepC go).b + (indepC go2).b` (two independent circuits, neither reads the other, combined by an output function; the
+old path took only the last operand's run).  `wsTx`: the struct-constructor top of R246's shape, `({ tx := b.b } : WireOut).tx` over a
+circuit that reads another (the old `findRun` stopped at the constructor).  `ws2Tx`: `{ tx := b.b + c.b }` over three circuits, one
+reading another, the top only wires.  Checked as above.  CONTROLS (on copies): the option off (old text), the registers of two circuits
+swapped, a wrong wiring (a child fed by another circuit's register), a width mismatch on one circuit's register. -/
+
+def indepC (go : Signal defaultDomain Bool) : TwoB defaultDomain :=
+  circuit do
+    let outR ← Signal.reg 0#4
+    let o := (outR : Signal defaultDomain (BitVec 4))
+    outR <~ Signal.mux go (mkA o) o
+    return ({ b := o } : TwoB defaultDomain)
+
+structure WireOut (dom : DomainConfig) where
+  tx : Signal dom (BitVec 4)
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (WireOut dom) dom := ⟨⟩
+
+def indepTx (go go2 : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (indepC go).b + (indepC go2).b
+
+/-- A copy for the controls (never accepted itself). -/
+def indepRef (go go2 : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (indepC go).b + (indepC go2).b
+
+def wsP (go : Signal defaultDomain Bool) : WireOut defaultDomain :=
+  let a := twoStageA go
+  let b := twoStageB a.ph
+  ({ tx := b.b } : WireOut defaultDomain)
+
+def wsTx (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (wsP go).tx
+
+def ws2P (go go2 : Signal defaultDomain Bool) : WireOut defaultDomain :=
+  let a := twoStageA go
+  let b := twoStageB a.ph
+  let c := indepC go2
+  ({ tx := b.b + c.b } : WireOut defaultDomain)
+
+def ws2Tx (go go2 : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (ws2P go go2).tx
+
+/-- A copy for the controls (never accepted itself). -/
+def ws2Ref (go go2 : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (ws2P go go2).tx
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``indepTx [`Tests.Ved.ComposeConnectCheck.indepTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 2
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``wsTx [`Tests.Ved.ComposeConnectCheck.wsTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 2
+
+/-- info: compose connect chain OK: 3 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``ws2Tx [`Tests.Ved.ComposeConnectCheck.ws2Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 3
+
+/-- The register names of a module body, in order. -/
+def regNamesOf (b : List Stmt) : List String :=
+  b.filterMap fun s => match s with | .register n .. => some n | _ => none
+
+def wiringControls : CommandElabM Unit := do
+  let noT : Phase1 → CommandElabM Phase1 := fun p => pure p
+  let (m, d) ← synthOf ``ws2Ref
+  let rs := regNamesOf m.body
+  unless rs.length == 3 do throwError "ws2Ref: expected 3 registers, got {rs}"
+  -- the option OFF (step and connect on): the old refusal
+  withScope (fun sc => { sc with opts := (sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true }) do
+    expectRefusedT ``ws2Ref "open" "does not reduce to a `circuit do`" m d noT
+  withScope (fun sc => { sc with opts := ((sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true).setBool `ved.compose.multiCircuit true }) do
+    -- ORDER: the registers of the two wired circuits swapped
+    expectRefusedT ``ws2Ref "proof" "proved that the proposition" { m with body := swapRegsAt rs[0]! rs[1]! m.body } d noT
+    -- ORDER: the independent circuit's register swapped with a wired one
+    expectRefusedT ``ws2Ref "proof" "proved that the proposition" { m with body := swapRegsAt rs[1]! rs[2]! m.body } d noT
+    -- WRONG WIRING: the child of the independent circuit is fed by the first circuit's register
+    expectRefusedT ``ws2Ref "kernel" "let-declaration type mismatch" { m with body := setConnAt 1 "_gen_x" (.ref rs[0]!) m.body } d noT
+    -- WIDTH MISMATCH: the declared width of the second circuit's register wire
+    expectRefusedT ``ws2Ref "proof" "proved that the proposition" { m with wires := m.wires.map fun w =>
+      if w.name == rs[1]! then { w with ty := .bitVector 5 } else w } d noT
+  -- two independent circuits: the option off, the registers swapped
+  let (m2, d2) ← synthOf ``indepRef
+  let rs2 := regNamesOf m2.body
+  unless rs2.length == 2 do throwError "indepRef: expected 2 registers, got {rs2}"
+  withScope (fun sc => { sc with opts := (sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true }) do
+    expectRefusedT ``indepRef "open" "its instances' input nets form 2 distinct classes" m2 d2 noT
+  withScope (fun sc => { sc with opts := ((sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true).setBool `ved.compose.multiCircuit true }) do
+    expectRefusedT ``indepRef "proof" "proved that the proposition" { m2 with body := swapRegsAt rs2[0]! rs2[1]! m2.body } d2 noT
+
+/-- info: compose connect wiring controls: 7 refused -/
+#guard_msgs in
+run_cmd do
+  wiringControls
+  logInfo m!"compose connect wiring controls: 7 refused"
+
+
 end Tests.Ved.ComposeConnectCheck
