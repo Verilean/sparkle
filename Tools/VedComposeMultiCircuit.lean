@@ -1,3 +1,4 @@
+import Lean
 import Tools.VedComposeMultiLoop
 import Sparkle.Core.CircuitMonad
 
@@ -20,6 +21,11 @@ Nothing here is assumed about a circuit: the hypotheses are about the write func
 open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
 
 namespace Tools.VedComposeMultiCircuit
+
+register_option ved.compose.multiCircuit : Bool := {
+  defValue := false
+  descr := "VED compose: a declaration of TWO wired closed circuits (the second reads the first) is fused into one circuit over the appended registers"
+}
 
 /-- Append of two register files. -/
 @[reducible] def happend : (αA : List Type) → {αB : List Type} → HList αA → HList αB → HList (αA ++ αB)

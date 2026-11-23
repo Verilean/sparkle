@@ -1,5 +1,6 @@
 import Tools.VedU2HierStGen
 import Tools.VedU2HierMultiLoop
+import Tools.VedComposeMultiCircuit
 import Tools.VerifyElab
 
 /-!
@@ -228,6 +229,198 @@ def mkPointwise (gName pwName : Name) (fn fnTy : Lean.Expr) : TermElabM Bool := 
         return true
       catch _ => return false
 
+/-- Closed subterms of `e` (not under a bound variable of `e`) that reduce to a `runCircuitH`: `(subterm, run, projection wrapper)`. -/
+partial def innerRuns (skip : Array Name) (e : Lean.Expr) (acc : Array (Lean.Expr × Lean.Expr × (Lean.Expr → Lean.Expr))) :
+    MetaM (Array (Lean.Expr × Lean.Expr × (Lean.Expr → Lean.Expr))) := do
+  let env ← getEnv
+  let here : MetaM (Option (Lean.Expr × Lean.Expr × (Lean.Expr → Lean.Expr))) := do
+    if e.isApp && !e.hasLooseBVars then
+      match e.getAppFn with
+      | .const n _ =>
+        if skip.contains n then return none
+        if !(env.isProjectionFn n || Tools.VedU2HierStGen.userModule env n) then return none
+        match ← (try findRun e 16 catch _ => pure none) with
+        | some (r, w) => if r.getAppNumArgs == 8 then return some (e, r, w) else return none
+        | none => return none
+      | _ => return none
+    else return none
+  match ← here with
+  | some c => return acc.push c
+  | none =>
+    match e with
+    | .app f a => innerRuns skip a (← innerRuns skip f acc)
+    | .lam _ _ b _ => innerRuns skip b acc
+    | .letE _ _ v b _ => innerRuns skip b (← innerRuns skip v acc)
+    | .mdata _ b => innerRuns skip b acc
+    | .proj _ _ b => innerRuns skip b acc
+    | _ => return acc
+
+/-- `Prod.mk _ _ out writes` of a reduced circuit result. -/
+def splitResult (decl : Name) (r : Lean.Expr) : MetaM (Lean.Expr × Lean.Expr) := do
+  unless r.isAppOfArity ``Prod.mk 4 do refuse decl "open" m!"multiCircuit: the reduced circuit body is not a pair (output, writes): {r}"
+  return (r.getArg! 2, r.getArg! 3)
+
+/-- VED compose multiCircuit (K = 2): the declaration's `run` (circuit B) reads, through ONE closed subterm `x`, the result of a
+second circuit A (a closed `runCircuitH`).  Returns the fused run (one `runCircuitH` over `αA ++ αB`), the name of
+`fuseEq : ∀ xs, stmt xs = wrap fusedRun`. -/
+def fuseTwo (decl : Name) (kids : Array Kid) (pw : Bool) (stmt : Lean.Expr) (xs : Array Lean.Expr) (run : Lean.Expr)
+    (wrap : Lean.Expr → Lean.Expr) (base : Name) (sfx : String) : TermElabM (Option (Lean.Expr × Name)) := do
+  let rargs := run.getAppArgs
+  let skip := kids.map (·.decl)
+  let cs ← innerRuns skip rargs[7]! #[]
+  if cs.isEmpty then return none
+  let (x, runA, wrapA) := cs[0]!
+  unless cs.all (fun c => c.1 == x) do
+    refuse decl "open" m!"multiCircuit: the body reads {cs.size} closed circuit subterms (this unit handles one reader subterm of one circuit)"
+  let aargs := runA.getAppArgs
+  let dom := rargs[0]!; let αB := rargs[1]!; let ρB := rargs[2]!
+  let αA := aargs[1]!; let ρA := aargs[2]!
+  unless aargs[0]! == dom do refuse decl "open" m!"multiCircuit: the two circuits are in different domains"
+  let τ ← inferType x
+  let wA ← withLocalDeclD `r ρA fun r => mkLambdaFVars #[r] (wrapA r)
+  let bodyA := aargs[7]!
+  let abs ← kabstract rargs[7]! x
+  let bodyB := Lean.mkLambda `z .default τ abs
+  let iA := aargs[6]!; let iB := rargs[6]!
+  let αF ← reduce (← mkAppM ``HAppend.hAppend #[αA, αB])
+  let iF ← reduce (← mkAppOptM ``Tools.VedComposeMultiCircuit.happend #[some αA, some αB, some iA, some iB])
+  let hl (a : Lean.Expr) : MetaM Lean.Expr := mkAppM ``Sparkle.Core.HList #[a]
+  let sigTy (a : Lean.Expr) : MetaM Lean.Expr := do mkAppM ``Sparkle.Core.Signal.Signal #[dom, ← hl a]
+  let liveATy ← sigTy αA
+  let liveBTy ← sigTy αB
+  let natTy := Lean.mkConst ``Nat
+  let reduceRun (bd : Lean.Expr) (αs : Lean.Expr) (live : Lean.Expr) : TermElabM Lean.Expr := do
+    let liveTy ← sigTy αs
+    let idRead ← withLocalDeclD `s liveTy fun s => mkLambdaFVars #[s] s
+    let sigListTy := mkApp2 (Lean.mkConst ``Sparkle.Core.Circuit.SigList) dom αs
+    let idLift ← withLocalDeclD `f (← mkArrow sigListTy sigListTy) fun f => mkLambdaFVars #[f] f
+    let regs ← mkAppM ``Sparkle.Core.mkRegList #[live, αs, idRead, idLift]
+    let holds ← mkAppM ``Sparkle.Core.mkHolds #[αs, live]
+    let r0 ← withTransparency .reducible <| reduce (mkApp (mkApp bd regs) holds) (skipTypes := true) (skipProofs := true)
+    unfoldUser kids r0
+  -- the child calls of B's body as markers (the reduction must not unfold a child), with their pointwise lemmas
+  let siteKid ← IO.mkRef (#[] : Array Nat)
+  let siteFn ← IO.mkRef (#[] : Array Lean.Expr)
+  let siteTy ← IO.mkRef (#[] : Array Lean.Expr)
+  discard <| replaceCalls kids rargs[7]! fun _ ki fn dargs _ => do
+    siteKid.modify (·.push ki)
+    siteFn.modify (·.push (mkAppN fn dargs))
+    siteTy.modify (·.push (← inferType (mkAppN fn dargs)))
+    return Lean.mkConst ``True
+  let siteKid ← siteKid.get; let siteFn ← siteFn.get; let siteTy ← siteTy.get
+  let envNow ← getEnv
+  let reachL := ", ".intercalate ((kids.toList.flatMap fun k => (reachDefs envNow k.decl 6 #[]).toList.map fun c => toString (userName c)).eraseDups)
+  let mut pwNames : Array Name := #[]
+  if pw then
+    let kidsUsed := siteKid.toList.eraseDups
+    for ki in kidsUsed do
+      let some j0 := siteKid.findIdx? (· == ki) | pure ()
+      let pwName := base ++ Name.mkSimple (sfx ++ s!"_pw{ki}")
+      let ok ← try mkPointwise (base ++ Name.mkSimple (sfx ++ s!"_G{ki}")) pwName siteFn[j0]! siteTy[j0]! catch _ => pure false
+      if ok then pwNames := pwNames.push pwName
+    if pwNames.size != kidsUsed.length then pwNames := #[]
+  let waName := base ++ Name.mkSimple (sfx ++ "_WA")
+  let wbName := base ++ Name.mkSimple (sfx ++ "_WB")
+  -- reduced write functions
+  let (waE, wbE) ← withLocalDeclD `x liveATy fun xv => withLocalDeclD `y liveBTy fun yv => do
+    let rA ← reduceRun bodyA αA xv
+    let (outA, wA') ← splitResult decl rA
+    let zA ← withTransparency .reducible <| reduce (mkApp wA outA) (skipTypes := true) (skipProofs := true)
+    let rB ← withFVars (siteKid.mapIdx fun i _ => Name.mkSimple s!"ved_G{i}") siteTy fun gs => do
+      let bodyM ← replaceCalls kids rargs[7]! fun idx _ _ _ das => pure (mkAppN gs[idx]! das)
+      let bodyBM := Lean.mkLambda `z .default τ (← kabstract bodyM x)
+          let r ← reduceRun (mkApp bodyBM zA) αB yv
+          pure (substMarks (gs.map (·.fvarId!)) siteFn r)
+    let (_, wB') ← splitResult decl rB
+    pure (← mkLambdaFVars (xs ++ #[xv]) wA', ← mkLambdaFVars (xs ++ #[xv, yv]) wB')
+  addDefnRegular waName (← inferType waE) waE
+  addDefnRegular wbName (← inferType wbE) wbE
+  let waC := Lean.mkConst waName; let wbC := Lean.mkConst wbName
+  let satOf (αs w t : Lean.Expr) : MetaM Lean.Expr := mkAppM ``Tools.VedComposeMultiCircuit.sat #[αs, w, t]
+  let names := (List.range xs.size).map fun i => s!"a{i}"
+  let intros := " ".intercalate names
+  let OPEN := "open Sparkle.Core Sparkle.Core.Signal in"
+  let plain := "simp only"
+  let _ := plain
+  let hWAty ← mkForallFVars xs (← withLocalDeclD `t natTy fun t => withLocalDeclD `x liveATy fun xv => withLocalDeclD `y liveATy fun yv => do
+    let hyp ← mkEq (← valAt xv t) (← valAt yv t)
+    let c ← mkEq (← satOf αA (mkAppN waC (xs ++ #[xv])) t) (← satOf αA (mkAppN waC (xs ++ #[yv])) t)
+    mkForallFVars #[t, xv, yv] (← mkArrow hyp c))
+  let hWAn := base ++ Name.mkSimple (sfx ++ "_hWA")
+  proveByScript decl hWAn hWAty s!"by
+  intro {intros} t x y h
+  {OPEN} simp only [{toString (userName waName)}, Tools.VedComposeMultiCircuit.sat, {plumbingL}, {sigvalL}, h]"
+  let hWBty ← mkForallFVars xs (← withLocalDeclD `t natTy fun t => withLocalDeclD `x liveATy fun xv => withLocalDeclD `x' liveATy fun xv' =>
+      withLocalDeclD `y liveBTy fun yv => withLocalDeclD `y' liveBTy fun yv' => do
+    let hx ← mkEq (← valAt xv t) (← valAt xv' t)
+    let hy ← mkEq (← valAt yv t) (← valAt yv' t)
+    let c ← mkEq (← satOf αB (mkAppN wbC (xs ++ #[xv, yv])) t) (← satOf αB (mkAppN wbC (xs ++ #[xv', yv'])) t)
+    mkForallFVars #[t, xv, xv', yv, yv'] (← mkArrow hx (← mkArrow hy c)))
+  let hWBn := base ++ Name.mkSimple (sfx ++ "_hWB")
+  let reachPart := if reachL.isEmpty then "" else reachL ++ ", "
+  let pwPart := if pwNames.isEmpty then "" else ", ".intercalate (pwNames.toList.map fun n => toString (userName n)) ++ ", "
+  proveByScript decl hWBn hWBty s!"by
+  intro {intros} t x x' y y' hx hy
+  {OPEN} first | (simp only [{toString (userName wbName)}, Tools.VedComposeMultiCircuit.sat, {pwPart}{plumbingL}, {sigvalL}, hx, hy]; done) | (simp only [{toString (userName wbName)}, Tools.VedComposeMultiCircuit.sat, {reachPart}{plumbingL}, {sigvalL}, hx, hy])"
+  -- the fused run and the equation
+  let some (.defnInfo _) := (← getEnv).find? ``Sparkle.Core.runCircuitH | refuse decl "open" m!"no runCircuitH"
+  let instF1 ← mkAppOptM ``Sparkle.Core.HListWireable #[some αF] >>= fun t => synthInstance t
+  let instF2 ← synthInstance (← mkAppM ``Inhabited #[← hl αF])
+  let fuseT := Lean.mkConst ``Tools.VedComposeMultiCircuit.fuse_run
+  let fuseApp ← mkAppOptM ``Tools.VedComposeMultiCircuit.fuse_run
+    #[some dom, some αA, some αB, some ρA, some ρB, some τ, some aargs[3]!, some rargs[3]!, some aargs[4]!, some rargs[4]!,
+      some instF1, some aargs[5]!, some rargs[5]!, some instF2, some iA, some iB, some bodyA, some wA, some bodyB,
+      some (mkAppN (Lean.mkConst hWAn) xs), some (mkAppN (Lean.mkConst hWBn) xs)]
+  let _ := fuseT
+  let bodyF ← mkAppM ``Tools.VedComposeMultiCircuit.fuseBody #[bodyA, wA, bodyB]
+  -- the body handed on is `fuseBody` with the append helpers unfolded (plain `circuit do` plumbing for the later stages)
+  let mine : Array Name := #[``Tools.VedComposeMultiCircuit.fuseBody, ``Tools.VedComposeMultiCircuit.liveOfSigs,
+    ``Tools.VedComposeMultiCircuit.stake, ``Tools.VedComposeMultiCircuit.sdrop, ``Tools.VedComposeMultiCircuit.sappend,
+    ``Sparkle.Core.mkRegList, ``Sparkle.Core.mkHolds]
+  let bodyFN ← forallTelescopeReducing (← inferType bodyF) fun vs _ => do
+    let e ← Meta.transform (mkAppN bodyF vs) (pre := fun x => do
+      if let .const n _ := x.getAppFn then
+        if mine.contains n then
+          if let some y ← unfoldDefinition? x then return .visit y.headBeta
+      return .continue)
+    -- `Signal.map fst (bundle2 a b)` is `a` and `Signal.map snd (bundle2 a b)` is `b` (definitionally; the later stages
+    -- evaluate plain reads, not a bundle of the seed)
+    let isProj (f : Lean.Expr) : Option Bool :=
+      match f with
+      | .lam _ _ b _ =>
+        if b.isAppOfArity ``Prod.fst 3 && b.appArg!.isBVar then some true
+        else if b.isAppOfArity ``Prod.snd 3 && b.appArg!.isBVar then some false
+        else match b with
+          | .proj ``Prod 0 (.bvar 0) => some true
+          | .proj ``Prod 1 (.bvar 0) => some false
+          | _ => none
+      | _ => if f.isAppOfArity ``Prod.fst 2 then some true else if f.isAppOfArity ``Prod.snd 2 then some false else none
+    let e ← Meta.transform (← zetaReduce e) (post := fun x0 => do
+      let x := x0.headBeta
+      if x.isAppOfArity ``Sparkle.Core.Signal.Signal.map 5 then
+        let s := x.getArg! 4
+        if s.isAppOfArity ``Sparkle.Core.Signal.bundle2 5 then
+          match isProj (x.getArg! 3) with
+          | some true => return .done (s.getArg! 3)
+          | some false => return .done (s.getArg! 4)
+          | none => return .done x
+      return .done x)
+    mkLambdaFVars vs e
+  let fusedRun ← mkAppOptM ``Sparkle.Core.runCircuitH
+    #[some dom, some αF, some ρB, some rargs[3]!, some instF1, some instF2, some iF, some bodyFN]
+  let fuseEqName := base ++ Name.mkSimple (sfx ++ "_fuse")
+  let eqTy ← mkForallFVars xs (← mkEq (mkAppN stmt xs) (wrap fusedRun))
+  let wrapL ← do
+    let ty ← inferType run
+    withLocalDeclD `r ty fun r => mkLambdaFVars #[r] (wrap r)
+  let pf ← mkLambdaFVars xs (← mkAppM ``congrArg #[wrapL, ← mkEqSymm fuseApp])
+  try
+    withOptions (fun o => o.setBool `Elab.async false) do
+      addDecl (.thmDecl { name := fuseEqName, levelParams := [], type := eqTy, value := pf })
+  catch e => refuse decl "open" m!"the kernel refused the fused-circuit equation: {e.toMessageData}"
+  return some (fusedRun, fuseEqName)
+
+
 /-- The analysis and the generated constants.  `pw` (option `ved.compose.step`): the proof of `hOs` uses the children's
 pointwise lemmas (`mkPointwise`) instead of unfolding them; the produced definitions are the same. -/
 def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable) (kids : Array Kid)
@@ -244,6 +437,13 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
     let some (run, wrap) ← findRun body0 24
       | refuse decl "open" m!"the declaration's value does not reduce to a `circuit do` (runCircuitH)"
     Tools.VedU2HierDbg.openTickE "findRun end" body0
+    -- VED compose multiCircuit (option, default off): two wired closed circuits are one circuit over the appended registers
+    let (run, fuseEq?) ←
+      if Tools.VedComposeMultiCircuit.ved.compose.multiCircuit.get (← getOptions) then
+        match ← fuseTwo decl kids pw stmt xs run wrap base (openSuf ++ "_fz") with
+        | some (fr, nm) => pure (fr, some nm)
+        | none => pure (run, none)
+      else pure (run, none)
     let rargs := run.getAppArgs
     unless rargs.size == 8 do refuse decl "open" m!"runCircuitH is not fully applied"
     let dom := rargs[0]!; let αs := rargs[1]!; let rhoTy := rargs[2]!; let inits := rargs[6]!; let body := rargs[7]!
@@ -477,7 +677,9 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
             mkLambdaFVars #[L] (wrap (← mkAppOptM ``outFOf ((pre.map some) ++ #[some inits, some bodyStar, some L])))
           let hQP ← mkAppM ``Tools.VedU2HierMulti.signal_ext #[hknot]
           let pfBody ← mkAppM ``congrArg #[A, hQP]
-          let pf ← mkLambdaFVars xs pfBody
+          let pf ← match fuseEq? with
+            | none => mkLambdaFVars xs pfBody
+            | some fe => mkLambdaFVars xs (← mkAppM ``Eq.trans #[mkAppN (Lean.mkConst fe) xs, pfBody])
           let eqName := base ++ Name.mkSimple (openSuf ++ "_eq")
           try
             withOptions (fun o => o.setBool `Elab.async false) do
