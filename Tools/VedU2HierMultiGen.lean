@@ -427,8 +427,9 @@ def fuseOne (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) 
     ``Tools.VedComposeMultiCircuit.stake, ``Tools.VedComposeMultiCircuit.sdrop, ``Tools.VedComposeMultiCircuit.sappend,
     ``Sparkle.Core.mkRegList, ``Sparkle.Core.mkHolds]
   let rawRef ← IO.mkRef (Lean.mkConst ``True)
-  let bodyFN ← forallTelescopeReducing (← inferType bodyF) fun vs _ => do
-    let e ← Meta.transform (mkAppN bodyF vs) (pre := fun x => do
+  let unf (bF : Lean.Expr) : TermElabM Lean.Expr :=
+    inferType bF >>= fun bTy => forallTelescopeReducing bTy fun vs _ => do
+    let e ← Meta.transform (mkAppN bF vs) (pre := fun x => do
       if let .const n _ := x.getAppFn then
         if mine.contains n then
           if let some y ← unfoldDefinition? x then return .visit y.headBeta
@@ -463,9 +464,33 @@ def fuseOne (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) 
           if s.isAppOfArity ``Prod.mk 4 then return .done (s.getArg! (2 + i))
       return .done x)
     mkLambdaFVars vs e
-  let fusedRun ← mkAppOptM ``Sparkle.Core.runCircuitH
-    #[some dom, some αF, some ρB, some rargs[3]!, some instF1, some instF2, some iF, some bodyFN]
-  let stepPf ← mkExpectedTypeHint fuseApp (← mkEq fusedRun run)
+  let runFn (b : Lean.Expr) : MetaM Lean.Expr := mkAppOptM ``Sparkle.Core.runCircuitH
+    #[some dom, some αF, some ρB, some rargs[3]!, some instF1, some instF2, some iF, some b]
+  -- chain fusion (not the shared-circuit path): the unfolding of `fuseBody` is proved ONCE with the three bodies as VARIABLES
+  -- (the lens reads `mkRegList`/`mkHolds` of the concrete register list are evaluated once, not at every occurrence inside the
+  -- bodies), then instantiated with the actual bodies: the kernel never compares the unfolded body against `fuseBody` bodyA ..
+  -- by unfolding, whose cost grew with (body size x register width) per fusion step
+  let (bodyFN, genEq?) ← if prodRed then pure (← unf bodyF, none) else do
+    let tA ← inferType bodyA; let tw ← inferType wA; let tB ← inferType bodyB
+    withLocalDeclD `bA tA fun bA => withLocalDeclD `wA tw fun w => withLocalDeclD `bB tB fun bB => do
+      let bF ← mkAppM ``Tools.VedComposeMultiCircuit.fuseBody #[bA, w, bB]
+      let eN ← unf bF
+      let vs := #[bA, w, bB]
+      let eqTy ← mkForallFVars (xs ++ vs) (← mkEq bF eN)
+      let eqVal ← mkLambdaFVars (xs ++ vs) (← mkEqRefl bF)
+      let eqName := base ++ Name.mkSimple (sfx ++ "_unf")
+      withOptions (fun o => o.setBool `Elab.async false) do
+        addDecl (.thmDecl { name := eqName, levelParams := [], type := eqTy, value := eqVal })
+      let eAbs ← mkLambdaFVars vs eN
+      pure (eAbs.beta #[bodyA, wA, bodyB], some (mkAppN (Lean.mkConst eqName) (xs ++ #[bodyA, wA, bodyB])))
+  let fusedRun ← runFn bodyFN
+  let stepPf ← match genEq? with
+    | none => mkExpectedTypeHint fuseApp (← mkEq fusedRun run)
+    | some genEq => do
+      let ty ← inferType bodyF
+      let f ← withLocalDeclD `b ty fun b => do mkLambdaFVars #[b] (← runFn b)
+      let c ← mkAppM ``congrArg #[f, genEq]
+      mkExpectedTypeHint (← mkEqTrans (← mkEqSymm c) fuseApp) (← mkEq fusedRun run)
   -- measurement only (`VED_OPEN_TICK`): the kernel time of this one fusion step (the whole fuseEq is checked once more at the end)
   if ← Tools.VedU2HierDbg.openTickOn then
     let t0 ← IO.monoMsNow
@@ -481,11 +506,13 @@ def fuseOne (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) 
     -- (a) the fused run against `fuseBody` unfolded (bodyFN); (b) the reader with the circuit read substituted against `run`
     let fuseRunRaw ← mkAppOptM ``Sparkle.Core.runCircuitH
       #[some dom, some αF, some ρB, some rargs[3]!, some instF1, some instF2, some iF, some bodyF]
-    chk "_chkA" fuseRunRaw fusedRun
-    let rawRun ← mkAppOptM ``Sparkle.Core.runCircuitH
-      #[some dom, some αF, some ρB, some rargs[3]!, some instF1, some instF2, some iF, some (← rawRef.get)]
-    chk "_chkA1" fuseRunRaw rawRun
-    chk "_chkA2" rawRun fusedRun
+    -- the whole-body defeq checks (unit 19/20 measurement of the old route) only when the body was unfolded by defeq
+    if genEq?.isNone then
+      chk "_chkA" fuseRunRaw fusedRun
+      let rawRun ← mkAppOptM ``Sparkle.Core.runCircuitH
+        #[some dom, some αF, some ρB, some rargs[3]!, some instF1, some instF2, some iF, some (← rawRef.get)]
+      chk "_chkA1" fuseRunRaw rawRun
+      chk "_chkA2" rawRun fusedRun
     let rhsB ← mkAppOptM ``Sparkle.Core.runCircuitH
       #[some dom, some αB, some ρB, some rargs[3]!, some rargs[4]!, some rargs[5]!, some iB, some (mkApp bodyB (mkApp wA runA))]
     chk "_chkB" rhsB run
