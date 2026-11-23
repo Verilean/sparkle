@@ -322,23 +322,148 @@ def topr0 (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec
     if axs.contains ``sorryAx then throwError "{thm}: sorryAx"
     logInfo m!"CHILD THEOREM (sequential struct child, 1 register, outputs {names}): {thm} U1Stmt, std3, no sorryAx"
 
--- (b) the PARENT is refused (pinned; the first unsupplied propositions), nothing left behind, option on
-#eval show CommandElabM Unit from do
-  withScope (fun sc => { sc with opts := sc.opts.setBool `ved.compose.multiOut true }) do
-    for (decl, stage, needle) in [(``topr, "proof", "asgOnly"), (``topr0, "conns", "parent register output")] do
-      let (m, d) ← synthOf decl
-      let before ← localConsts
-      let (stmt, nDom) ← liftTermElabM (specialiseDomain decl)
-      let r ← try
-          discard <| checkU2HR decl stmt nDom m d none
-          pure none
-        catch e => pure (some (← liftTermElabM (e.toMessageData.toString)))
-      let some msg := r | throwError "{decl}: expected a refusal, the checker ACCEPTED"
-      unless msg.startsWith s!"VED U1 REFUSED {decl} [{stage}]" && (msg.splitOn needle).length > 1 do
-        throwError "{decl}: expected [{stage}] with `{needle}`, got: {msg.take 400}"
-      let added := (← localConsts).toList.filter (!before.contains ·)
-      unless added.isEmpty do throwError "{decl}: constants left after the refusal: {added}"
-      logInfo m!"PARENT REFUSED (sequential struct child, option on) {decl}: {msg.take 300}"
+-- (b) (unit 3 pinned the parent's refusals here; unit 4 accepts them: see the section below)
 
 end Tests.Ved.MultiOutCheck
 
+/-! ## Unit 4: a parent with registers over SEQUENTIAL 2-output struct children
+
+* (a) `topr0`: the child's input is the parent's REGISTER; `topr`: the child's inputs are the parent's data inputs;
+* (b) `topb`: two instances of the sequential child, the second reads an OUTPUT of the first (chain through a multi-output producer);
+* (c) `topc`: one instance whose two outputs feed two DIFFERENT consumers (the nets are keyed by (instance, OUTPUT PORT)).
+
+All are accepted with the stored type `U2HRStmtK c m d top`, the same artifact, std3, the kernel, the child theorem constant used
+(`acceptK`).  `U2HRStmtK` is an unreviewed candidate statement. -/
+
+namespace Tests.Ved.MultiOutCheck
+
+open Lean Elab Command Term Meta
+open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics Sparkle.Core.Domain Sparkle.Core.Signal
+open Tools.VedU1Contract Tools.VedU1Hier Tools.VedU2Hier Tools.VedU2HierRegEntry Tests.Ved.ComposeCheckUtil
+
+def topb (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c1 := kidr accS inp
+    let c2 := kidr c1.s inp
+    acc <~ (c2.s + c2.d : Signal defaultDomain (BitVec 4))
+    return accS
+
+def topc (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c1 := kidr accS inp
+    let c2 := kidr c1.s inp
+    let c3 := kidr c1.d inp
+    acc <~ (c2.s + c3.d : Signal defaultDomain (BitVec 4))
+    return accS
+
+-- copies for the controls (the accepted ones leave their constants in the environment)
+def topr0n (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := kidr accS inp
+    acc <~ (c.s - c.d : Signal defaultDomain (BitVec 4))
+    return accS
+
+def topbn (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c1 := kidr accS inp
+    let c2 := kidr c1.s inp
+    acc <~ (c2.s + c2.d : Signal defaultDomain (BitVec 4))
+    return accS
+
+def topcn (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c1 := kidr accS inp
+    let c2 := kidr c1.s inp
+    let c3 := kidr c1.d inp
+    acc <~ (c2.s + c3.d : Signal defaultDomain (BitVec 4))
+    return accS
+
+def withMO (conn : Bool) (sc : Command.Scope) : Command.Scope :=
+  { sc with opts := (sc.opts.setBool `ved.compose.multiOut true).setBool `ved.compose.connect conn }
+
+#eval show CommandElabM Unit from do
+  withScope (withMO false) do
+    acceptK ``topr0 `Tests.Ved.MultiOutCheck.kidr
+    acceptK ``topr `Tests.Ved.MultiOutCheck.kidr
+  withScope (withMO true) do
+    acceptK ``topb `Tests.Ved.MultiOutCheck.kidr
+    acceptK ``topc `Tests.Ved.MultiOutCheck.kidr
+
+/-- the instances of a body, with their position -/
+def instsOf (b : List Stmt) : List (Nat × String × String × List (String × Sparkle.IR.AST.Expr)) :=
+  let rec go : List Stmt → Nat → List (Nat × String × String × List (String × Sparkle.IR.AST.Expr))
+    | [], _ => []
+    | .inst mn i cs :: r, n => (n, mn, i, cs) :: go r (n + 1)
+    | _ :: r, n => go r n
+  go b 0
+
+-- controls (observed refusals), option on
+#eval show CommandElabM Unit from do
+  -- (a) topr0: the two outputs of the sequential child swapped (same width): the shape passes, a proof refuses
+  withScope (withMO false) do
+    let (m, d) ← synthOf ``topr0n
+    let outS := ((d.modules.map (·.outputs)).headD []).map (·.name)
+    let (o1, o2) := (outS[0]!, outS[1]!)
+    let (some w1, some w2) := (connOf m.body o1, connOf m.body o2) | throwError "no connections"
+    let kd := fun b => ({ m with body := b } : Sparkle.IR.AST.Module)
+    let mSwap := kd (editConn 0 o1 (some w2) (editConn 0 o2 (some w1) m.body))
+    unless HierShapeK d mSwap == true do throwError "swap: HierShapeK should stay true"
+    ctlK "(a-i) topr0: swapped same-width outputs" ``topr0n ["proof", "kernel", "open", "deep"] mSwap d
+    ctlK "(a-ii) topr0: output d missing" ``topr0n ["hier-shape"] (kd (editConn 0 o2 none m.body)) d
+    ctlK "(a-iii) topr0: wrong wiring" ``topr0n ["hier-shape", "order", "proof", "kernel", "conns", "open", "deep", "artifact"]
+      (kd (editConn 0 o1 (some (.ref "_tmp_c_s_9")) m.body)) d
+  -- (c) topc: the two outputs of the producer swapped between the two consumers
+  withScope (withMO true) do
+    let (m, d) ← synthOf ``topcn
+    let is := instsOf m.body
+    let outWires := is.flatMap fun (_, _, _, cs) => cs.filterMap fun (p, e) => match p, e with
+      | "s", .ref w => some w
+      | "d", .ref w => some w
+      | _, _ => none
+    -- the consumers: instances whose `_gen_x` reads an output wire of another instance
+    let cons := is.filter fun (_, _, _, cs) => match cs.lookup "_gen_x" with
+      | some (.ref w) => outWires.contains w
+      | _ => false
+    -- (the synthesized IR holds each producer/consumer chain twice: the nets of the result and those of the `let`s; the control
+    -- mis-wires both copies the same way)
+    unless cons.length == 4 do throwError "topc: expected 4 consumer instances, found {cons.length}"
+    let swapPair (b : List Stmt) (p q : Nat × String × String × List (String × Sparkle.IR.AST.Expr)) : List Stmt :=
+      match p.2.2.2.lookup "_gen_x", q.2.2.2.lookup "_gen_x" with
+      | some x1, some x2 => setConnAt p.1 "_gen_x" x2 (setConnAt q.1 "_gen_x" x1 b)
+      | _, _ => b
+    let mSw := ({ m with body := swapPair (swapPair m.body cons[0]! cons[1]!) cons[2]! cons[3]! } : Sparkle.IR.AST.Module)
+    ctlK "(c) topc: the producer's two outputs swapped between the consumers" ``topcn
+      ["proof", "kernel", "open", "deep", "hier-shape", "order"] mSw d
+    -- (b) topb: the consumer reads the producer's OTHER output (d for s)
+    let (mb, db) ← synthOf ``topbn
+    let isb := instsOf mb.body
+    let consb := isb.filter fun (_, _, _, cs) => match cs.lookup "_gen_x" with
+      | some (.ref w) => isb.any fun (_, _, _, cs') => cs'.lookup "s" == some (.ref w)
+      | _ => false
+    unless consb.length == 2 do throwError "topb: expected 2 consumer instances, found {consb.length}"
+    let mut bodyB := mb.body
+    for (kb, _, _, csb) in consb do
+      let some (.ref xb) := csb.lookup "_gen_x" | throwError "no _gen_x"
+      let some dw := (isb.filterMap fun (_, _, _, cs) => match cs.lookup "s", cs.lookup "d" with
+        | some (.ref sw), some (.ref dw) => if sw == xb then some dw else none
+        | _, _ => none).head? | throwError "no producer"
+      bodyB := setConnAt kb "_gen_x" (.ref dw) bodyB
+    ctlK "(b) topb: the consumer reads the producer's other output" ``topbn
+      ["proof", "kernel", "open", "deep", "hier-shape", "order"]
+      ({ mb with body := bodyB } : Sparkle.IR.AST.Module) db
+  -- the option off: the old text (a design with a 2-output child is outside U2HRStmt)
+  let (m0, d0) ← synthOf ``topr0n
+  let off ← refMsg ``topr0n m0 d0
+  expectMsg "(iv) option off, topr0" off ["[hier-shape]", "has 2 outputs (multi-output children: H3)"]
+
+end Tests.Ved.MultiOutCheck

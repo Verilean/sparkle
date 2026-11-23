@@ -492,12 +492,81 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
           let hOsOld := s!"simp only [{osU}, {reachL}, {plumbingL}, {sigvalL}, hx, and_self, and_true]"
           let hOsClose := if pwNames.isEmpty then hOsOld else
             s!"first | (simp only [{osU}, {", ".intercalate (pwNames.toList.map fun n => toString (userName n))}, {plumbingL}, {sigvalL}, hx, and_self, and_true]; done) | ({hOsOld})"
+          -- option `ved.compose.multiOut`: the leaves of a call of a SEQUENTIAL struct-valued child (it has registers): its output at
+          -- cycle `i` reads the arguments at every cycle `≤ i`, so the leaf is proved from the child's own theorem
+          -- (`Tools.VedU2Hier.bundle_causal`, the argument observations agreeing at every `k ≤ i`), never by unfolding the child
+          let mut seqLeaf : Array (Option Name) := Array.replicate nL none
+          for ((key, _), j) in (orcKey.zip orcSite).zipIdx do
+            let kid := kids[key.1]!
+            unless multiOutOn && (structs[j]!).isSome && !(regsOf kid.c.body).isEmpty do continue
+            let psE := toExpr kid.tbl.ins
+            let argsName := base ++ Name.mkSimple (openSuf ++ s!"_sargs{j}")
+            let argsTup ← mkTuple (key.2.map realCalls)
+            let argsTy ← mkForallFVars (xs.push live) (Lean.mkApp (Lean.mkConst ``Tools.VedU1Hier.ArgSigs) psE)
+            addDefnRegular argsName argsTy (← mkLambdaFVars (xs.push live) argsTup)
+            let argsU := toString (userName argsName)
+            let hobsName := base ++ Name.mkSimple (openSuf ++ s!"_shobs{j}")
+            let hobsTy ← mkForallFVars xs (← withLocalDeclD `t natTy fun t => withLocalDeclD `x liveTy fun x =>
+                withLocalDeclD `y liveTy fun y => do
+              let hyp ← agreeBelow x y t
+              let concl ← withLocalDeclD `i natTy fun i => withLocalDeclD `k natTy fun kk => do
+                let eq := mkAppN (Lean.mkConst `Tools.VedU2Hier.ArgsAgree) #[psE, mkAppN (Lean.mkConst argsName) (xs ++ #[x]),
+                  mkAppN (Lean.mkConst argsName) (xs ++ #[y]), kk]
+                mkForallFVars #[i] (← mkArrow (← mkAppM ``LT.lt #[i, t]) (← mkForallFVars #[kk] (← mkArrow (← mkAppM ``LE.le #[kk, i]) eq)))
+              mkForallFVars #[t, x, y] (← mkArrow hyp concl))
+            -- the arguments' agreement at cycle `k ≤ i`: an argument that is an earlier call's leaf (a chained instance) by that leaf's lemma
+            -- (at cycle `k < t`), any other by evaluation at cycle `k` (the registers agree at `k`)
+            let prodL := (seqLeaf.toList.zipIdx.filterMap fun (o, n) => o.map fun ln => (n, toString (userName ln)))
+            let prodFacts := String.intercalate "\n" (prodL.map fun (n, ln) =>
+              s!"  have hp{n} := {ln} {intros} t x y h k (by omega)")
+            let prodNames := String.intercalate " | " (prodL.map fun (n, _) => s!"exact hp{n}")
+            let nPorts := kid.tbl.ins.length
+            let closeAll := if prodNames.isEmpty then s!"{OPEN} simp only [{reachL}, {plumbingL}, {sigvalL}, hxk]"
+              else s!"first | {prodNames} | ({OPEN} simp only [{reachL}, {plumbingL}, {sigvalL}, hxk])"
+            proveByScript decl hobsName hobsTy s!"by
+  intro {intros} t x y h i hi k hk
+  have hxk := h k (by omega)
+{prodFacts}
+  {OPEN} simp only [Tools.VedU2Hier.ArgsAgree, {argsU}]
+  refine ⟨{String.intercalate ", " (List.replicate nPorts "?_" ++ ["trivial"])}⟩
+  all_goals ({closeAll})"
+            let hobsU := toString (userName hobsName)
+            -- the path of leaf `l` in the result tuple (the table's output type)
+            let rec pathOf : OTy → Nat → String → String
+              | .leaf _, _, v => v
+              | .pair a b, l, v =>
+                if l < a.flat.length then pathOf a l s!"(Prod.fst {v})" else pathOf b (l - a.flat.length) s!"(Prod.snd {v})"
+            for l in List.range leafTerms[j]!.size do
+              let leafE := leafTerms[j]![l]!
+              let idx := leafBase[j]! + l
+              let leafName := base ++ Name.mkSimple (openSuf ++ s!"_sleaf{idx}")
+              let leafTy ← mkForallFVars xs (← withLocalDeclD `t natTy fun t => withLocalDeclD `x liveTy fun x =>
+                  withLocalDeclD `y liveTy fun y => do
+                let hyp ← agreeBelow x y t
+                let concl ← withLocalDeclD `i natTy fun i => do
+                  let eq ← mkEq (← valAt (leafE.replaceFVar live x) i) (← valAt (leafE.replaceFVar live y) i)
+                  mkForallFVars #[i] (← mkArrow (← mkAppM ``LT.lt #[i, t]) eq)
+                mkForallFVars #[t, x, y] (← mkArrow hyp concl))
+              proveByScript decl leafName leafTy s!"by
+  intro {intros} t x y h i hi
+  have key := Tools.VedU2Hier.bundle_causal_agree {toString (userName kid.nm.thm)} ({argsU} {intros} x) ({argsU} {intros} y) i ({hobsU} {intros} t x y h i hi)
+  have key2 := congrArg (fun v => {pathOf kid.tbl.out l "v"}) key
+  exact key2"
+              seqLeaf := seqLeaf.set! idx (some leafName)
+          let hOsBody : String :=
+            if seqLeaf.all (·.isNone) then s!"  {OPEN} {hOsClose}"
+            else
+              let goals := String.intercalate ", " (List.replicate nL "?_" ++ ["trivial"])
+              let cases := seqLeaf.toList.map fun o => match o with
+                | some ln => s!"  · exact {toString (userName ln)} {intros} t x y h i hi"
+                | none => s!"  · {OPEN} {hOsClose}"
+              s!"  refine ⟨{goals}⟩\n" ++ "\n".intercalate cases
           proveByScript decl hOsName hOsTy s!"by
   intro {intros} t x y h
   unfold {eU}
   intro i hi
   have hx := h i hi
-  {OPEN} {hOsClose}"
+{hOsBody}"
           Tools.VedU2HierDbg.openTick "hOs end"
           -- the knot: the declaration's loop IS the open loop with the oracle fixed along it
           let Qx := qBody

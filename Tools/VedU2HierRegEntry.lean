@@ -206,8 +206,8 @@ partial def inlineNet (dataIns : List String) (b : List Stmt) : Nat → Sparkle.
 
 /-- VED compose connect: `inlineNet`, then every instance output leaf is replaced by a leaf naming the instance's module and the
 (recursively keyed) nets of its input ports, so two copies of a chain of instances get equal keys. -/
-partial def keyNetI (d : Design) (dataIns : List String) (b : List Stmt) (fuel : Nat) (e : Sparkle.IR.AST.Expr) :
-    Sparkle.IR.AST.Expr :=
+partial def keyNetI (d : Design) (dataIns : List String) (b : List Stmt) (fuel : Nat) (e : Sparkle.IR.AST.Expr)
+    (portKey : Bool := false) : Sparkle.IR.AST.Expr :=
   let rec sub : Nat → Sparkle.IR.AST.Expr → Sparkle.IR.AST.Expr
     | 0, e => e
     | f + 1, e =>
@@ -218,7 +218,12 @@ partial def keyNetI (d : Design) (dataIns : List String) (b : List Stmt) (fuel :
             | _ => none) with
         | some (mn, cs) =>
           let outs := match findMod d mn with | some c => c.outputs.map (fun (p : Sparkle.IR.AST.Port) => p.name) | none => []
-          .ref s!"#inst:{mn}:{repr ((cs.filter fun q => !outs.contains q.1).map fun q => (q.1, match q.2 with
+          -- option `ved.compose.multiOut` (`portKey`): the key names the OUTPUT PORT the wire is (two outputs of one instance feeding
+          -- different consumers are different nets); the key of a single-output instance is unchanged
+          let port := if portKey then (match cs.find? (fun q => outs.contains q.1 && (match q.2 with | .ref z => z == y | _ => false)) with
+            | some q => s!":{q.1}"
+            | none => "") else ""
+          .ref s!"#inst:{mn}{port}:{repr ((cs.filter fun q => !outs.contains q.1).map fun q => (q.1, match q.2 with
             | .ref z => sub f (inlineNet dataIns b b.length (.ref z))
             | q2 => q2))}"
         | none => e
@@ -568,15 +573,46 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         X := X.push s!"have hdl : {K.contract}.dataInputs = {hwList} := by decide"
         -- VED compose connect: the kid fact (same cycle) of every producer instance this instance's nets read
         let producers : List Nat :=
-          if hoist && ii.stateArg && di.connect then
+          if (hoist || mo) && ii.stateArg && di.connect then
             let rootsB := (ii.cs.filterMap fun (_, e) => match e with | .ref x => some x | _ => none) ++
               (ii.chain.flatMap fun (w, _) => match asgOf di.b0 w with | some r => refsOf r | none => [])
-            (insts.zipIdx.filter fun (pi, pj) => pj < j && pi.iname != ii.iname && rootsB.contains pi.y).map (·.2)
+            (insts.zipIdx.filter fun (pi, pj) => pj < j && pi.iname != ii.iname &&
+              (if mo then (outsOf pi kidA[pi.kid]!).any (fun (_, y) => rootsB.contains y) else rootsB.contains pi.y)).map (·.2)
           else []
         let mut prodFacts : List String := []
         let mut prodLts : List String := []
+        let seqI := ii.stateArg && isSeqK k
+        -- (a sequential consumer proves the producers' facts INSIDE `hrunF0`, at its general cycle)
+        let mut prodX : Array String := #[]
+        let X0 := X
+        X := #[]
         for (pi, pj) in insts.zipIdx do
           unless producers.contains pj do continue
+          if mo then
+            -- option `ved.compose.multiOut`: the producer's kid fact once (`hky{pj}`), then ONE fact per output port (the call's leaf)
+            X := X.push s!"have hky{pj} : ∀ y, y ∈ Tools.VedU1Hier.instOuts {P.design} {sq pi.mn} {connsLit pi.cs} → E y = {owBody} := by"
+            X := X.push s!"  intro y hy"
+            X := X.push s!"  have hin0 := hb0.1.mem_iff.mp (show Sparkle.IR.AST.Stmt.inst {sq pi.mn} {sq pi.iname} {connsLit pi.cs} ∈ {P.body} by simp [{P.body}])"
+            for l in linesDone.getD pj [] do X := X.push ("  " ++ l.replace "\n" "\n  ")
+            for ((_, yw), l) in (outsOf pi kidA[pi.kid]!).zipIdx do
+              let sgP := callTxt calls[pi.call + l]!
+              let nmP := s!"{pj}_{l}"
+              X := X.push s!"have hkp{nmP} : E {sq yw} = {obsOf (callOut calls[pi.call + l]!) sgP} := by"
+              X := X.push s!"  have h := hky{pj} {sq yw} (by rw [hO{pj}]; simp)"
+              X := X.push s!"  simpa using h"
+              match callOut calls[pi.call + l]! with
+              | .bv w =>
+                X := X.push s!"have hlkp{nmP} : E {sq yw} < 2 ^ {w} := by"
+                X := X.push s!"  rw [hkp{nmP}]"
+                X := X.push s!"  simpa [Tools.VedU1Contract.PTy.obs] using ({sgP}.val t).isLt"
+              | .bit =>
+                X := X.push s!"have hlkp{nmP} : E {sq yw} < 2 ^ 1 := by"
+                X := X.push s!"  rw [hkp{nmP}]"
+                X := X.push s!"  have h : Bool.toNat ({sgP}.val t) < 2 ^ 1 := by cases ({sgP}.val t) <;> simp"
+                X := X.push s!"  simpa [Tools.VedU1Contract.PTy.obs] using h"
+              prodFacts := prodFacts ++ [s!"hkp{nmP}"]
+              prodLts := prodLts ++ [s!"hlkp{nmP}"]
+            continue
           let sgP := callTxt calls[pi.call]!
           X := X.push s!"have hkp{pj} : E {sq pi.y} = {obsOf (kidOut pi.kid) sgP} := by"
           X := X.push s!"  have hky : ∀ y, y ∈ Tools.VedU1Hier.instOuts {P.design} {sq pi.mn} {connsLit pi.cs} → E y = {owBody} := by"
@@ -597,6 +633,9 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
             X := X.push s!"  simpa [Tools.VedU1Contract.PTy.obs] using h"
           prodFacts := prodFacts ++ [s!"hkp{pj}"]
           prodLts := prodLts ++ [s!"hlkp{pj}"]
+        prodX := X
+        X := X0
+        if !seqI then X := X ++ prodX
         X := X.push s!"have hrange : ∀ t, ∀ p ∈ {K.contract}.dataInputs, {Fj} ins t p.name < 2 ^ Tools.VedU1Contract.declWidth {K.mod} p.name := by"
         X := X.push s!"  intro t p hp"
         X := X.push s!"  rw [hdl] at hp"
@@ -615,12 +654,12 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           | .bit =>
             X := X.push s!"    have h : Bool.toNat {A} < 2 ^ 1 := by cases {A} <;> simp"
             X := X.push s!"    simpa [{Fj}, Tools.VedU1Contract.PTy.obs] using h"
-        let seqI := ii.stateArg && isSeqK k
         if seqI then
           -- sequential child: the port facts are proved at a GENERAL cycle (`hrunF0`, the names of the block shadow the cycle `t`'s),
           -- and `hrunF` asks them at every `s ≤ t` from the history `hh` of the invariant
-          X := X.push s!"have hrunF0 : ∀ t, t < K → ∀ S E, sts[t]? = some S → envs[t]? = some E → {rTerm} ins t (S []) → ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E x = {Fj} ins t p.name := by"
-          X := X.push s!"  intro t ht S E hS' hE hR p hp"
+          X := X.push s!"have hrunF0 : ∀ t, t < K → ∀ S E, sts[t]? = some S → envs[t]? = some E → {rTerm} ins t (S []) → (∀ s, s ≤ t → ∀ S' E', sts[s]? = some S' → envs[s]? = some E' → {rTerm} ins s (S' [])) → ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E x = {Fj} ins t p.name := by"
+          X := X.push s!"  intro t ht S E hS' hE hR hh p hp"
+          X := X ++ prodX.map fun l => "  " ++ l.replace "\n" "\n  "
         else if ii.stateArg then
           X := X.push s!"have hrunF : ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E x = {Fj} ins t p.name := by"
           X := X.push s!"  intro p hp"
@@ -735,7 +774,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           X := X.push s!"have hrunF : ∀ s, s ≤ t → ∀ E', envs[s]? = some E' → ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E' x = {Fj} ins s p.name := by"
           X := X.push s!"  intro s hs E' hE' p hp"
           X := X.push s!"  obtain ⟨_, S', _, hS2, _⟩ := {T2}.runHSTrace_cycle {P.design} arr {P.mod} (Tools.VedU1Contract.seedFwd {P.mod} K ins) K ({T2}.st0H {P.design} {P.mod}) envs sts hrun s (by omega)"
-          X := X.push s!"  exact hrunF0 s (by omega) S' E' hS2 hE' (hh s hs S' E' hS2 hE') p hp"
+          X := X.push s!"  exact hrunF0 s (by omega) S' E' hS2 hE' (hh s hs S' E' hS2 hE') (fun s' hs' S'' E'' h1 h2 => hh s' (Nat.le_trans hs' hs) S'' E'' h1 h2) p hp"
           X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_seq_multi {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange t ht hrunF E hE _ hq"
         else if ii.stateArg then
           X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_step{sfx} {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange t ht E hE hrunF _ hq"
@@ -1232,7 +1271,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
         some (ki, ck.dataInputs.map fun p => match cs.lookup p.name with
           | some (.ref x) =>
             if connOn then
-              keyNetI d (c.dataInputs.map (·.name) ++ regLeaves) b0 b0.length (.ref x)
+              keyNetI d (c.dataInputs.map (·.name) ++ regLeaves) b0 b0.length (.ref x) (portKey := mo)
             else inlineNet (c.dataInputs.map (·.name) ++ regLeaves) b0 b0.length (.ref x)
           | _ => .ref "?")
       | none => none

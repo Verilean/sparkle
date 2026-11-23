@@ -1398,92 +1398,12 @@ theorem outputsOnHS_of_stepRKH_multi (c : Contract) (m : Module) (d : Design)
 /-! ### The causality of a child CALL (signal arguments), from the child's own theorem
 
 `srcOf_prefix` speaks about input STREAMS.  The open parent's oracle is a child CALL on signals computed from the parent's
-loop state; `call_causal` states the same fact for such a call: two argument tuples whose observations agree at every cycle
-`k ≤ i` give the same output observations at `i`.  Nothing about the child is assumed: `hU` is its theorem (`U1Stmt`). -/
-
-open Sparkle.Core.Signal Sparkle.Core.Domain in
-/-- One signal per port of a table. -/
-def ArgsOf : List PTy → Type
-  | [] => Unit
-  | p :: ps => Signal defaultDomain p.val × ArgsOf ps
-
-open Sparkle.Core.Signal Sparkle.Core.Domain in
-/-- The call of a table-typed function on an argument tuple. -/
-def applyArgs {R : Type} : (ps : List PTy) → InTy ps R → ArgsOf ps → R
-  | [], f, _ => f
-  | _ :: ps, f, (a, as) => applyArgs ps (f a) as
-
-open Sparkle.Core.Signal Sparkle.Core.Domain in
-/-- The observations of the arguments at cycle `t`, in port order. -/
-def obsArgs : (ps : List PTy) → ArgsOf ps → Nat → List Nat
-  | [], _, _ => []
-  | p :: ps, (a, as), t => p.obs (a.val t) :: obsArgs ps as t
-
-/-- The stream an argument tuple denotes under the port names `names` (0 for any other name). -/
-def argStream (ps : List PTy) (A : ArgsOf ps) (names : List String) : Nat → String → Nat :=
-  fun t n => ((names.zip (obsArgs ps A t)).lookup n).getD 0
-
-theorem sig_of_obs_pty (p : PTy) (a : Sparkle.Core.Signal.Signal Sparkle.Core.Domain.defaultDomain p.val)
-    (ins : Nat → String → Nat) (n : String) (h : ∀ t, ins t n = p.obs (a.val t)) : p.sig ins n = a := by
-  cases p with
-  | bit => exact sig_of_obs_bit a ins n h
-  | bv w => exact sig_of_obs_bv w a ins n h
-
-theorem applyIns_args {R : Type} : ∀ (ps : List PTy) (names : List String) (A : ArgsOf ps) (f : InTy ps R)
-    (ins : Nat → String → Nat), names.Nodup → names.length = ps.length →
-    (∀ t, ∀ m ∈ names, ins t m = ((names.zip (obsArgs ps A t)).lookup m).getD 0) →
-    applyIns ps names ins f = applyArgs ps f A
-  | [], names, A, f, ins, _, _, _ => rfl
-  | p :: ps, names, (a, as), f, ins, hnd, hlen, hins => by
-    cases names with
-    | nil => simp at hlen
-    | cons n ns =>
-      simp only [applyIns, applyArgs, List.tail_cons, List.headD_cons]
-      have hsig : p.sig ins n = a := sig_of_obs_pty p a ins n (fun t => by
-        have := hins t n (List.mem_cons_self ..)
-        simpa [obsArgs] using this)
-      rw [hsig]
-      refine applyIns_args ps ns as (f a) ins (List.nodup_cons.mp hnd).2 (by simpa using hlen) ?_
-      intro t m hm
-      have h1 := hins t m (List.mem_cons_of_mem _ hm)
-      have hne : ¬ (m = n) := fun e => (List.nodup_cons.mp hnd).1 (e ▸ hm)
-      have hne' : (m == n) = false := by simpa using hne
-      simpa [obsArgs, List.lookup, hne'] using h1
-
-theorem lookup_zip_none (n : String) : ∀ (names : List String) (L : List Nat), n ∉ names →
-    (names.zip L).lookup n = none
-  | [], L, _ => by simp
-  | m :: ms, [], _ => by simp
-  | m :: ms, l :: L, h => by
-    have h1 : ¬ (n = m) := fun e => h (e ▸ List.mem_cons_self ..)
-    have h1' : (n == m) = false := by simpa using h1
-    have h2 := lookup_zip_none n ms L (fun e => h (List.mem_cons_of_mem _ e))
-    simp [List.lookup, h1', h2]
-
-theorem PTy.obs_lt (p : PTy) (v : p.val) : p.obs v < 2 ^ p.width := by
-  cases p with
-  | bit => cases (show Bool from v) <;> simp [PTy.obs, PTy.width]
-  | bv w => exact BitVec.isLt _
-
-theorem argStream_lt : ∀ (ps : List PTy) (A : ArgsOf ps) (names : List String) (t : Nat), names.Nodup →
-    ∀ n pt, (n, pt) ∈ names.zip ps → argStream ps A names t n < 2 ^ pt.width
-  | [], A, names, t, _, n, pt, h => by simp at h
-  | p :: ps, (a, as), names, t, hnd, n, pt, h => by
-    cases names with
-    | nil => simp at h
-    | cons m ms =>
-      rw [List.zip_cons_cons, List.mem_cons] at h
-      rcases h with h | h
-      · obtain ⟨rfl, rfl⟩ := Prod.mk.inj h
-        simp only [argStream, obsArgs, List.zip_cons_cons, List.lookup, beq_self_eq_true, if_true, Option.getD_some]
-        exact PTy.obs_lt _ _
-      · have hnm : ¬ (n = m) := fun e => (List.nodup_cons.mp hnd).1 (e ▸ (List.of_mem_zip h).1)
-        have := argStream_lt ps as ms t (List.nodup_cons.mp hnd).2 n pt h
-        have hnm' : (n == m) = false := by simpa using hnm
-        simpa [argStream, obsArgs, List.lookup, hnm'] using this
+loop state; `call_causal` states the same fact for such a call: two argument tuples (`ArgSigs`, `Tools/VedU1HierComp.lean`)
+whose observations agree at every cycle `k ≤ i` give the same output observations at `i`; `bundle_causal` the same for the
+call's whole result value.  Nothing about the child is assumed: `hU` is its theorem (`U1Stmt`). -/
 
 theorem call_causal {ck : Contract} {c : Module} {g : ck.table.Ty} (hU : U1Stmt ck c g)
-    (A B : ArgsOf ck.table.ins) (i : Nat)
+    (A B : ArgSigs ck.table.ins) (i : Nat)
     (h : ∀ k ≤ i, obsArgs ck.table.ins A k = obsArgs ck.table.ins B k) :
     ∀ o ∈ ck.outputs,
       ((ck.outNames.zip (ck.table.out.obs ((applyArgs ck.table.ins g A).val i))).lookup o.name).getD 0 =
@@ -1498,32 +1418,125 @@ theorem call_causal {ck : Contract} {c : Module} {g : ck.table.Ty} (hU : U1Stmt 
   have hrn : ∀ kr, ck.clkRst = some kr → kr.2 ∉ ck.inNames := by
     intro kr hkr hmem
     rw [List.append_assoc] at hnd4
-    have := (List.nodup_append.mp hnd4).2.2 kr.2 hmem kr.2 (by
+    exact (List.nodup_append.mp hnd4).2.2 kr.2 hmem kr.2 (by
       rw [List.mem_append]; right; simp [clkRstNames, hkr]) rfl
-    exact this
-  have hok : ∀ (X : ArgsOf ck.table.ins), InputsOk ck c (argStream ck.table.ins X ck.inNames) := by
+  have hok : ∀ (X : ArgSigs ck.table.ins),
+      InputsOk ck c (streamOf ck.inNames (obsArgs ck.table.ins X)) := by
     intro X
     refine ⟨?_, ?_⟩
     · intro t p hp
       obtain ⟨⟨n, pt⟩, hmem, rfl⟩ := List.mem_map.mp hp
-      have h1 := argStream_lt ck.table.ins X ck.inNames t hnd n pt hmem
+      have h1 := streamOf_lt ck.table.ins ck.inNames X t hnd hlen n pt hmem
       have h2 := (hwid.2.1 ⟨n, pt.hw⟩ (List.mem_map.mpr ⟨(n, pt), hmem, rfl⟩)).2
       rw [h2]
       cases pt <;> simpa [PTy.hw, PTy.width, HWType.bitWidth] using h1
     · intro t kr hkr
-      simp only [argStream]
-      rw [lookup_zip_none kr.2 ck.inNames _ (hrn kr hkr)]
+      simp only [streamOf]
+      rw [List.lookup_eq_none_iff.mpr (fun q hq => by
+        have := (List.of_mem_zip hq).1
+        have hne : q.1 ≠ kr.2 := fun e => hrn kr hkr (e ▸ this)
+        simpa [beq_iff_eq] using Ne.symm hne)]
       rfl
-  have hagree : ∀ t' ≤ i, ∀ n, argStream ck.table.ins A ck.inNames t' n = argStream ck.table.ins B ck.inNames t' n := by
+  have hagree : ∀ t' ≤ i, ∀ n, streamOf ck.inNames (obsArgs ck.table.ins A) t' n =
+      streamOf ck.inNames (obsArgs ck.table.ins B) t' n := by
     intro t' ht' n
-    simp only [argStream, h t' ht']
+    simp only [streamOf, h t' ht']
   intro o ho
   have := srcOf_prefix hU _ _ (hok A) (hok B) i hagree o ho
   rw [srcOf, srcOf] at this
-  rw [applyIns_args (R := Sparkle.Core.Signal.Signal Sparkle.Core.Domain.defaultDomain ck.table.out.val) ck.table.ins ck.inNames A g
-      (argStream ck.table.ins A ck.inNames) hnd hlen (fun t m _ => rfl),
-    applyIns_args (R := Sparkle.Core.Signal.Signal Sparkle.Core.Domain.defaultDomain ck.table.out.val) ck.table.ins ck.inNames B g
-      (argStream ck.table.ins B ck.inNames) hnd hlen (fun t m _ => rfl)] at this
+  rw [applyIns_streamOf (R := Sparkle.Core.Signal.Signal Sparkle.Core.Domain.defaultDomain ck.table.out.val)
+      ck.table.ins ck.inNames A g hlen hnd,
+    applyIns_streamOf (R := Sparkle.Core.Signal.Signal Sparkle.Core.Domain.defaultDomain ck.table.out.val)
+      ck.table.ins ck.inNames B g hlen hnd] at this
   simpa using this
+
+theorem PTy.obs_inj (p : PTy) (v w : p.val) (h : p.obs v = p.obs w) : v = w := by
+  cases p with
+  | bit =>
+    have h' : Bool.toNat (show Bool from v) = Bool.toNat (show Bool from w) := h
+    cases hv : (show Bool from v) <;> cases hw : (show Bool from w) <;> simp_all
+  | bv k => exact BitVec.eq_of_toNat_eq h
+
+theorem OTy.obs_length : ∀ (o : OTy) (v : o.val), (o.obs v).length = o.flat.length
+  | .leaf p, v => by simp [OTy.obs, OTy.flat]
+  | .pair a b, v => by simp [OTy.obs, OTy.flat, OTy.obs_length a v.1, OTy.obs_length b v.2]
+
+theorem OTy.obs_inj : ∀ (o : OTy) (v w : o.val), o.obs v = o.obs w → v = w
+  | .leaf p, v, w, h => by
+    simp only [OTy.obs, List.cons.injEq, and_true] at h
+    exact PTy.obs_inj p v w h
+  | .pair a b, v, w, h => by
+    simp only [OTy.obs] at h
+    have hl : (a.obs v.1).length = (a.obs w.1).length := by rw [OTy.obs_length, OTy.obs_length]
+    obtain ⟨h1, h2⟩ := List.append_inj h hl
+    exact Prod.ext (OTy.obs_inj a _ _ h1) (OTy.obs_inj b _ _ h2)
+
+theorem lookup_zip_ext : ∀ (names : List String) (L1 L2 : List Nat), names.Nodup →
+    L1.length = names.length → L2.length = names.length →
+    (∀ n ∈ names, ((names.zip L1).lookup n).getD 0 = ((names.zip L2).lookup n).getD 0) → L1 = L2
+  | [], [], [], _, _, _, _ => rfl
+  | [], _ :: _, _, _, h, _, _ => by simp at h
+  | [], [], _ :: _, _, _, h, _ => by simp at h
+  | _ :: _, [], _, _, h, _, _ => by simp at h
+  | _ :: _, _ :: _, [], _, _, h, _ => by simp at h
+  | n :: ns, a :: l1, b :: l2, hnd, hl1, hl2, h => by
+    have hn := h n (List.mem_cons_self ..)
+    simp only [List.zip_cons_cons, List.lookup, beq_self_eq_true, if_true, Option.getD_some] at hn
+    subst hn
+    have hnd' := List.nodup_cons.mp hnd
+    have := lookup_zip_ext ns l1 l2 hnd'.2 (by simpa using hl1) (by simpa using hl2) (by
+      intro m hm
+      have h1 := h m (List.mem_cons_of_mem _ hm)
+      have hne' : (m == n) = false := by
+        have : ¬ (m = n) := fun e => hnd'.1 (e ▸ hm)
+        simpa using this
+      simpa [List.lookup, hne'] using h1)
+    rw [this]
+
+theorem exists_zip_mem {α β : Type} : ∀ (xs : List α) (ys : List β) (x : α), xs.length = ys.length → x ∈ xs →
+    ∃ y, (x, y) ∈ xs.zip ys
+  | [], _, _, _, h => by simp at h
+  | _ :: _, [], _, h, _ => by simp at h
+  | a :: xs, b :: ys, x, hl, hx => by
+    rcases List.mem_cons.mp hx with rfl | hx
+    · exact ⟨b, by simp⟩
+    · obtain ⟨y, hy⟩ := exists_zip_mem xs ys x (by simpa using hl) hx
+      exact ⟨y, List.mem_cons_of_mem _ hy⟩
+
+/-- The call's whole result VALUE at cycle `i` depends on the argument observations at the cycles `≤ i` only. -/
+theorem bundle_causal {ck : Contract} {c : Module} {g : ck.table.Ty} (hU : U1Stmt ck c g)
+    (A B : ArgSigs ck.table.ins) (i : Nat)
+    (h : ∀ k ≤ i, obsArgs ck.table.ins A k = obsArgs ck.table.ins B k) :
+    (applyArgs ck.table.ins g A).val i = (applyArgs ck.table.ins g B).val i := by
+  have hc := call_causal hU A B i h
+  obtain ⟨_, _, hlenO, hnd4, _⟩ := hU.1
+  have hnd : ck.outNames.Nodup := (List.nodup_append.mp (List.nodup_append.mp hnd4).1).2.1
+  have hl1 : (ck.table.out.obs ((applyArgs ck.table.ins g A).val i)).length = ck.outNames.length := by
+    rw [OTy.obs_length, hlenO]
+  have hl2 : (ck.table.out.obs ((applyArgs ck.table.ins g B).val i)).length = ck.outNames.length := by
+    rw [OTy.obs_length, hlenO]
+  refine OTy.obs_inj ck.table.out _ _ (lookup_zip_ext ck.outNames _ _ hnd hl1 hl2 ?_)
+  intro n hn
+  obtain ⟨pt, hpt⟩ := exists_zip_mem ck.outNames ck.table.out.flat n hlenO hn
+  exact hc ⟨n, pt.hw⟩ (List.mem_map.mpr ⟨(n, pt), hpt, rfl⟩)
+
+/-- The arguments agree (as signal VALUES) at cycle `k`, port by port. -/
+def ArgsAgree : (ps : List PTy) → ArgSigs ps → ArgSigs ps → Nat → Prop
+  | [], _, _, _ => True
+  | _ :: ps, (a, r), (b, s), k => a.val k = b.val k ∧ ArgsAgree ps r s k
+
+theorem obsArgs_of_agree : ∀ (ps : List PTy) (A B : ArgSigs ps) (k : Nat), ArgsAgree ps A B k →
+    obsArgs ps A k = obsArgs ps B k
+  | [], _, _, _, _ => rfl
+  | p :: ps, (a, r), (b, s), k, h => by
+    simp only [obsArgs]
+    rw [h.1, obsArgs_of_agree ps r s k h.2]
+
+/-- `bundle_causal` with the agreement stated port by port. -/
+theorem bundle_causal_agree {ck : Contract} {c : Module} {g : ck.table.Ty} (hU : U1Stmt ck c g)
+    (A B : ArgSigs ck.table.ins) (i : Nat)
+    (h : ∀ k ≤ i, ArgsAgree ck.table.ins A B k) :
+    (applyArgs ck.table.ins g A).val i = (applyArgs ck.table.ins g B).val i :=
+  bundle_causal hU A B i (fun k hk => obsArgs_of_agree _ A B k (h k hk))
 
 end Tools.VedU2Hier
