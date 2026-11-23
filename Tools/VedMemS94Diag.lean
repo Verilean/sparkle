@@ -1249,8 +1249,7 @@ def s94HypLines (g : MVarId) (lim : Nat) : MetaM (Array String) := g.withContext
     if d.isImplementationDetail then continue
     let t ← instantiateMVars d.type
     let h := s94Head t
-    let wanted := (h == "Not" || h == "And" || h == "Or" || h == "Iff" || h == "Ne" || h == "LT.lt" || h == "LE.le") ||
-      (h == "Eq" && !Tools.VedMemS94Local.isEnvFact t && !t.isForall)
+    let wanted := (h == "Not" || h == "And" || h == "Or" || h == "Iff" || h == "Ne") && t.approxDepth.toNat ≥ 8
     if wanted && !t.isForall then
       out := out.push s!"hyp {d.userName} head={h} tree={Tools.VedU1Loop.treeSizeVal t} dag={(Tools.VedU1WireShare.collectDag (fun _ => true) t).size}: {(progShallow 6 t).take lim}"
   return out
@@ -1262,20 +1261,25 @@ def s94HypHist (gs : List MVarId) : MetaM String := do
   let mut hist : Std.HashMap String (Nat × Nat) := {}
   let mut i := 0
   for g in gs do
-    let (a, b, c, d) ← g.withContext do
+    let (a, b, c, d, p) ← g.withContext do
       let mut a := 0; let mut b := 0; let mut c := 0; let mut d := 0
       for dd in ← getLCtx do
         if dd.isImplementationDetail then continue
-        let t ← instantiateMVars dd.type
-        if t.isForall then continue
+        let t := dd.type
+        if t.isForall || t.approxDepth.toNat < 8 then continue
         let h := s94Head t
-        if Tools.VedU1Loop.treeSizeVal t ≤ 50 then continue
         if h == "Not" then a := a + 1
         else if h == "And" then b := b + 1
         else if h == "Or" then c := c + 1
         else if h == "Eq" && !Tools.VedMemS94Local.isEnvFact t then d := d + 1
-      pure (a, b, c, d)
-    let k := s!"{a}N/{b}A/{c}O/{d}E"
+      -- the premises of the target (`P → Q → ..`, non-dependent)
+      let mut p := 0
+      let mut tg := ← instantiateMVars (← g.getType)
+      while tg.isForall && !tg.bindingBody!.hasLooseBVars do
+        p := p + 1
+        tg := tg.bindingBody!
+      pure (a, b, c, d, p)
+    let k := s!"{a}N/{b}A/{c}O/{d}E/{p}P"
     match hist[k]? with
     | some (n, f) => hist := hist.insert k (n + 1, f)
     | none => hist := hist.insert k (1, i)
@@ -1427,6 +1431,30 @@ elab "#ved_s95_replay " d:str : command => do
       let t0 ← IO.monoMsNow
       let hb0 ← IO.getNumHeartbeats
       -- `VED_S95_PEELDBG`: the DAG peel alone on each MemInv goal (error text, ms, heartbeats), the first goals only; the goals stay as they are
+      -- `VED_S95_PREMDBG=1` (s94s): the stage-99 step goal by goal (the same result as `ved_if_read`: `try` on each goal, the goals concatenated); for a goal whose result has
+      -- a premise (`P → ..`) in its target, the shallow target before and after, and the premises
+      if no == 99 && (← IO.getEnv "VED_S95_PREMDBG").isSome then
+        let mut out : List MVarId := []
+        let mut i := 0
+        for gq in cur do
+          let before ← gq.withContext do instantiateMVars (← gq.getType)
+          let gsR ← Tactic.run gq (Tactic.evalTactic (← `(tactic| try ($tac:tactic))))
+          out := out ++ gsR
+          for g2 in gsR.take 1 do
+            let after ← g2.withContext do instantiateMVars (← g2.getType)
+            if after.isForall && !after.bindingBody!.hasLooseBVars then
+              let mut prem : Array String := #[]
+              let mut tg := after
+              while tg.isForall && !tg.bindingBody!.hasLooseBVars do
+                prem := prem.push (((progShallow 7 tg.bindingDomain!).take 700).toString)
+                tg := tg.bindingBody!
+              let (lhsS, rhsS) := if before.isAppOfArity ``Eq 3 then ((progShallow 12 (before.getArg! 1)).take 3500, (progShallow 6 (before.getArg! 2)).take 300) else ((progShallow 9 before).take 1500, "")
+              dbgLog s!"S95 premdbg goal {i}: BEFORE tree={Tools.VedU1Loop.treeSizeVal before} RHS {rhsS} LHS {lhsS}"
+              dbgLog s!"S95 premdbg goal {i}: AFTER premises={prem.size} {prem.toList} CONCL {(progShallow 9 tg).take 1500}"
+          i := i + 1
+        cur := out
+        dbgLog s!"S95 premdbg done: {← shape cur}"
+        break
       if no == 97 && (← IO.getEnv "VED_S95_PEELDBG").isSome then
         let mut shown := 0
         for gq in cur do
@@ -1826,6 +1854,88 @@ elab "ved_mem_diff" : tactic => withMainContext do
   logInfo out
 
 
+
+def s94LdLog (msg : String) : IO Unit := do
+  if let some f ← IO.getEnv "VED_T3_LOG" then
+    let h ← IO.FS.Handle.mk f .append
+    h.putStrLn msg
+  else IO.eprintln msg
+
+/-- diagnosis (s94s): the steps of `ved_local_close` one by one on the main goal, each under its own heartbeat limit (`VED_LDIAG_HB` thousand, default 8000), one line per step
+(result, ms, heartbeats, tree and DAG of the target, hypotheses in the context); the first failing step ends the run; the goal is restored afterwards (diagnosis only).
+The tail line says, for a goal the closer did not close, the target's tree / DAG ratio (large: lost sharing, class (b)) and the shallow target -/
+elab "ved_local_diag" : tactic => do
+  let st ← saveState
+  let cap := ((← IO.getEnv "VED_LDIAG_HB").bind String.toNat?).getD 8000
+  let tag := (← IO.getEnv "VED_LDIAG_TAG").getD ""
+  let boundsT ← if (← IO.getEnv "VED_LDIAG_TBOUNDS").isSome then `(tactic| all_goals ved_bv_bounds_t) else `(tactic| all_goals ved_bv_bounds)
+  let steps : List (String × TSyntax `tactic) := [
+    ("cone_clear", ← `(tactic| ved_cone_clear)),
+    ("pack_extract", ← `(tactic| ved_pack_extract)),
+    ("small", ← `(tactic| ved_local_small)),
+    ("dsimp", ← `(tactic| (try dsimp only at *))),
+    ("ite10", ← `(tactic| (try simp only [Tools.VedMemS94Local.ite10_mod2] at *))),
+    ("bounds", boundsT),
+    ("mux_mod", ← `(tactic| all_goals (try simp only [Tools.VedMemS94Local.mux_mod]))),
+    ("mux", ← `(tactic| all_goals ved_mux))]
+  let mut line := s!"LDIAG {tag}"
+  let mut failed := ""
+  for (name, tac) in steps do
+    -- `VED_LDIAG_ALTS=1`: instead of the closer `ved_mux` the alternatives one by one, each from the same state (result, ms, heartbeats; limit `VED_LDIAG_ALTHB` thousand, default 30000)
+    if name == "mux" && (← IO.getEnv "VED_LDIAG_ALTS").isSome then
+      let altCap := ((← IO.getEnv "VED_LDIAG_ALTHB").bind String.toNat?).getD 30000
+      let alts : List (String × TSyntax `tactic) := [
+        ("rfl", ← `(tactic| all_goals with_reducible rfl)),
+        ("omega", ← `(tactic| all_goals omega)),
+        ("split_omega", ← `(tactic| all_goals ved_split_omega)),
+        ("mux", ← `(tactic| all_goals ved_mux))]
+      for (an, at_) in alts do
+        let stA ← saveState
+        let t0 ← IO.monoMsNow
+        let hb0 ← IO.getNumHeartbeats
+        let r ← tryCatchRuntimeEx
+          (do
+            withTheReader Core.Context (fun c => { c with maxHeartbeats := altCap * 1000, initHeartbeats := hb0 }) do
+              withoutRecover (evalTactic at_)
+            pure (if (← getGoals).isEmpty then "CLOSED" else "ok-open"))
+          (fun ex => do pure s!"FAIL({((← ex.toMessageData.toString).replace "\n" " ").take 40})")
+        line := line ++ s!" | alt {an}:{r} {(← IO.monoMsNow) - t0}ms {((← IO.getNumHeartbeats) - hb0) / 1000}k"
+        stA.restore
+      s94LdLog (line ++ " | (alts)")
+      st.restore
+      return
+    let t0 ← IO.monoMsNow
+    let hb0 ← IO.getNumHeartbeats
+    let r ← tryCatchRuntimeEx
+      (do
+        withTheReader Core.Context (fun c => { c with maxHeartbeats := cap * 1000, initHeartbeats := hb0 }) do
+          withoutRecover (evalTactic tac)
+        pure "ok")
+      (fun ex => do pure s!"FAIL({((← ex.toMessageData.toString).replace "\n" " ").take 60})")
+    let ms := (← IO.monoMsNow) - t0
+    let hbk := ((← IO.getNumHeartbeats) - hb0) / 1000
+    let gs ← getGoals
+    let info ← match gs.head? with
+      | some g => g.withContext do
+          let tgt ← instantiateMVars (← g.getType)
+          let n ← pure (← getLCtx).decls.size
+          pure s!"t={Tools.VedU1Loop.treeSizeVal tgt}/d={(Tools.VedU1WireShare.collectDag (fun _ => true) tgt).size}/ctx={n}"
+      | none => pure "closed"
+    line := line ++ s!" | {name}:{r} {ms}ms {hbk}k {info}"
+    if r != "ok" then failed := name; break
+    if gs.isEmpty then break
+  s94LdLog (line ++ s!" | first-failing={if failed == "" then "none (closed)" else failed}")
+  if failed != "" then
+    if let some g := (← getGoals).head? then
+      g.withContext do
+        let tgt ← instantiateMVars (← g.getType)
+        s94LdLog s!"LDIAG {tag} target-at-failure: {(progShallow 5 tgt).take 400}"
+        for d in ← getLCtx do
+          unless d.isImplementationDetail do
+            let t ← instantiateMVars d.type
+            if (← isProp t) && !Tools.VedMemS94Local.isEnvFact t then
+              s94LdLog s!"LDIAG {tag}   hyp {d.userName}: tree={Tools.VedU1Loop.treeSizeVal t} {(progShallow 5 t).take 240}"
+  st.restore
 
 def diagKids (x : Expr) : Array Expr := match x with
   | .app f a => #[f, a] | .lam _ t b _ => #[t, b] | .forallE _ t b _ => #[t, b] | .mdata _ b => #[b] | .proj _ _ b => #[b] | .letE _ t v b _ => #[t, v, b] | _ => #[]

@@ -399,6 +399,39 @@ elab "ved_bv_bounds" : tactic => do
     g := g2
   replaceMainGoal [g]
 
+/-- `ved_bv_bounds_t` (s94s): the same bounds, but only for the `BitVec` variables of the TARGET and of the hypotheses that mention a variable of the target (the cone proper);
+`ved_bv_bounds` adds two facts for every variable of every kept hypothesis (observed: 44 facts for a 27-node target, and `omega` reads each of them: 9.1M heartbeats against 8M
+local limit on R033 goals 147 / 153) -/
+elab "ved_bv_bounds_t" : tactic => do
+  let mut g ← getMainGoal
+  let fs ← g.withContext do
+    let tfv := fvarsOfDag (← instantiateMVars (← g.getType))
+    let mut used : Std.HashSet FVarId := {}
+    for f in tfv do used := used.insert f
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      if (← isProp d.type) then
+        let xs := fvarsOfDag (← instantiateMVars d.type)
+        if xs.any (tfv.contains ·) then
+          for f in xs do used := used.insert f
+    let mut fs : Array Expr := #[]
+    for d in ← getLCtx do
+      if d.isImplementationDetail || !used.contains d.fvarId then continue
+      let t ← whnfR (← instantiateMVars d.type)
+      if t.isAppOf ``BitVec then fs := fs.push d.toExpr
+    pure fs
+  for x in fs do
+    let (pr, ty) ← g.withContext do
+      let pr ← mkAppM ``BitVec.isLt #[x]
+      pure (pr, ← inferType pr)
+    let (_, g1) ← (← g.assert `ved_bnd ty pr).intro1P
+    let (pr2, ty2) ← g1.withContext do
+      let pr ← mkAppM ``BitVec.toNat_mod_cancel #[x]
+      pure (pr, ← inferType pr)
+    let (_, g2) ← (← g1.assert `ved_bnd2 ty2 pr2).intro1P
+    g := g2
+  replaceMainGoal [g]
+
 /-- the goals of the local route are the small cones: a target with at most `ved.mem.s94Local` tree nodes (`localMaxTree`); `omega` and `split`
 do not stop at the heartbeat limit on the large ones (observed: 1.2e9 heartbeats / 200 s on a 7e10-node goal with limit 3e7) -/
 def localMaxTree : Nat := 2000000
@@ -483,10 +516,20 @@ macro "ved_addr_eq_local2" : tactic =>
                BitVec.toNat_append, Nat.zero_shiftLeft, Nat.zero_or, Nat.reduceMod, Nat.reducePow, Nat.shiftRight_eq_div_pow]
              ved_local_close))
 
+/-- the heartbeat budget (thousands) of one argument comparison of `memCanon` (observed: the comparisons that finish need < 1M) -/
+def memCanonBudgetK : Nat := 500
+/-- the heartbeat budget (thousands) of all argument comparisons of one `memCanon` call -/
+def memCanonTotalK : Nat := 6000
+/-- the heartbeat budget (thousands) of ONE address equality of `ved_mem_addr_l` (observed: the equalities that succeed need < 1M) -/
+def addrEqBudgetK : Nat := 12000
+initialize addrEqTimeouts : IO.Ref Nat ← IO.mkRef 0
+initialize memCanonTimeouts : IO.Ref Nat ← IO.mkRef 0
+
 /-- two `memState` atoms whose first 8 arguments (initial value, write address / data / enable ports, ..) are only reducibly defeq (not syntactically equal) are one memory
 spelled twice (observed s94r, R033 goals 40, 62: `ved_mem_diff` says `arg2:red arg3:red`; the trees of 2e7 .. 2e8 nodes are those port arguments): the first atom's arguments replace
 the later one's (`replaceTargetDefEq`), so that the address pairing (`ved_mem_addr_l`) and `ved_addr_post_g` see ONE key.  Returns the number of atoms changed. -/
 def memCanon (g : MVarId) : MetaM (MVarId × Nat) := g.withContext do
+  let hbStart ← IO.getNumHeartbeats
   let tgt ← instantiateMVars (← g.getType)
   let isMem := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
   let occs := (collectDag isMem tgt).filter (!·.hasLooseBVars)
@@ -504,7 +547,17 @@ def memCanon (g : MVarId) : MetaM (MVarId × Nat) := g.withContext do
       for k in [0:8] do
         if same && args[k]! != ra[k]! then
           diff := true
-          unless ← withReducible (isDefEq args[k]! ra[k]!) do same := false
+          -- s94s: each comparison under its own heartbeat budget (`memCanonBudgetK` thousand): on the R033 B goals 51 64 33 34 53 54 62 103 139 151 this `isDefEq` of two big port arguments
+          -- (trees of 1e6 .. 3e7 nodes over a DAG of ~2e3, no sharing in the unifier) ran into the 30M limit of the WHOLE step `ved_mem_addr_l`; a comparison that does not finish is "not the same" (the atoms stay apart)
+          let hb0 ← IO.getNumHeartbeats
+          -- and the whole of `memCanon` under `memCanonTotalK` (a comparison after that is "not the same")
+          let spent := (hb0 - hbStart) / 1000
+          let r ← if spent ≥ memCanonTotalK then pure false else
+            tryCatchRuntimeEx
+              (withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then memCanonBudgetK * 1000 else min c.maxHeartbeats (memCanonBudgetK * 1000)), initHeartbeats := hb0 }) do
+                withReducible (isDefEq args[k]! ra[k]!))
+              (fun _ => do memCanonTimeouts.modify (· + 1); pure false)
+          unless r do same := false
       if same then hit := some (if diff then ra else args.extract 0 8)
     match hit with
     | some ra =>
@@ -568,15 +621,26 @@ elab "ved_mem_addr_l" : tactic => withMainContext do
             let n := (← IO.monoMsNow)
             IO.FS.writeFile s!"{dir}/pair{n}.txt" s!"A: {← withOptions (fun o => o.setBool `pp.deepTerms true) (ppExpr a)}\n\nREP: {← withOptions (fun o => o.setBool `pp.deepTerms true) (ppExpr rep)}\n"
           try
-            evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
-                                       first | rfl | ved_addr_eq_local | ved_addr_eq_local2)))
+            -- s94s: the address equality under its own heartbeat budget (`addrEqBudgetK`).  Observed (t3c, goals 51 64 33 34 53 54 62 103 139 151): the first alternative `rfl` is an
+            -- `isDefEq` of two addresses that contain `memState` atoms with big port arguments (trees of 1e6 .. 3e7 over a DAG of ~2e3: no sharing in the unifier) and ran into the 30M limit
+            -- of the whole step; a runtime timeout is not caught by the `catch` below.  On exhaustion the state is restored and the pair counts as "no equality" (the loop goes on)
+            let stP ← saveState
+            let hbP ← IO.getNumHeartbeats
+            tryCatchRuntimeEx
+              (withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then addrEqBudgetK * 1000 else min c.maxHeartbeats (addrEqBudgetK * 1000)), initHeartbeats := hbP }) do
+                evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
+                                           first | (with_reducible rfl) | ved_addr_eq_local | ved_addr_eq_local2 | rfl))))
+              (fun ex => do
+                stP.restore
+                addrEqTimeouts.modify (· + 1)
+                throwError "address equality: budget exhausted ({← ex.toMessageData.toString})")
             Tools.VedMemLoop.dbgT "addr: have done"
             -- `rw [hmaddr]` abstracts the occurrences by `kabstract`, a walk of the TREE (12 s per goal of 3e8 nodes, R34); on a goal
             -- the packing step takes (`Tools.VedMemLoop.addrReplaceMinTree`: R034, 3e8) the replacement is `Expr.replace` (cached by pointer: one visit per
             -- shared node) with the `congrArg` of the motive; below it the `rw` as before (R032, 1.7e7 nodes: `rw` abstracts the
             -- occurrences up to instances, the syntactic `Expr.replace` leaves some, and the closing `omega` then fails)
             let tgt ← instantiateMVars (← getMainTarget)
-            let hm? ← if Tools.VedU1Loop.treeSizeVal tgt < Tools.VedMemLoop.addrReplaceMinTree then pure none else do
+            let hmFind : TacticM (Option Expr) := do
               -- the `have` made a new goal: its local context (not the one this tactic started with) holds `hmaddr`
               (← getMainGoal).withContext do
                 let mut r : Option Expr := none
@@ -586,8 +650,10 @@ elab "ved_mem_addr_l" : tactic => withMainContext do
                       if let some (_, l, rr) := (← instantiateMVars d.type).eq? then
                         if l == a && rr == rep then r := some d.toExpr
                 pure r
+            let small := Tools.VedU1Loop.treeSizeVal tgt < Tools.VedMemLoop.addrReplaceMinTree
+            let hm? ← if small then pure none else hmFind
             Tools.VedMemLoop.dbgT s!"addr: hm found={hm?.isSome} tgt-tree={Tools.VedU1Loop.treeSizeVal tgt}"
-            if let some hm := hm? then
+            let replaceRoute (hm : Expr) : TacticM Unit := do
               let g ← getMainGoal
               -- in the context of the new goal: `hm` is a hypothesis of it, not of the context this tactic started with
               -- (`mkCongrArg` infers its type: "unknown free variable")
@@ -597,8 +663,25 @@ elab "ved_mem_addr_l" : tactic => withMainContext do
                   mkLambdaFVars #[xv] (tgt.replace fun e => if e == a then some xv else none)
                 let newTgt := tgt.replace fun e => if e == a then some rep else none
                 replaceMainGoal [← g.replaceTargetEq newTgt (← mkCongrArg motive hm)]
-            else
+            if let some hm := hm? then
+              replaceRoute hm
+            else if !small then
               evalTactic (← `(tactic| rw [hmaddr]))
+            else
+              -- s94s: the `rw` (kabstract: an `isDefEq` of the address against every candidate subterm, then `rfl`) under its own heartbeat budget (`addrEqBudgetK`).  Observed (t3c goals
+              -- 33 34 53 54 151, trees of 1.2e7 .. 3.5e7 below `addrReplaceMinTree`): it ran into the 30M limit of the whole step; on exhaustion the `Expr.replace` route of the large goals is taken
+              let stR ← saveState
+              let hbR ← IO.getNumHeartbeats
+              let okR ← tryCatchRuntimeEx
+                (do
+                  withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then addrEqBudgetK * 1000 else min c.maxHeartbeats (addrEqBudgetK * 1000)), initHeartbeats := hbR }) do
+                    evalTactic (← `(tactic| rw [hmaddr]))
+                  pure true)
+                (fun _ => do stR.restore; addrEqTimeouts.modify (· + 1); pure false)
+              unless okR do
+                match ← hmFind with
+                | some hm => replaceRoute hm
+                | none => throwError "address rewrite: budget exhausted and no equation"
             -- the `rw` closes the goal by `rfl` when the two atoms were all there was (small cases; never on the R033 goals)
             if (← getGoals).isEmpty then return
             progress := true
