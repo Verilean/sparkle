@@ -441,4 +441,178 @@ theorem st0HR_eq {d : Design} (h : allLeafB d = true) (m : Module) : st0HR d m =
           have hl := allLeaf_find h hf
           simp only [instDecls_leaf _ hl, List.find?_nil]
 
+/-! ### The run on all-leaf designs is `runHS` -/
+
+theorem mapM_flat {α β : Type} (xs : List α) (f : α → Option β) (g : α → Option (List β))
+    (hfg : ∀ x ∈ xs, g x = (f x).map (fun p => [p])) :
+    (xs.mapM g).map List.flatten = xs.mapM f := by
+  induction xs with
+  | nil => simp
+  | cons x rest ih =>
+    have ih' := ih (fun y hy => hfg y (List.mem_cons_of_mem _ hy))
+    have hx := hfg x (List.mem_cons_self ..)
+    simp only [List.mapM_cons]
+    rw [hx]
+    cases hf : f x with
+    | none => simp
+    | some v =>
+      cases hg : rest.mapM g with
+      | none =>
+        rw [hg] at ih'
+        have : rest.mapM f = none := by simpa using ih'.symm
+        simp [this]
+      | some l =>
+        rw [hg] at ih'
+        have : rest.mapM f = some l.flatten := by simpa using ih'.symm
+        simp [this]
+
+theorem combR_leaf {d : Design} {arr : Module → List Stmt} (k : Nat) {c : Module} (st : HSt) (seed : Env)
+    (harr : leafBody (arr c) = true) :
+    combR d arr (k + 1) c st seed = evalAssigns (declWidth c) (fun _ _ => 0) (arr c) seed := by
+  unfold combR
+  exact evalAssignsI_leaf _ _ _ _ _ harr
+
+theorem upsR_leaf {d : Design} {arr : Module → List Stmt} (k : Nat) {c : Module} (st : HSt) (envF : Env)
+    (harr : leafBody (arr c) = true) :
+    upsR d arr (k + 1) c st envF =
+      (regNexts (declWidth c) (fun _ _ => 0) (arr c) envF).map (fun nx => [([], nx)]) := by
+  unfold upsR
+  simp only [instDecls_leaf _ harr, List.mapM_nil, List.flatten_nil, List.cons_append, List.append_nil]
+  cases regNexts (declWidth c) (fun _ _ => 0) (arr c) envF <;> rfl
+
+theorem combR_eq {d : Design} {arr : Module → List Stmt} (hl : allLeafB d = true)
+    (harr : ∀ c ∈ d.modules, leafBody (arr c) = true) (k : Nat) (m : Module) (st : HSt) (env0 : Env) :
+    combR d arr (k + 2) m st env0 =
+      evalAssignsI (declWidth m) (instEvalS d arr st (declWidth m)) (arr m) env0 := by
+  show evalAssignsI _ _ _ _ = _
+  congr 1
+  funext mn iname conns env
+  unfold instEvalS
+  cases hf : findMod d mn with
+  | none => rfl
+  | some c =>
+    have hl' := allLeaf_find hl hf
+    have hc := harr c (findMod_mem hf)
+    have hok : instOkR c conns = instOkS c conns := by simp [instOkR, instOkS, hl']
+    simp only [hok]
+    by_cases hb : instOkS c conns = true
+    · simp only [hb, if_true, childRunS, combR_leaf (k := k) _ _ hc]
+      cases childSeedS c conns (declWidth m) env (regOuts (arr c)) (st [iname]) <;> rfl
+    · simp only [hb]
+      rfl
+
+theorem mapM_flat_bind {α β : Type} (xs : List α) (f : α → Option β) (g : α → Option (List β))
+    (hfg : ∀ x ∈ xs, g x = (f x).map (fun p => [p])) (a : β) :
+    (xs.mapM g).bind (fun l => some (a :: l.flatten)) = (xs.mapM f).bind (fun l => some (a :: l)) := by
+  have := mapM_flat xs f g hfg
+  cases hg : xs.mapM g with
+  | none => rw [hg] at this; simpa using this.symm ▸ rfl
+  | some l =>
+    rw [hg] at this
+    have h2 : xs.mapM f = some l.flatten := by simpa using this.symm
+    simp [h2]
+
+theorem upsR_eq {d : Design} {arr : Module → List Stmt} (hl : allLeafB d = true)
+    (harr : ∀ c ∈ d.modules, leafBody (arr c) = true) (m : Module) (st : HSt) (envF : Env) :
+    upsR d arr (d.modules.length + 2) m st envF =
+      (do
+        let nextsP ← regNexts (declWidth m) (fun _ _ => 0) (arr m) envF
+        let nextsI ← (instDecls (arr m)).mapM (childNexts d arr (declWidth m) st envF)
+        some (([], nextsP) :: nextsI)) := by
+  unfold upsR
+  cases hP : regNexts (declWidth m) (fun _ _ => 0) (arr m) envF with
+  | none => rfl
+  | some nx =>
+    simp only [hP, Option.bind_eq_bind, Option.bind]
+    apply mapM_flat_bind
+    intro x _
+    obtain ⟨mn, iname, conns⟩ := x
+    simp only [childNexts]
+    cases hf : findMod d mn with
+    | none => rfl
+    | some c =>
+      have hl' := allLeaf_find hl hf
+      have hc := harr c (findMod_mem hf)
+      have hok : instOkR c conns = instOkS c conns := by simp [instOkR, instOkS, hl']
+      simp only [hok]
+      by_cases hb : instOkS c conns = true
+      · simp only [hb, if_true, childRunS, combR_leaf (k := d.modules.length) _ _ hc,
+          upsR_leaf (k := d.modules.length) _ _ hc]
+        cases hs : childSeedS c conns (declWidth m) envF (regOuts (arr c)) (st [iname]) with
+        | none => simp
+        | some seed =>
+          cases hse : evalAssigns (declWidth c) (fun _ _ => 0) (arr c) seed with
+          | none => simp [hse]
+          | some envC =>
+            cases hrn : regNexts (declWidth c) (fun _ _ => 0) (arr c) envC <;> simp [hse, hrn]
+      · simp only [hb]
+        rfl
+
+theorem stepHSR_eq {d : Design} {arr : Module → List Stmt} (hl : allLeafB d = true)
+    (harr : ∀ c ∈ d.modules, leafBody (arr c) = true) (m : Module) (st : HSt) (env0 : Env) :
+    stepHSR d arr m st env0 = stepHS d arr m st env0 := by
+  unfold stepHSR stepHS
+  rw [show fuelR d = (d.modules.length + 1) + 1 from rfl, clkRstOkR_eq hl]
+  by_cases hc : clkRstOk d m = true
+  · simp only [hc, if_true]
+    unfold stepR
+    rw [combR_eq hl harr]
+    cases hE : evalAssignsI (declWidth m) (instEvalS d arr st (declWidth m)) (arr m) env0 with
+    | none => rfl
+    | some envF =>
+      simp only [Option.bind_eq_bind, Option.bind]
+      rw [show (d.modules.length + 1) + 1 = d.modules.length + 2 from rfl, upsR_eq hl harr]
+      cases hP : regNexts (declWidth m) (fun _ _ => 0) (arr m) envF with
+      | none => simp
+      | some nx =>
+        cases hm : (instDecls (arr m)).mapM (childNexts d arr (declWidth m) st envF) with
+        | none => simp
+        | some l => simp
+  · simp [hc]
+
+theorem runHSR_eq {d : Design} {arr : Module → List Stmt} (hl : allLeafB d = true)
+    (harr : ∀ c ∈ d.modules, leafBody (arr c) = true) (m : Module)
+    (seed : Nat → (String → Nat) → Env) :
+    ∀ (k : Nat) (st : HSt), runHSR d arr m seed k st = runHS d arr m seed k st := by
+  intro k
+  induction k with
+  | zero => intro st; rfl
+  | succ k ih =>
+    intro st
+    simp only [runHSR, runHS, stepHSR_eq hl harr, ih]
+
+/-- COINCIDENCE: on a design whose modules are all leaves, `U2HRStmtR` is `U2HRStmtK`. -/
+theorem U2HRStmtR_iff_K (c : Contract) (m : Module) (d : Design) (f : c.table.Ty)
+    (hl : allLeafB d = true) : U2HRStmtR c m d f ↔ U2HRStmtK c m d f := by
+  have hadm : ∀ arr, AdmArrR d m arr ↔ AdmArr d m arr := by
+    intro arr
+    unfold AdmArrR AdmArr
+    constructor
+    · rintro ⟨a, b, c'⟩
+      exact ⟨a, b, fun x hx => ⟨(c' x hx).1, (c' x hx).2.1 (allLeaf_mem hl hx)⟩⟩
+    · rintro ⟨a, b, c'⟩
+      refine ⟨a, b, fun x hx => ⟨(c' x hx).1, fun _ => (c' x hx).2, fun h => ?_⟩⟩
+      rw [allLeaf_mem hl hx] at h; cases h
+  have hleaf : ∀ arr, AdmArr d m arr → ∀ x ∈ d.modules, leafBody (arr x) = true :=
+    fun arr hA x hx => leafBody_perm (hA.2.2 x hx).1.symm (allLeaf_mem hl hx)
+  have hout : ∀ arr, AdmArr d m arr → (OutputsOnHSR c m d arr f ↔ OutputsOnHS c m d arr f) := by
+    intro arr hA
+    unfold OutputsOnHSR OutputsOnHS
+    simp only [runHSR_eq hl (hleaf arr hA), st0HR_eq hl]
+  have hord : OrderModsR d ↔ (∀ x ∈ d.modules, OrderStmt x) := by
+    unfold OrderModsR
+    constructor
+    · intro H x hx; exact (H x hx).1 (allLeaf_mem hl hx)
+    · intro H x hx; exact ⟨fun _ => H x hx, fun h => by rw [allLeaf_mem hl hx] at h; cases h⟩
+  unfold U2HRStmtR U2HRStmtK
+  rw [designClkRstR_eq hl, HierShapeR_eq hl, hord]
+  have hx : OutputsStmtHSR c m d f ↔ OutputsStmtHS c m d f := by
+    unfold OutputsStmtHSR OutputsStmtHS
+    constructor
+    · intro H arr hA; exact (hout arr hA).mp (H arr ((hadm arr).mpr hA))
+    · intro H arr hA; exact (hout arr ((hadm arr).mp hA)).mpr (H arr ((hadm arr).mp hA))
+  have hex : (∃ arr, AdmArrR d m arr) ↔ ∃ arr, AdmArr d m arr :=
+    ⟨fun ⟨a, h⟩ => ⟨a, (hadm a).mp h⟩, fun ⟨a, h⟩ => ⟨a, (hadm a).mpr h⟩⟩
+  rw [hx, hex]
+
 end Tools.VedU2HierRec
