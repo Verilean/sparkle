@@ -761,4 +761,107 @@ run_cmd do
   directControls
   logInfo m!"compose connect direct-port controls: 3 refused"
 
+/-! ### Two wired closed circuits fused into one parent (connect15, option `ved.compose.multiCircuit`)
+
+`twoTx`: `let a := twoStageA go; twoStageB a.ph`: two `circuit do` blocks wired by a `let` OUTSIDE both (the shape of `usbWebServer`); the
+child `mkA` is called in the second on the first's register read.  The declaration is not ONE `runCircuitH`: with the option the
+generator fuses the two into one `runCircuitH` over the appended registers (`Tools/VedComposeMultiCircuit.lean`, `fuse_run`; A's
+registers first) and proves `decl xs = fused xs` by the kernel, then continues as for one circuit.  `two2Tx`: the child's argument
+reads A's register AND B's own register.  Checked as above (type `==`, same artifact, std3, kernel, the child theorem occurs, no
+per-cone fallback).  CONTROLS (on a copy): the option off (the old `[deep]` text), the two registers swapped in the IR (register order
+vs the fused order), wrong wiring between the circuits, wrong width. -/
+
+structure TwoA (dom : DomainConfig) where
+  ph : Signal dom (BitVec 4)
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (TwoA dom) dom := ⟨⟩
+structure TwoB (dom : DomainConfig) where
+  b : Signal dom (BitVec 4)
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (TwoB dom) dom := ⟨⟩
+
+def twoStageA (go : Signal defaultDomain Bool) : TwoA defaultDomain :=
+  circuit do
+    let phase ← Signal.reg 0#4
+    let ph := (phase : Signal defaultDomain (BitVec 4))
+    phase <~ Signal.mux go (ph + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4))) ph
+    return ({ ph := (phase : Signal defaultDomain (BitVec 4)) } : TwoA defaultDomain)
+
+def twoStageB (ph : Signal defaultDomain (BitVec 4)) : TwoB defaultDomain :=
+  circuit do
+    let outR ← Signal.reg 0#4
+    outR <~ mkA ph
+    return ({ b := (outR : Signal defaultDomain (BitVec 4)) } : TwoB defaultDomain)
+
+def twoP (go : Signal defaultDomain Bool) : TwoB defaultDomain :=
+  let a := twoStageA go
+  twoStageB a.ph
+
+def twoTx (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (twoP go).b
+
+/-- A copy for the controls (never accepted itself). -/
+def twoRef (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (twoP go).b
+
+def twoStageB2 (ph : Signal defaultDomain (BitVec 4)) : TwoB defaultDomain :=
+  circuit do
+    let outR ← Signal.reg 0#4
+    let o := (outR : Signal defaultDomain (BitVec 4))
+    outR <~ mkA (ph + o)
+    return ({ b := o } : TwoB defaultDomain)
+
+def twoP2 (go : Signal defaultDomain Bool) : TwoB defaultDomain :=
+  let a := twoStageA go
+  twoStageB2 a.ph
+
+def two2Tx (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (twoP2 go).b
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``twoTx [`Tests.Ved.ComposeConnectCheck.twoTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 2
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``two2Tx [`Tests.Ved.ComposeConnectCheck.two2Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 2
+
+/- Names in the synthesised `twoRef`: registers `_tmp_a_6` (A) and `_tmp_a_12` (B); the instance of `mkA` reads `_tmp_op_a_3` (a slice of
+A's register read) on its port `_gen_x`. -/
+
+def swapRegs (b : List Stmt) : List Stmt :=
+  let ra := b.find? fun s => match s with | .register "_tmp_a_6" .. => true | _ => false
+  let rb := b.find? fun s => match s with | .register "_tmp_a_12" .. => true | _ => false
+  match ra, rb with
+  | some a, some c => b.map fun s => match s with
+    | .register "_tmp_a_6" .. => c
+    | .register "_tmp_a_12" .. => a
+    | s => s
+  | _, _ => b
+
+def twoControls : CommandElabM Unit := do
+  let (m, d) ← synthOf ``twoRef
+  let noT : Phase1 → CommandElabM Phase1 := fun p => pure p
+  -- the multiCircuit option OFF (step and connect on): the old `[deep]` refusal, unchanged
+  withScope (fun sc => { sc with opts := (sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true }) do
+    expectRefusedT ``twoRef "deep" "the parent has 2 registers, the open parent's circuit has 1" m d noT
+  withScope (fun sc => { sc with opts := ((sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true).setBool `ved.compose.multiCircuit true }) do
+    -- REGISTER ORDER: the two registers swapped in the returned IR (the fused order is A's, then B's)
+    expectRefusedT ``twoRef "proof" "proved that the proposition" { m with body := swapRegs m.body } d noT
+    -- WRONG WIRING between the circuits: the child is fed by B's own register instead of A's
+    expectRefusedT ``twoRef "kernel" "let-declaration type mismatch" { m with body := setConnAt 0 "_gen_x" (.ref "_tmp_a_12") m.body } d noT
+    -- WIDTH MISMATCH: the declared width of A's register wire
+    expectRefusedT ``twoRef "proof" "proved that the proposition" { m with wires := m.wires.map fun w =>
+      if w.name == "_tmp_a_6" then { w with ty := .bitVector 5 } else w } d noT
+
+/-- info: compose connect two-circuit controls: 4 refused -/
+#guard_msgs in
+run_cmd do
+  twoControls
+  logInfo m!"compose connect two-circuit controls: 4 refused"
+
 end Tests.Ved.ComposeConnectCheck
