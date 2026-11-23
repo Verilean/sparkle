@@ -27,6 +27,11 @@ register_option ved.compose.multiCircuit : Bool := {
   descr := "VED compose: wired closed circuits of a declaration (a chain or fan-in of K >= 2 circuits read by an outer run, or an output function over closed circuits) are fused into one circuit over the appended registers"
 }
 
+register_option ved.compose.noReach : Bool := {
+  defValue := false
+  descr := "VED compose: the open parent's `hOs` obligation gets NO unfolding candidates of the children's bodies (`reachDefs`): it is closed by the children's pointwise lemmas `pw{k}` (local child lemmas) or refused"
+}
+
 /-- Append of two register files. -/
 @[reducible] def happend : (αA : List Type) → {αB : List Type} → HList αA → HList αB → HList (αA ++ αB)
   | [], _, _, hb => hb

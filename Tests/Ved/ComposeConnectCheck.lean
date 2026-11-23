@@ -1291,4 +1291,135 @@ run_cmd do
   logInfo m!"compose connect shared-circuit controls: 5 refused"
 
 
+/-! ## Unit 19: no unfolding candidates of the children's bodies (option `ved.compose.noReach`)
+
+The open parent's `hOs` obligation used to carry the user definitions reachable from each child declaration (`reachDefs`) as unfolding
+candidates behind its pointwise attempt.  With `ved.compose.noReach` the obligation is closed by the children's local pointwise lemmas
+`pw{k}` alone, or refused.  The check below is independent of the entry: in the generated `hOs` proof no equation lemma of any definition
+the children reach occurs, and the only user-module constants in it are the child itself, the declaration, and the constants the entry
+generated under the declaration's name.  `multiTwoB` is `multiTwo` with a child (`mkA2`) whose body is written differently
+(`3 + x`) with the same statement: the parent's `hOs` proof goes through with the same check, i.e. it does not use the body.
+The fusion side goals `hWA`/`hWB` (`fuseOne`) are NOT covered by the option (that function is another worker's). -/
+
+@[hardware_module]
+def mkA2 (x : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  ((Signal.pure 3#4 : Signal defaultDomain (BitVec 4)) + x : Signal defaultDomain (BitVec 4))
+
+def multiTwoN (start : Signal defaultDomain Bool) (inp : Signal defaultDomain (BitVec 4)) :
+    Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let cnt ← Signal.reg 0#4
+    let acc ← Signal.reg 0#4
+    let cntS := (cnt : Signal defaultDomain (BitVec 4))
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let k1 := mkA cntS
+    let k2 := mkA (cntS - (Signal.pure 1#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4))
+    cnt <~ (cntS + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4))
+    acc <~ Signal.mux start inp (accS + k1 + k2 : Signal defaultDomain (BitVec 4))
+    return accS
+
+def multiTwoB (start : Signal defaultDomain Bool) (inp : Signal defaultDomain (BitVec 4)) :
+    Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let cnt ← Signal.reg 0#4
+    let acc ← Signal.reg 0#4
+    let cntS := (cnt : Signal defaultDomain (BitVec 4))
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let k1 := mkA2 cntS
+    let k2 := mkA2 (cntS - (Signal.pure 1#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4))
+    cnt <~ (cntS + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4))
+    acc <~ Signal.mux start inp (accS + k1 + k2 : Signal defaultDomain (BitVec 4))
+    return accS
+
+def chainTxN (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let phase ← Signal.reg 0#4
+    let outR ← Signal.reg 0#4
+    let ph := (phase : Signal defaultDomain (BitVec 4))
+    let k1 := mkA ph
+    let k2 := mkB k1
+    phase <~ Signal.mux go (ph + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4)) ph
+    outR <~ k2
+    return (outR : Signal defaultDomain (BitVec 4))
+
+/-- A copy for the controls (never accepted itself). -/
+def chainTxNRef (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let phase ← Signal.reg 0#4
+    let outR ← Signal.reg 0#4
+    let ph := (phase : Signal defaultDomain (BitVec 4))
+    let k1 := mkA ph
+    let k2 := mkB k1
+    phase <~ Signal.mux go (ph + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4)) ph
+    outR <~ k2
+    return (outR : Signal defaultDomain (BitVec 4))
+
+/-- After the entry: in every `hOs` proof of `decl` no equation lemma of a definition `kids` reach occurs, and the user-module
+constants in it are within the kids, `decl` and the generated constants (name prefix `decl`). -/
+def checkNoReach (decl : Name) (kids : List Name) (kidThms : List Name) (nRegs : Nat) : CommandElabM Unit := do
+  unless Tools.VedComposeMultiCircuit.ved.compose.noReach.get (← getOptions) do throwError "the option ved.compose.noReach is not on"
+  checkChain decl kidThms nRegs
+  let env ← getEnv
+  let reach := (kids.flatMap fun k => (Tools.VedU2HierMultiGen.reachDefs env k 6 #[]).toList).eraseDups
+  let mut n : Nat := 0
+  for (c, ci) in env.constants.map₂.toList do
+    let isOs := match c with | .str _ s => s.endsWith "_hOs" | _ => false
+    if decl.isPrefixOf c && isOs then
+      let .thmInfo t := ci | throwError "{c} is not a theorem"
+      n := n + 1
+      for u in t.value.getUsedConstants do
+        if let .str p x := u then
+          if x.startsWith "eq_" && reach.contains p then throwError "{c}: the equation lemma {u} of a reached child definition occurs"
+        if Tools.VedU2HierStGen.userModule env u && !(kids.contains u) && !(decl.isPrefixOf u) then
+          throwError "{c}: the user-module constant {u} occurs (not a child, not generated)"
+  unless n == 1 do throwError "{decl}: {n} hOs theorems, expected 1"
+  logInfo m!"compose connect noReach OK: hOs without child-body unfolding, reach set {reach.length}"
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact
+---
+info: compose connect noReach OK: hOs without child-body unfolding, reach set 1 -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.noReach true in
+run_cmd checkNoReach ``multiTwoN [``mkA] [`Tests.Ved.ComposeConnectCheck.multiTwoN.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 2
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact
+---
+info: compose connect noReach OK: hOs without child-body unfolding, reach set 1 -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.noReach true in
+run_cmd checkNoReach ``multiTwoB [``mkA2] [`Tests.Ved.ComposeConnectCheck.multiTwoB.ved_child.Tests.Ved.ComposeConnectCheck.mkA2.ved_u1] 2
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 2 child theorems, std3, type ==, same artifact
+---
+info: compose connect noReach OK: hOs without child-body unfolding, reach set 2 -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.noReach true in
+run_cmd checkNoReach ``chainTxN [``mkA, ``mkB] [`Tests.Ved.ComposeConnectCheck.chainTxN.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1, `Tests.Ved.ComposeConnectCheck.chainTxN.ved_child.Tests.Ved.ComposeConnectCheck.mkB.ved_u1] 2
+
+def noReachControls : CommandElabM Unit := do
+  let (m, d) ← synthOf ``chainTxNRef
+  let noT : Phase1 → CommandElabM Phase1 := fun p => pure p
+  withScope (fun sc => { sc with opts := ((sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true).setBool `ved.compose.noReach true }) do
+    -- the same controls as `chainTxControls`, with the reduced set
+    expectRefusedT ``chainTxNRef "kernel" "?" { m with body := setConnAt 3 "_gen_x" (.ref "_tmp_op_a_2") (setConnAt 1 "_gen_x" (.ref "_tmp_op_a_2") m.body) } d noT
+    expectRefusedT ``chainTxNRef "proof" "unsolved goals" m d fun p => pure { p with insts := p.insts.map fun ii => { ii with call := 1 - ii.call } }
+    expectRefusedT ``chainTxNRef "hier-shape" "width mismatch" { m with wires := m.wires.map fun w =>
+      if w.name == "_tmp_arg0_6" then { w with ty := .bitVector 5 } else w } d noT
+  -- the connect option OFF (noReach on): the old refusal text, unchanged
+  withScope (fun sc => { sc with opts := (sc.opts.setBool `ved.compose.step true).setBool `ved.compose.noReach true }) do
+    expectRefusedT ``chainTxNRef "conns" "another instance's output" m d noT
+
+/-- info: compose connect noReach controls: 4 refused -/
+#guard_msgs in
+run_cmd do
+  noReachControls
+  logInfo m!"compose connect noReach controls: 4 refused"
+
+
 end Tests.Ved.ComposeConnectCheck
