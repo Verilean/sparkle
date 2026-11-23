@@ -22,34 +22,34 @@ open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
 namespace Tools.VedComposeMultiCircuit
 
 /-- Append of two register files. -/
-def happend : (αA : List Type) → {αB : List Type} → HList αA → HList αB → HList (αA ++ αB)
+@[reducible] def happend : (αA : List Type) → {αB : List Type} → HList αA → HList αB → HList (αA ++ αB)
   | [], _, _, hb => hb
   | _ :: as, _, ha, hb => (ha.1, happend as ha.2 hb)
 
 /-- The first part of an appended register file. -/
-def htake : (αA : List Type) → {αB : List Type} → HList (αA ++ αB) → HList αA
+@[reducible] def htake : (αA : List Type) → {αB : List Type} → HList (αA ++ αB) → HList αA
   | [], _, _ => ()
   | _ :: as, _, h => (h.1, htake as h.2)
 
 /-- The second part of an appended register file. -/
-def hdrop : (αA : List Type) → {αB : List Type} → HList (αA ++ αB) → HList αB
+@[reducible] def hdrop : (αA : List Type) → {αB : List Type} → HList (αA ++ αB) → HList αB
   | [], _, h => h
   | _ :: as, _, h => hdrop as h.2
 
 /-- Append of two pending-write lists. -/
-def sappend {dom : DomainConfig} : (αA : List Type) → {αB : List Type} →
+@[reducible] def sappend {dom : DomainConfig} : (αA : List Type) → {αB : List Type} →
     Circuit.SigList dom αA → Circuit.SigList dom αB → Circuit.SigList dom (αA ++ αB)
   | [], _, _, wb => wb
   | _ :: as, _, wa, wb => (wa.1, sappend as wa.2 wb)
 
 /-- The first part of an appended pending-write list. -/
-def stake {dom : DomainConfig} : (αA : List Type) → {αB : List Type} →
+@[reducible] def stake {dom : DomainConfig} : (αA : List Type) → {αB : List Type} →
     Circuit.SigList dom (αA ++ αB) → Circuit.SigList dom αA
   | [], _, _ => ()
   | _ :: as, _, w => (w.1, stake as w.2)
 
 /-- The second part of an appended pending-write list. -/
-def sdrop {dom : DomainConfig} : (αA : List Type) → {αB : List Type} →
+@[reducible] def sdrop {dom : DomainConfig} : (αA : List Type) → {αB : List Type} →
     Circuit.SigList dom (αA ++ αB) → Circuit.SigList dom αB
   | [], _, w => w
   | _ :: as, _, w => sdrop as w.2
@@ -181,5 +181,133 @@ theorem loop_append {dom : DomainConfig} (αA αB : List Type) [Inhabited (HList
     rw [hA t _ _ h1, hB t _ _ _ _ h1 h2]
   · intro t
     rw [packRegister_append_val, e1, e2, hfixA t, hfixB t]
+
+
+/-! ### The fused body of two circuits: `fuseBody`, and `fuse_run`
+
+`fuseBody bodyA wA bodyB` is the body of ONE `runCircuitH` over `αA ++ αB`: it runs `bodyA` on the state part of A and `bodyB`
+(whose closed argument `wA (output of A)` is the part of B that reads A) on the state part of B, and concatenates the writes.
+The state parts are recovered from the pending-write seed `mkHolds` by `liveOfSigs`. -/
+
+/-- The state signal of a pending-write list of live reads (the inverse of `mkHolds`). -/
+@[reducible] def liveOfSigs {dom : DomainConfig} : (αs : List Type) → Circuit.SigList dom αs → Signal dom (HList αs)
+  | [], _ => Signal.pure ()
+  | _ :: as, w => bundle2 w.1 (liveOfSigs as w.2)
+
+theorem liveOfSigs_mkHolds {dom : DomainConfig} : ∀ (αs : List Type) (L : Signal dom (HList αs)),
+    liveOfSigs αs (mkHolds αs L) = L
+  | [], L => Tools.VedU2HierMulti.signal_ext (fun t => by rfl)
+  | _ :: as, L => by
+    have ih := liveOfSigs_mkHolds as (Signal.map Prod.snd L)
+    refine Tools.VedU2HierMulti.signal_ext (fun t => ?_)
+    show ((L.val t).1, ((liveOfSigs as (mkHolds as (Signal.map Prod.snd L))).val t)) = L.val t
+    rw [ih]
+    rfl
+
+theorem liveOfSigs_stake_mkHolds {dom : DomainConfig} : ∀ (αA : List Type) {αB : List Type} (L : Signal dom (HList (αA ++ αB))),
+    liveOfSigs αA (stake αA (mkHolds (αA ++ αB) L)) = Signal.map (htake αA) L
+  | [], _, L => Tools.VedU2HierMulti.signal_ext (fun t => by rfl)
+  | _ :: as, _, L => by
+    have ih := liveOfSigs_stake_mkHolds as (Signal.map Prod.snd L)
+    refine Tools.VedU2HierMulti.signal_ext (fun t => ?_)
+    show ((L.val t).1, ((liveOfSigs as (stake as (mkHolds (as ++ _) (Signal.map Prod.snd L)))).val t))
+      = ((L.val t).1, htake as (L.val t).2)
+    rw [ih]
+    rfl
+
+theorem liveOfSigs_sdrop_mkHolds {dom : DomainConfig} : ∀ (αA : List Type) {αB : List Type} (L : Signal dom (HList (αA ++ αB))),
+    liveOfSigs αB (sdrop αA (mkHolds (αA ++ αB) L)) = Signal.map (hdrop αA) L
+  | [], _, L => liveOfSigs_mkHolds _ L
+  | _ :: as, _, L => by
+    have ih := liveOfSigs_sdrop_mkHolds as (Signal.map Prod.snd L)
+    show liveOfSigs _ (sdrop as (mkHolds (as ++ _) (Signal.map Prod.snd L))) = _
+    rw [ih]
+    rfl
+
+section Fuse
+variable {dom : DomainConfig} {αA αB : List Type} {ρA ρB τ : Type} [HasDomain ρA dom] [HasDomain ρB dom]
+
+/-- The fused body. -/
+@[reducible] def fuseBody
+    (bodyA : RegList dom (HList αA) (Circuit.SigList dom αA) αA → Circuit dom (Circuit.SigList dom αA) ρA)
+    (wA : ρA → τ)
+    (bodyB : τ → RegList dom (HList αB) (Circuit.SigList dom αB) αB → Circuit dom (Circuit.SigList dom αB) ρB) :
+    RegList dom (HList (αA ++ αB)) (Circuit.SigList dom (αA ++ αB)) (αA ++ αB) →
+      Circuit dom (Circuit.SigList dom (αA ++ αB)) ρB :=
+  fun _regs holds =>
+    let LA := liveOfSigs αA (stake αA holds)
+    let LB := liveOfSigs αB (sdrop αA holds)
+    let rA := bodyA (mkRegList LA αA (fun s => s) (fun f => f)) (mkHolds αA LA)
+    let rB := bodyB (wA rA.fst) (mkRegList LB αB (fun s => s) (fun f => f)) (mkHolds αB LB)
+    (rB.fst, sappend αA rA.snd rB.snd)
+
+
+variable [HListWireable αA] [HListWireable αB] [HListWireable (αA ++ αB)]
+  [Inhabited (HList αA)] [Inhabited (HList αB)] [Inhabited (HList (αA ++ αB))]
+
+/-- The write function of A's circuit over its state signal. -/
+@[reducible] def writesA
+    (bodyA : RegList dom (HList αA) (Circuit.SigList dom αA) αA → Circuit dom (Circuit.SigList dom αA) ρA) :
+    Signal dom (HList αA) → Circuit.SigList dom αA :=
+  fun x => (bodyA (mkRegList x αA (fun s => s) (fun f => f)) (mkHolds αA x)).snd
+
+/-- The write function of B's circuit over A's state signal (the closed argument) and its own state signal. -/
+@[reducible] def writesB
+    (bodyA : RegList dom (HList αA) (Circuit.SigList dom αA) αA → Circuit dom (Circuit.SigList dom αA) ρA)
+    (wA : ρA → τ)
+    (bodyB : τ → RegList dom (HList αB) (Circuit.SigList dom αB) αB → Circuit dom (Circuit.SigList dom αB) ρB) :
+    Signal dom (HList αA) → Signal dom (HList αB) → Circuit.SigList dom αB :=
+  fun x y => (bodyB (wA (bodyA (mkRegList x αA (fun s => s) (fun f => f)) (mkHolds αA x)).fst)
+    (mkRegList y αB (fun s => s) (fun f => f)) (mkHolds αB y)).snd
+
+/-- Two `runCircuitH` wired feed-forward (B's body reads `wA` of A's result) are ONE `runCircuitH` over the appended registers,
+when the two write functions are pointwise in the state they read (the facts a generator proves on the reduced writes). -/
+theorem fuse_run (iA : HList αA) (iB : HList αB)
+    (bodyA : RegList dom (HList αA) (Circuit.SigList dom αA) αA → Circuit dom (Circuit.SigList dom αA) ρA)
+    (wA : ρA → τ)
+    (bodyB : τ → RegList dom (HList αB) (Circuit.SigList dom αB) αB → Circuit dom (Circuit.SigList dom αB) ρB)
+    (hWA : ∀ t (x y : Signal dom (HList αA)), x.val t = y.val t →
+      sat αA (writesA bodyA x) t = sat αA (writesA bodyA y) t)
+    (hWB : ∀ t (x x' : Signal dom (HList αA)) (y y' : Signal dom (HList αB)), x.val t = x'.val t → y.val t = y'.val t →
+      sat αB (writesB bodyA wA bodyB x y) t = sat αB (writesB bodyA wA bodyB x' y') t) :
+    runCircuitH (αs := αA ++ αB) (happend αA iA iB) (fuseBody bodyA wA bodyB)
+      = runCircuitH (αs := αB) iB (bodyB (wA (runCircuitH (αs := αA) iA bodyA))) := by
+  have hloop := loop_append αA αB iA iB (writesA bodyA) (writesB bodyA wA bodyB) hWA hWB
+  have hF : (fun live : Signal dom (HList (αA ++ αB)) =>
+        packRegister (αA ++ αB) (happend αA iA iB)
+          (((fuseBody bodyA wA bodyB) (mkRegList live (αA ++ αB) (fun s => s) (fun f => f))
+            (mkHolds (αA ++ αB) live)).snd))
+      = (fun L : Signal dom (HList (αA ++ αB)) =>
+          packRegister (αA ++ αB) (happend αA iA iB)
+            (sappend αA (writesA bodyA (Signal.map (htake αA) L))
+              (writesB bodyA wA bodyB (Signal.map (htake αA) L) (Signal.map (hdrop αA) L)))) := by
+    funext L
+    have e3 := liveOfSigs_stake_mkHolds αA L
+    have e4 := liveOfSigs_sdrop_mkHolds αA L
+    dsimp only [fuseBody, writesA, writesB]
+    rw [e3, e4]
+  have hS : (Signal.loop (fun live : Signal dom (HList (αA ++ αB)) =>
+        packRegister (αA ++ αB) (happend αA iA iB)
+          (((fuseBody bodyA wA bodyB) (mkRegList live (αA ++ αB) (fun s => s) (fun f => f))
+            (mkHolds (αA ++ αB) live)).snd)))
+      = (⟨fun t => happend αA ((loopA iA (writesA bodyA)).val t) ((loopB iA iB (writesA bodyA) (writesB bodyA wA bodyB)).val t)⟩ :
+          Signal dom (HList (αA ++ αB))) := by
+    rw [hF]
+    exact Tools.VedU2HierMulti.signal_ext hloop
+  have e1 : Signal.map (htake αA) (⟨fun t => happend αA ((loopA iA (writesA bodyA)).val t)
+        ((loopB iA iB (writesA bodyA) (writesB bodyA wA bodyB)).val t)⟩ : Signal dom (HList (αA ++ αB))) = loopA iA (writesA bodyA) :=
+    Tools.VedU2HierMulti.signal_ext (fun i => htake_happend αA _ _)
+  have e2 : Signal.map (hdrop αA) (⟨fun t => happend αA ((loopA iA (writesA bodyA)).val t)
+        ((loopB iA iB (writesA bodyA) (writesB bodyA wA bodyB)).val t)⟩ : Signal dom (HList (αA ++ αB))) = loopB iA iB (writesA bodyA) (writesB bodyA wA bodyB) :=
+    Tools.VedU2HierMulti.signal_ext (fun i => hdrop_happend αA _ _)
+  show ((fuseBody bodyA wA bodyB) _ _).fst = _
+  rw [show (Signal.loop (fun live : Signal dom (HList (αA ++ αB)) =>
+        packRegister (αA ++ αB) (happend αA iA iB)
+          (((fuseBody bodyA wA bodyB) (mkRegList live (αA ++ αB) (fun s => s) (fun f => f))
+            (mkHolds (αA ++ αB) live)).snd))) = _ from hS]
+  dsimp only [fuseBody]
+  rw [liveOfSigs_stake_mkHolds, liveOfSigs_sdrop_mkHolds, e1, e2]
+
+end Fuse
 
 end Tools.VedComposeMultiCircuit
