@@ -13,7 +13,8 @@ option on, and the stored theorem is then read from the environment and inspecte
 * it is a kernel-added theorem (`thmInfo`) whose proof mentions the child's own theorem (struct route) and no `sorryAx`;
 * `#print axioms` prints the axioms, and the closure is within `propext`, `Classical.choice`, `Quot.sound`.
 
-`U2HRStmtK` is a NEW candidate statement (unreviewed); this probe checks the entry's result against it, not that it is the right one.
+`U2HRStmtK` was approved (reviewer, 2026-11-23) for the scope of ca486924..2eff05ce only (register parent, multi-output leaf
+children); it is not a new TRUSTED statement. This probe checks the entry's result against it, not that it is the right one.
 -/
 
 namespace Tests.Ved.MultiOutProbe

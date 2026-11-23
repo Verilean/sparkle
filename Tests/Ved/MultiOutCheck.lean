@@ -330,10 +330,12 @@ end Tests.Ved.MultiOutCheck
 
 * (a) `topr0`: the child's input is the parent's REGISTER; `topr`: the child's inputs are the parent's data inputs;
 * (b) `topb`: two instances of the sequential child, the second reads an OUTPUT of the first (chain through a multi-output producer);
-* (c) `topc`: one instance whose two outputs feed two DIFFERENT consumers (the nets are keyed by (instance, OUTPUT PORT)).
+* (c) `topc`: one instance whose two outputs feed two DIFFERENT consumers (a producer's output net is keyed by the producer's module name, the OUTPUT PORT and its input nets, recursively: `keyNetI` extended with `portKey`, not replaced, and not the instance id).
 
 All are accepted with the stored type `U2HRStmtK c m d top`, the same artifact, std3, the kernel, the child theorem constant used
-(`acceptK`).  `U2HRStmtK` is an unreviewed candidate statement. -/
+(`acceptK`).  `U2HRStmtK` was approved (reviewer, 2026-11-23) for the scope of ca486924..2eff05ce only: a register parent
+with sequential or combinational multi-output LEAF children; it is not a new TRUSTED statement.  Old paths are unchanged with
+`ved.compose.multiOut` off. -/
 
 namespace Tests.Ved.MultiOutCheck
 
