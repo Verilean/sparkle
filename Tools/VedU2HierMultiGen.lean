@@ -311,7 +311,8 @@ def splitResult (decl : Name) (r : Lean.Expr) : MetaM (Lean.Expr × Lean.Expr) :
 second circuit A = `runA` (a closed `runCircuitH`, itself with no closed circuit inside).  Returns the fused run (one `runCircuitH`
 over `αA ++ αB`) and a proof of `fused = run`.  Calls of children inside either body are marked during the reduction. -/
 def fuseOne (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) (run : Lean.Expr)
-    (x runA : Lean.Expr) (wrapA : Lean.Expr → Lean.Expr) (base : Name) (sfx : String) : TermElabM (Lean.Expr × Lean.Expr) := do
+    (x runA : Lean.Expr) (wrapA : Lean.Expr → Lean.Expr) (base : Name) (sfx : String) (prodRed : Bool := false) :
+    TermElabM (Lean.Expr × Lean.Expr) := do
   let rargs := run.getAppArgs
   let aargs := runA.getAppArgs
   let dom := rargs[0]!; let αB := rargs[1]!; let ρB := rargs[2]!
@@ -453,6 +454,12 @@ def fuseOne (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) 
           | some true => return .done (s.getArg! 3)
           | some false => return .done (s.getArg! 4)
           | none => return .done x
+      -- shared-circuit fusion: the pair outputs of the earlier circuits are read by projections (a projection of a pair is the component)
+      if prodRed then
+        if x.isAppOfArity ``Prod.fst 3 && (x.getArg! 2).isAppOfArity ``Prod.mk 4 then return .done ((x.getArg! 2).getArg! 2)
+        if x.isAppOfArity ``Prod.snd 3 && (x.getArg! 2).isAppOfArity ``Prod.mk 4 then return .done ((x.getArg! 2).getArg! 3)
+        if let .proj ``Prod i s := x then
+          if s.isAppOfArity ``Prod.mk 4 then return .done (s.getArg! (2 + i))
       return .done x)
     mkLambdaFVars vs e
   let fusedRun ← mkAppOptM ``Sparkle.Core.runCircuitH
@@ -496,13 +503,107 @@ partial def fuseAll (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lea
   | some (r, pf3) => return some (r, ← mkAppM ``Eq.trans #[pf3, pfD])
   | none => return some (fused, pfD)
 
+/-- The closed circuits a body reads (innerRuns), each circuit once. -/
+def readsOf (skip : Array Name) (body : Lean.Expr) : MetaM (Array (Lean.Expr × Lean.Expr)) := do
+  let cs ← innerRuns skip body #[]
+  let mut out : Array (Lean.Expr × Lean.Expr) := #[]
+  for (x, r, _) in cs do
+    unless out.any (·.1 == x) do out := out.push (x, r)
+  return out
+
+/-- Shared-circuit fusion, the read graph: the circuits `x` (closed calls) reachable from a body in post-order (a circuit after
+every circuit it reads, readers in occurrence order), each ONCE, with the circuits each reads, and how many readers each has. -/
+partial def sharedVisit (skip : Array Name) (ord : IO.Ref (Array (Lean.Expr × Lean.Expr × Array Lean.Expr)))
+    (cnt : IO.Ref (Std.HashMap Lean.Expr Nat)) (x r : Lean.Expr) : MetaM Unit := do
+  let ds ← readsOf skip r.getAppArgs[7]!
+  for (dx, dr) in ds do
+    cnt.modify fun m => m.insert dx (m.getD dx 0 + 1)
+    unless (← ord.get).any (·.1 == dx) do sharedVisit skip ord cnt dx dr
+  ord.modify (·.push (x, r, ds.map (·.1)))
+
+/-- Component `i` of the left-nested tuple `tup` of `m` circuit values (`tup_1 = e_0`, `tup_m = (tup_{m-1}, e_{m-1})`). -/
+partial def projOfTup (tup : Lean.Expr) (m i : Nat) : MetaM Lean.Expr := do
+  if m ≤ 1 then return tup
+  else if i == m - 1 then mkAppM ``Prod.snd #[tup]
+  else projOfTup (← mkAppM ``Prod.fst #[tup]) (m - 1) i
+
+/-- VED compose multiCircuit, shared circuits (unit 19): when a closed circuit is read by SEVERAL readers (a diamond: `D` reads `A` and
+`S`, `S` reads `A`), every circuit is fused ONCE.  The circuits are taken in post-order of the read graph; the fusion of the first `j`
+carries the tuple of their outputs (`tup_j`, left-nested), so a later reader reads a shared circuit by a projection of the fused
+output (not by a second copy).  Step `j`: the reader `B` with its reads replaced by projections of `tup_{j-1}`, whose output is the
+pair `(tup_{j-1}, out B)` (not for the last step, the declaration's own run), is fused with the run so far by `fuseOne`; the proof of
+`F_j = tup_j` is the fusion equation, `congrArg` of the claim `F_{j-1} = tup_{j-1}`, and a definitional step.  `none` when no
+circuit has two readers (the usual chain fusion `fuseAll` then applies). -/
+def fuseShared (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) (run : Lean.Expr)
+    (base : Name) (sfx : String) (ctr : IO.Ref Nat) : TermElabM (Option (Lean.Expr × Lean.Expr)) := do
+  let skip := kids.map (·.decl)
+  let ord ← IO.mkRef (#[] : Array (Lean.Expr × Lean.Expr × Array Lean.Expr))
+  let cnt ← IO.mkRef ({} : Std.HashMap Lean.Expr Nat)
+  let topDs ← readsOf skip run.getAppArgs[7]!
+  for (dx, dr) in topDs do
+    cnt.modify fun m => m.insert dx (m.getD dx 0 + 1)
+    unless (← ord.get).any (·.1 == dx) do sharedVisit skip ord cnt dx dr
+  unless (← cnt.get).toList.any (·.2 ≥ 2) do return none
+  let ord ← ord.get
+  Tools.VedU2HierDbg.openTick s!"fuseShared: {ord.size} circuits, one fusion each"
+  let mut F := ord[0]!.2.1
+  let mut tup := ord[0]!.1
+  let mut claim ← mkExpectedTypeHint (← mkEqRefl F) (← mkEq F tup)
+  for j in [1:ord.size + 1] do
+    let isTop := j == ord.size
+    let (xB, B, deps) := if isTop then (run, run, topDs.map (·.1)) else ord[j]!
+    let bargs := B.getAppArgs
+    -- the reads of the earlier circuits replaced by projections of the tuple (all at once: the tuple itself contains them)
+    let tys ← deps.mapM fun d => inferType d
+    let bodyS ← withFVars (deps.mapIdx fun i _ => Name.mkSimple s!"ved_d{i}") tys fun fvs => do
+      let mut b := bargs[7]!
+      -- a circuit that reads another contains it: the circuit later in the post-order first
+      let key (i : Nat) : Nat := (ord.findIdx? (·.1 == deps[i]!)).getD 0
+      let order := (Array.range deps.size).qsort fun i i' => key i > key i'
+      for i in order do
+        b := (← kabstract b deps[i]!).instantiate1 fvs[i]!
+      let prs ← deps.mapM fun d => do
+        let some i := ord.findIdx? (·.1 == d) | throwError "multiCircuit shared: a read circuit is not in the read graph"
+        projOfTup tup j i
+      pure ((b.abstract fvs).instantiateRev prs)
+    let Bt ← if isTop then pure (mkAppN B.getAppFn (bargs.set! 7 bodyS)) else do
+      let .forallE _ regsTy circ _ ← whnf (← inferType bodyS) | throwError "multiCircuit shared: the body of runCircuitH has an unexpected type"
+      let .forallE _ wTy _ _ ← whnf circ | throwError "multiCircuit shared: the Circuit type has an unexpected shape"
+      let body' ← withLocalDeclD `regs regsTy fun r => withLocalDeclD `h wTy fun h => do
+        let rr := mkApp2 bodyS r h
+        let out ← mkAppM ``Prod.fst #[rr]
+        let wr ← mkAppM ``Prod.snd #[rr]
+        mkLambdaFVars #[r, h] (← mkAppM ``Prod.mk #[← mkAppM ``Prod.mk #[tup, out], wr])
+      let ρ'' ← mkAppM ``Prod #[← inferType tup, bargs[2]!]
+      let inst ← synthInstance (← mkAppM ``Sparkle.Core.HasDomain #[ρ'', bargs[0]!])
+      pure (mkAppN B.getAppFn ((bargs.set! 2 ρ'').set! 3 inst |>.set! 7 body'))
+    let ty ← inferType tup
+    let absBt ← kabstract Bt tup
+    let f := Lean.mkLambda `r .default ty absBt
+    let cur := absBt.instantiate1 F
+    let pfC ← mkAppM ``congrArg #[f, claim]
+    let k ← ctr.modifyGet fun n => (n, n + 1)
+    Tools.VedU2HierDbg.openTick s!"fuseShared {k} begin (circuit {j + 1} of {ord.size + 1})"
+    let (Fj, pf2) ← fuseOne decl kids pw xs cur F F id base (sfx ++ s!"_{k}") true
+    Tools.VedU2HierDbg.openTickE s!"fuseShared {k} end" Fj
+    let pfD ← mkAppM ``Eq.trans #[pf2, pfC]
+    F := Fj
+    if isTop then claim ← mkExpectedTypeHint pfD (← mkEq Fj run)
+    else
+      tup ← mkAppM ``Prod.mk #[tup, xB]
+      claim ← mkExpectedTypeHint pfD (← mkEq Fj tup)
+  return some (F, claim)
+
 /-- VED compose multiCircuit (unit 15, K circuits since connect16): the declaration's `run` reads closed circuits (closed
 `runCircuitH` subterms).  Returns the fused run (one `runCircuitH` over the appended registers) and the name of
 `fuseEq : ∀ xs, stmt xs = wrap fusedRun`. -/
 def fuseTwo (decl : Name) (kids : Array Kid) (pw : Bool) (stmt : Lean.Expr) (xs : Array Lean.Expr) (run : Lean.Expr)
     (wrap : Lean.Expr → Lean.Expr) (base : Name) (sfx : String) : TermElabM (Option (Lean.Expr × Name)) := do
   let ctr ← IO.mkRef 0
-  let some (fusedRun, pfEq) ← fuseAll decl kids pw xs run base sfx ctr | return none
+  let r? ← match ← fuseShared decl kids pw xs run base sfx ctr with
+    | some r => pure (some r)
+    | none => fuseAll decl kids pw xs run base sfx ctr
+  let some (fusedRun, pfEq) := r? | return none
   Tools.VedU2HierDbg.openTickE "fuseTwo: fuseAll done (fused run)" fusedRun
   let fuseEqName := base ++ Name.mkSimple (sfx ++ "_fuse")
   let eqTy ← mkForallFVars xs (← mkEq (mkAppN stmt xs) (wrap fusedRun))

@@ -1162,34 +1162,133 @@ run_cmd do
   logInfo m!"compose connect wiring controls: 7 refused"
 
 
-/-! ### A circuit read both directly and through another circuit (unit 18: the limit R246 meets, recorded as a refusal)
+/-! ### A circuit read by several readers (unit 19: shared circuits are fused ONCE)
 
-`dmP`: `let a := twoStageA go; let s := twoStageB a.ph; twoStageD a.ph s.b` (D reads A and S, S reads A: a shared circuit).  The
-generator fuses a reader at a time and abstracts every occurrence of the circuit read, so the shared circuit A is fused twice (a
-copy inside S and a copy of its own): the open parent has 4 registers, the parent 3.  This is NOT accepted; the control pins the
-refusal (stage and text) so that a later change that makes the shared circuit one set of registers is visible here.  R246's
-`deframer` (read by the IPv4 parser, the TCP parser, the HTTP parser and two pulse generators) is of this shape. -/
+`dmTx`: `let a := twoStageA go; let s := twoStageB a.ph; twoStageD a.ph s.b` (D reads A and S, S reads A: a shared circuit).  Unit 18
+pinned a refusal here: the generator fused a reader at a time and abstracted every occurrence of the circuit read, so A was fused twice
+(a copy inside S and a copy of its own: 4 registers against the parent's 3).  With the option `ved.compose.multiCircuit` a circuit with
+several readers makes the generator fuse every circuit ONCE (`fuseShared`, `Tools/VedU2HierMultiGen.lean`): the circuits in post-order of
+the read graph, the fusion so far carrying the tuple of the circuits' outputs, a later reader reading a shared circuit by a projection of
+it.  `dm2Tx`: A is read by two readers S1, S2 and D reads both (4 circuits).  `dmSopTx`: A is read by S, by U and by the top, S by U, U
+by the top (R246's `sopPulse` shape: a reader that itself reads the shared circuit and is read by a later one).  `sc2Tx`, `sc4Tx`: a
+pure-wiring top over 2 and 4 readers of one circuit (the scaling series; `sc8Tx` in the measurement only).  Checked as above (type `==`,
+same artifact, std3, kernel, the child theorem occurs, no per-cone fallback).  CONTROLS (on copies of `dmTx`): the option off (old text),
+the registers of two circuits swapped, a wrong wiring, a width mismatch. -/
 
 def dmP (go : Signal defaultDomain Bool) : TwoB defaultDomain :=
   let a := twoStageA go
   let s := twoStageB a.ph
   twoStageD a.ph s.b
 
-/-- A copy for the control (never accepted). -/
+def dmTx (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (dmP go).b
+
+/-- A copy for the controls (never accepted itself). -/
 def dmRef (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
   (dmP go).b
+
+def twoStageK (c : BitVec 4) (ph : Signal defaultDomain (BitVec 4)) : TwoB defaultDomain :=
+  circuit do
+    let outR ← Signal.reg 0#4
+    outR <~ mkA (ph + (Signal.pure c : Signal defaultDomain (BitVec 4)))
+    return ({ b := (outR : Signal defaultDomain (BitVec 4)) } : TwoB defaultDomain)
+
+def dm2P (go : Signal defaultDomain Bool) : TwoB defaultDomain :=
+  let a := twoStageA go
+  let s1 := twoStageK 1#4 a.ph
+  let s2 := twoStageK 2#4 a.ph
+  twoStageD s1.b s2.b
+
+def dm2Tx (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (dm2P go).b
+
+def dmSopP (go : Signal defaultDomain Bool) : TwoB defaultDomain :=
+  let a := twoStageA go
+  let s := twoStageB a.ph
+  let u := twoStageD a.ph s.b
+  twoStageD u.b a.ph
+
+def dmSopTx (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (dmSopP go).b
+
+def sc2P (go : Signal defaultDomain Bool) : WireOut defaultDomain :=
+  let a := twoStageA go
+  let r1 := twoStageK 1#4 a.ph
+  let r2 := twoStageK 2#4 a.ph
+  ({ tx := r1.b + r2.b } : WireOut defaultDomain)
+
+def sc2Tx (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (sc2P go).tx
+
+def sc4P (go : Signal defaultDomain Bool) : WireOut defaultDomain :=
+  let a := twoStageA go
+  let r1 := twoStageK 1#4 a.ph
+  let r2 := twoStageK 2#4 a.ph
+  let r3 := twoStageK 3#4 a.ph
+  let r4 := twoStageK 4#4 a.ph
+  ({ tx := r1.b + r2.b + r3.b + r4.b } : WireOut defaultDomain)
+
+def sc4Tx (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (sc4P go).tx
+
+/-- info: compose connect chain OK: 3 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``dmTx [`Tests.Ved.ComposeConnectCheck.dmTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 3
+
+/-- info: compose connect chain OK: 4 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``dm2Tx [`Tests.Ved.ComposeConnectCheck.dm2Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 4
+
+/-- info: compose connect chain OK: 4 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``dmSopTx [`Tests.Ved.ComposeConnectCheck.dmSopTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 4
+
+/-- info: compose connect chain OK: 3 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``sc2Tx [`Tests.Ved.ComposeConnectCheck.sc2Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 3
+
+/-- info: compose connect chain OK: 5 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``sc4Tx [`Tests.Ved.ComposeConnectCheck.sc4Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 5
 
 def diamondControl : CommandElabM Unit := do
   let noT : Phase1 → CommandElabM Phase1 := fun p => pure p
   let (m, d) ← synthOf ``dmRef
+  let rs := regNamesOf m.body
+  unless rs.length == 3 do throwError "dmRef: expected 3 registers, got {rs}"
+  -- the option OFF (step and connect on)
+  withScope (fun sc => { sc with opts := (sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true }) do
+    expectRefusedT ``dmRef "open" "its instances' input nets form 2 distinct classes" m d noT
   withScope (fun sc => { sc with opts := ((sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true).setBool `ved.compose.multiCircuit true }) do
-    expectRefusedT ``dmRef "deep" "the parent has 3 registers, the open parent's circuit has 4" m d noT
+    -- ORDER: the registers of A and S swapped (the fused order is A, S, D)
+    expectRefusedT ``dmRef "proof" "proved that the proposition" { m with body := swapRegsAt rs[0]! rs[1]! m.body } d noT
+    expectRefusedT ``dmRef "proof" "unsolved goals" { m with body := swapRegsAt rs[1]! rs[2]! m.body } d noT
+    -- WRONG WIRING: the child in D fed by A's register
+    expectRefusedT ``dmRef "kernel" "let-declaration type mismatch" { m with body := setConnAt 1 "_gen_x" (.ref rs[0]!) m.body } d noT
+    -- WIDTH MISMATCH: the declared width of S's register wire
+    expectRefusedT ``dmRef "proof" "proved that the proposition" { m with wires := m.wires.map fun w =>
+      if w.name == rs[1]! then { w with ty := .bitVector 5 } else w } d noT
 
-/-- info: compose connect shared-circuit control: 1 refused -/
+/-- info: compose connect shared-circuit controls: 5 refused -/
 #guard_msgs in
 run_cmd do
   diamondControl
-  logInfo m!"compose connect shared-circuit control: 1 refused"
+  logInfo m!"compose connect shared-circuit controls: 5 refused"
 
 
 end Tests.Ved.ComposeConnectCheck
