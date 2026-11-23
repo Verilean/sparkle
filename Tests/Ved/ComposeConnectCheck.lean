@@ -957,4 +957,103 @@ set_option ved.compose.multiCircuit true in
 set_option sparkle.deepExportState true in
 run_cmd checkChain ``twoDirTx [`Tests.Ved.ComposeConnectCheck.twoDirTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 3
 
+/-! ### K > 2 closed circuits (connect16): a chain A -> B -> C and two circuits A1, A2 both read by D
+
+`cc3Tx`: `let a := twoStageA go; let b := twoStageB a.ph; twoStageB b.b` (a circuit read by a circuit that is itself read; fused
+innermost first: registers of A, B, C).  `fan2Tx`: `let a := twoStageA go; let b := twoStageA go2; twoStageD a.ph b.ph` (two independent
+circuits read by one; fused one after the other, the last let-bound first, so the registers come in let order A1, A2, D).
+`fanMixTx`: A1 is read by B and B and A2 both by D.  Checked as above.  CONTROLS (chain, on a copy): the option off, the order of two
+circuits swapped (registers), wrong wiring between two of the circuits, a width mismatch on one circuit's wire. -/
+
+def twoStageD (p q : Signal defaultDomain (BitVec 4)) : TwoB defaultDomain :=
+  circuit do
+    let outR ← Signal.reg 0#4
+    outR <~ mkA (p + q)
+    return ({ b := (outR : Signal defaultDomain (BitVec 4)) } : TwoB defaultDomain)
+
+def cc3P (go : Signal defaultDomain Bool) : TwoB defaultDomain :=
+  let a := twoStageA go
+  let b := twoStageB a.ph
+  twoStageB b.b
+
+def cc3Tx (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (cc3P go).b
+
+/-- A copy for the controls (never accepted itself). -/
+def cc3Ref (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (cc3P go).b
+
+def fan2P (go go2 : Signal defaultDomain Bool) : TwoB defaultDomain :=
+  let a := twoStageA go
+  let b := twoStageA go2
+  twoStageD a.ph b.ph
+
+def fan2Tx (go go2 : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (fan2P go go2).b
+
+def fanMixP (go go2 : Signal defaultDomain Bool) : TwoB defaultDomain :=
+  let a := twoStageA go
+  let b := twoStageB a.ph
+  let c := twoStageA go2
+  twoStageD b.b c.ph
+
+def fanMixTx (go go2 : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (fanMixP go go2).b
+
+/-- info: compose connect chain OK: 3 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``cc3Tx [`Tests.Ved.ComposeConnectCheck.cc3Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 3
+
+/-- info: compose connect chain OK: 3 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``fan2Tx [`Tests.Ved.ComposeConnectCheck.fan2Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 3
+
+/-- info: compose connect chain OK: 4 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``fanMixTx [`Tests.Ved.ComposeConnectCheck.fanMixTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 4
+
+/- Names in the synthesised `cc3Ref`: registers `_tmp_a_7` (A), `_tmp_a_13` (B), `_tmp_a_19` (C); instance 0 of `mkA` (in B) reads
+`_tmp_op_a_4` (a slice of A's register read), instance 1 (in C) reads B's register `_tmp_a_13`, both on `_gen_x`. -/
+
+def swapRegsAt (r1 r2 : String) (b : List Stmt) : List Stmt :=
+  let ra := b.find? fun s => match s with | .register n .. => n == r1 | _ => false
+  let rb := b.find? fun s => match s with | .register n .. => n == r2 | _ => false
+  match ra, rb with
+  | some a, some c => b.map fun s => match s with
+    | .register n .. => if n == r1 then c else if n == r2 then a else s
+    | s => s
+  | _, _ => b
+
+def cc3Controls : CommandElabM Unit := do
+  let (m, d) ← synthOf ``cc3Ref
+  let noT : Phase1 → CommandElabM Phase1 := fun p => pure p
+  -- the multiCircuit option OFF (step and connect on): the old `[deep]` refusal
+  withScope (fun sc => { sc with opts := (sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true }) do
+    expectRefusedT ``cc3Ref "open" "its instances' input nets form 2 distinct classes" m d noT
+  withScope (fun sc => { sc with opts := ((sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true).setBool `ved.compose.multiCircuit true }) do
+    -- ORDER of two circuits: the registers of A and B swapped in the returned IR (the fused order is A, B, C)
+    expectRefusedT ``cc3Ref "proof" "proved that the proposition" { m with body := swapRegsAt "_tmp_a_7" "_tmp_a_13" m.body } d noT
+    -- ORDER of the other pair
+    expectRefusedT ``cc3Ref "proof" "proved that the proposition" { m with body := swapRegsAt "_tmp_a_13" "_tmp_a_19" m.body } d noT
+    -- WRONG WIRING between B and C: the child in C is fed by A's register instead of B's
+    expectRefusedT ``cc3Ref "kernel" "let-declaration type mismatch" { m with body := setConnAt 1 "_gen_x" (.ref "_tmp_a_7") m.body } d noT
+    -- WIDTH MISMATCH: the declared width of B's register wire
+    expectRefusedT ``cc3Ref "proof" "proved that the proposition" { m with wires := m.wires.map fun w =>
+      if w.name == "_tmp_a_13" then { w with ty := .bitVector 5 } else w } d noT
+
+/-- info: compose connect three-circuit controls: 5 refused -/
+#guard_msgs in
+run_cmd do
+  cc3Controls
+  logInfo m!"compose connect three-circuit controls: 5 refused"
+
 end Tests.Ved.ComposeConnectCheck

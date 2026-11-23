@@ -261,18 +261,12 @@ def splitResult (decl : Name) (r : Lean.Expr) : MetaM (Lean.Expr × Lean.Expr) :
   unless r.isAppOfArity ``Prod.mk 4 do refuse decl "open" m!"multiCircuit: the reduced circuit body is not a pair (output, writes): {r}"
   return (r.getArg! 2, r.getArg! 3)
 
-/-- VED compose multiCircuit (K = 2): the declaration's `run` (circuit B) reads, through ONE closed subterm `x`, the result of a
-second circuit A (a closed `runCircuitH`).  Returns the fused run (one `runCircuitH` over `αA ++ αB`), the name of
-`fuseEq : ∀ xs, stmt xs = wrap fusedRun`. -/
-def fuseTwo (decl : Name) (kids : Array Kid) (pw : Bool) (stmt : Lean.Expr) (xs : Array Lean.Expr) (run : Lean.Expr)
-    (wrap : Lean.Expr → Lean.Expr) (base : Name) (sfx : String) : TermElabM (Option (Lean.Expr × Name)) := do
+/-- VED compose multiCircuit, one step: the closed circuit `run` (circuit B) reads, through the closed subterm `x`, the result of a
+second circuit A = `runA` (a closed `runCircuitH`, itself with no closed circuit inside).  Returns the fused run (one `runCircuitH`
+over `αA ++ αB`) and a proof of `fused = run`.  Calls of children inside either body are marked during the reduction. -/
+def fuseOne (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) (run : Lean.Expr)
+    (x runA : Lean.Expr) (wrapA : Lean.Expr → Lean.Expr) (base : Name) (sfx : String) : TermElabM (Lean.Expr × Lean.Expr) := do
   let rargs := run.getAppArgs
-  let skip := kids.map (·.decl)
-  let cs ← innerRuns skip rargs[7]! #[]
-  if cs.isEmpty then return none
-  let (x, runA, wrapA) := cs[0]!
-  unless cs.all (fun c => c.1 == x) do
-    refuse decl "open" m!"multiCircuit: the body reads {cs.size} closed circuit subterms (this unit handles one reader subterm of one circuit)"
   let aargs := runA.getAppArgs
   let dom := rargs[0]!; let αB := rargs[1]!; let ρB := rargs[2]!
   let αA := aargs[1]!; let ρA := aargs[2]!
@@ -299,15 +293,20 @@ def fuseTwo (decl : Name) (kids : Array Kid) (pw : Bool) (stmt : Lean.Expr) (xs 
     let holds ← mkAppM ``Sparkle.Core.mkHolds #[αs, live]
     let r0 ← withTransparency .reducible <| reduce (mkApp (mkApp bd regs) holds) (skipTypes := true) (skipProofs := true)
     unfoldUser kids r0
-  -- the child calls of B's body as markers (the reduction must not unfold a child), with their pointwise lemmas
+  -- the child calls of both bodies as markers (the reduction must not unfold a child), with their pointwise lemmas;
+  -- A's sites first, then B's (B's body with the closed reader subterm `x` replaced by a variable: the calls inside `x` are A's)
   let siteKid ← IO.mkRef (#[] : Array Nat)
   let siteFn ← IO.mkRef (#[] : Array Lean.Expr)
   let siteTy ← IO.mkRef (#[] : Array Lean.Expr)
-  discard <| replaceCalls kids rargs[7]! fun _ ki fn dargs _ => do
-    siteKid.modify (·.push ki)
-    siteFn.modify (·.push (mkAppN fn dargs))
-    siteTy.modify (·.push (← inferType (mkAppN fn dargs)))
-    return Lean.mkConst ``True
+  let collect (e : Lean.Expr) : MetaM Unit :=
+    discard <| replaceCalls kids e fun _ ki fn dargs _ => do
+      siteKid.modify (·.push ki)
+      siteFn.modify (·.push (mkAppN fn dargs))
+      siteTy.modify (·.push (← inferType (mkAppN fn dargs)))
+      return Lean.mkConst ``True
+  collect bodyA
+  let nSitesA := (← siteKid.get).size
+  withLocalDeclD `xz τ fun xz => collect (abs.instantiate1 xz)
   let siteKid ← siteKid.get; let siteFn ← siteFn.get; let siteTy ← siteTy.get
   let envNow ← getEnv
   let reachL := ", ".intercalate ((kids.toList.flatMap fun k => (reachDefs envNow k.decl 6 #[]).toList.map fun c => toString (userName c)).eraseDups)
@@ -324,16 +323,19 @@ def fuseTwo (decl : Name) (kids : Array Kid) (pw : Bool) (stmt : Lean.Expr) (xs 
   let wbName := base ++ Name.mkSimple (sfx ++ "_WB")
   -- reduced write functions
   let (waE, wbE) ← withLocalDeclD `x liveATy fun xv => withLocalDeclD `y liveBTy fun yv => do
-    let rA ← reduceRun bodyA αA xv
-    let (outA, wA') ← splitResult decl rA
-    let zA ← withTransparency .reducible <| reduce (mkApp wA outA) (skipTypes := true) (skipProofs := true)
-    let rB ← withFVars (siteKid.mapIdx fun i _ => Name.mkSimple s!"ved_G{i}") siteTy fun gs => do
-      let bodyM ← replaceCalls kids rargs[7]! fun idx _ _ _ das => pure (mkAppN gs[idx]! das)
-      let bodyBM := Lean.mkLambda `z .default τ (← kabstract bodyM x)
-          let r ← reduceRun (mkApp bodyBM zA) αB yv
-          pure (substMarks (gs.map (·.fvarId!)) siteFn r)
-    let (_, wB') ← splitResult decl rB
-    pure (← mkLambdaFVars (xs ++ #[xv]) wA', ← mkLambdaFVars (xs ++ #[xv, yv]) wB')
+    withFVars (siteKid.mapIdx fun i _ => Name.mkSimple s!"ved_G{i}") siteTy fun gs => do
+      let ids := gs.map (·.fvarId!)
+      let bodyAM ← replaceCalls kids bodyA fun idx _ _ _ das => pure (mkAppN gs[idx]! das)
+      let rA ← substMarks ids siteFn <$> reduceRun bodyAM αA xv
+      let (outA, wA') ← splitResult decl rA
+      let zA ← withTransparency .reducible <| reduce (mkApp wA outA) (skipTypes := true) (skipProofs := true)
+      let rB ← withLocalDeclD `xz τ fun xz => do
+        let bodyM ← replaceCalls kids (abs.instantiate1 xz) fun idx _ _ _ das => pure (mkAppN gs[nSitesA + idx]! das)
+        let bodyBM ← mkLambdaFVars #[xz] bodyM
+        let r ← reduceRun (mkApp bodyBM zA) αB yv
+        pure (substMarks ids siteFn r)
+      let (_, wB') ← splitResult decl rB
+      pure (← mkLambdaFVars (xs ++ #[xv]) wA', ← mkLambdaFVars (xs ++ #[xv, yv]) wB')
   addDefnRegular waName (← inferType waE) waE
   addDefnRegular wbName (← inferType wbE) wbE
   let waC := Lean.mkConst waName; let wbC := Lean.mkConst wbName
@@ -348,9 +350,11 @@ def fuseTwo (decl : Name) (kids : Array Kid) (pw : Bool) (stmt : Lean.Expr) (xs 
     let c ← mkEq (← satOf αA (mkAppN waC (xs ++ #[xv])) t) (← satOf αA (mkAppN waC (xs ++ #[yv])) t)
     mkForallFVars #[t, xv, yv] (← mkArrow hyp c))
   let hWAn := base ++ Name.mkSimple (sfx ++ "_hWA")
+  let reachPart := if reachL.isEmpty then "" else reachL ++ ", "
+  let pwPart := if pwNames.isEmpty then "" else ", ".intercalate (pwNames.toList.map fun n => toString (userName n)) ++ ", "
   proveByScript decl hWAn hWAty s!"by
   intro {intros} t x y h
-  {OPEN} simp only [{toString (userName waName)}, Tools.VedComposeMultiCircuit.sat, {plumbingL}, {sigvalL}, h]"
+  {OPEN} first | (simp only [{toString (userName waName)}, Tools.VedComposeMultiCircuit.sat, {plumbingL}, {sigvalL}, h]; done) | (simp only [{toString (userName waName)}, Tools.VedComposeMultiCircuit.sat, {pwPart}{plumbingL}, {sigvalL}, h]; done) | (simp only [{toString (userName waName)}, Tools.VedComposeMultiCircuit.sat, {reachPart}{plumbingL}, {sigvalL}, h])"
   let hWBty ← mkForallFVars xs (← withLocalDeclD `t natTy fun t => withLocalDeclD `x liveATy fun xv => withLocalDeclD `x' liveATy fun xv' =>
       withLocalDeclD `y liveBTy fun yv => withLocalDeclD `y' liveBTy fun yv' => do
     let hx ← mkEq (← valAt xv t) (← valAt xv' t)
@@ -358,8 +362,6 @@ def fuseTwo (decl : Name) (kids : Array Kid) (pw : Bool) (stmt : Lean.Expr) (xs 
     let c ← mkEq (← satOf αB (mkAppN wbC (xs ++ #[xv, yv])) t) (← satOf αB (mkAppN wbC (xs ++ #[xv', yv'])) t)
     mkForallFVars #[t, xv, xv', yv, yv'] (← mkArrow hx (← mkArrow hy c)))
   let hWBn := base ++ Name.mkSimple (sfx ++ "_hWB")
-  let reachPart := if reachL.isEmpty then "" else reachL ++ ", "
-  let pwPart := if pwNames.isEmpty then "" else ", ".intercalate (pwNames.toList.map fun n => toString (userName n)) ++ ", "
   proveByScript decl hWBn hWBty s!"by
   intro {intros} t x x' y y' hx hy
   {OPEN} first | (simp only [{toString (userName wbName)}, Tools.VedComposeMultiCircuit.sat, {pwPart}{plumbingL}, {sigvalL}, hx, hy]; done) | (simp only [{toString (userName wbName)}, Tools.VedComposeMultiCircuit.sat, {reachPart}{plumbingL}, {sigvalL}, hx, hy])"
@@ -409,18 +411,63 @@ def fuseTwo (decl : Name) (kids : Array Kid) (pw : Bool) (stmt : Lean.Expr) (xs 
     mkLambdaFVars vs e
   let fusedRun ← mkAppOptM ``Sparkle.Core.runCircuitH
     #[some dom, some αF, some ρB, some rargs[3]!, some instF1, some instF2, some iF, some bodyFN]
+  return (fusedRun, ← mkExpectedTypeHint fuseApp (← mkEq fusedRun run))
+
+/-- VED compose multiCircuit, K circuits: fuse every closed circuit read inside `run`, innermost first (a circuit read by a
+circuit that is itself read is fused with its own readers first), and of several circuits read by one body the LAST one first
+(the registers of the earlier let-bound circuits then come first).  Returns the fused run and a proof of `fused = run`;
+`none` when `run` contains no closed circuit. -/
+partial def fuseAll (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) (run : Lean.Expr)
+    (base : Name) (sfx : String) (ctr : IO.Ref Nat) : TermElabM (Option (Lean.Expr × Lean.Expr)) := do
+  let skip := kids.map (·.decl)
+  Tools.VedU2HierDbg.openTick s!"fuseAll {sfx}: innerRuns begin"
+  let cs ← innerRuns skip run.getAppArgs[7]! #[]
+  Tools.VedU2HierDbg.openTick s!"fuseAll {sfx}: {cs.size} readers"
+  if cs.isEmpty then return none
+  let (x, runA, wrapA) := cs.back!
+  -- the circuit read is itself fused with the circuits it reads first
+  let (runA', pf1?) ← match ← fuseAll decl kids pw xs runA base sfx ctr with
+    | some (r, pf) => pure (r, some pf)
+    | none => pure (runA, none)
+  let (cur, pfC?) ← match pf1? with
+    | none => pure (run, none)
+    | some pfA => do
+      -- `run` with `x` replaced by the fused run, and `cur = run` from `runA' = runA`
+      let ty ← inferType runA
+      let absRun ← kabstract run x
+      let f := Lean.mkLambda `r .default ty absRun
+      let pf ← mkAppM ``congrArg #[f, pfA]
+      pure (absRun.instantiate1 runA', some pf)
+  let k ← ctr.modifyGet fun n => (n, n + 1)
+  Tools.VedU2HierDbg.openTick s!"fuseOne {k} begin"
+  let (fused, pf2) ← fuseOne decl kids pw xs cur (if pf1?.isSome then runA' else x) runA' wrapA base (sfx ++ s!"_{k}")
+  Tools.VedU2HierDbg.openTick s!"fuseOne {k} end"
+  let pfD ← match pfC? with
+    | some pfC => mkAppM ``Eq.trans #[pf2, pfC]
+    | none => pure pf2
+  -- further readers of the body
+  match ← fuseAll decl kids pw xs fused base sfx ctr with
+  | some (r, pf3) => return some (r, ← mkAppM ``Eq.trans #[pf3, pfD])
+  | none => return some (fused, pfD)
+
+/-- VED compose multiCircuit (unit 15, K circuits since connect16): the declaration's `run` reads closed circuits (closed
+`runCircuitH` subterms).  Returns the fused run (one `runCircuitH` over the appended registers) and the name of
+`fuseEq : ∀ xs, stmt xs = wrap fusedRun`. -/
+def fuseTwo (decl : Name) (kids : Array Kid) (pw : Bool) (stmt : Lean.Expr) (xs : Array Lean.Expr) (run : Lean.Expr)
+    (wrap : Lean.Expr → Lean.Expr) (base : Name) (sfx : String) : TermElabM (Option (Lean.Expr × Name)) := do
+  let ctr ← IO.mkRef 0
+  let some (fusedRun, pfEq) ← fuseAll decl kids pw xs run base sfx ctr | return none
   let fuseEqName := base ++ Name.mkSimple (sfx ++ "_fuse")
   let eqTy ← mkForallFVars xs (← mkEq (mkAppN stmt xs) (wrap fusedRun))
   let wrapL ← do
     let ty ← inferType run
     withLocalDeclD `r ty fun r => mkLambdaFVars #[r] (wrap r)
-  let pf ← mkLambdaFVars xs (← mkAppM ``congrArg #[wrapL, ← mkEqSymm fuseApp])
+  let pf ← mkLambdaFVars xs (← mkAppM ``congrArg #[wrapL, ← mkEqSymm pfEq])
   try
     withOptions (fun o => o.setBool `Elab.async false) do
       addDecl (.thmDecl { name := fuseEqName, levelParams := [], type := eqTy, value := pf })
   catch e => refuse decl "open" m!"the kernel refused the fused-circuit equation: {e.toMessageData}"
   return some (fusedRun, fuseEqName)
-
 
 /-- The analysis and the generated constants.  `pw` (option `ved.compose.step`): the proof of `hOs` uses the children's
 pointwise lemmas (`mkPointwise`) instead of unfolding them; the produced definitions are the same. -/
