@@ -1816,3 +1816,6 @@ lean_lib «Tests.Ved.ComposeConnectCheck» where
 
 lean_lib «Tools.VedComposeMultiOut» where
   roots := #[`Tools.VedComposeMultiOut]
+
+lean_lib «Tools.VedH3ChildChainLemmas» where
+  roots := #[`Tools.VedH3ChildChainLemmas]

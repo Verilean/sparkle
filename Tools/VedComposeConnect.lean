@@ -1235,4 +1235,52 @@ theorem wd_F {m : Module} {b0 : List Stmt} {sl : List SliceStep} {cr : List (Str
   rw [weF_eq] at h1
   exact h1
 
+/-! ## A dead trailing register slot (unit 23, option `ved.compose.multiCircuit`)
+
+The open parent's deep circuit may have more register slots than the design's parent (`xs.length < Γr.length`): the extra, trailing slots
+are dead (`Tools.VedH3ChildChain.slotUnused`).  `RegsOkNFp` is `RegsOkNF` over the slots `i < xs.length` only (a slot `≥ xs.length` is skipped, it
+has no input wire); `regs_specNp` hands the four facts of slot `i < xs.length` back.  When `xs.length = Γr.length` it is `RegsOkNF`. -/
+
+/-- `RegsOkNL` over the first `xs.length` slots. -/
+def RegsOkNLp {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut) (nm : Fin (Γr ++ Γi).length → String) (lk : Lk)
+    (nIn n2 n3 : Nat) (xs : List String) : Bool :=
+  (List.finRange Γr.length).all fun i =>
+    decide (xs.length ≤ i.val) ||
+      specOkLeN lk (Γr ++ Γi) (tauOfL nm lk.tabL) nIn n2 n3 (.ref (xs.getD i.val "")) (CExpr.compile nm (deep.next i))
+
+/-- `RegsOkNF` over the first `xs.length` slots. -/
+def RegsOkNFp {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut) (nm : Fin (Γr ++ Γi).length → String)
+    (d : Design) (m : Module) (b0 : List Stmt) (needed : List String) (tab : List (String × Nat)) (nIn n2 n3 : Nat)
+    (xs : List String) : Bool :=
+  RegsOkNLp deep nm (fastLk d m b0 needed tab) nIn n2 n3 xs
+
+/-- The four closed facts of register slot `i < xs.length` from the ONE normalised check over the prefix. -/
+theorem regs_specNp {Γr Γi : List Nat} {wOut : Nat} {deep : Cdo Γr Γi wOut} {nm : Fin (Γr ++ Γi).length → String}
+    {d : Design} {m : Module} {b0 : List Stmt} {needed : List String} {tab : List (String × Nat)} {nIn n2 n3 : Nat}
+    {xs : List String} (h : RegsOkNFp deep nm d m b0 needed tab nIn n2 n3 xs = true)
+    (i : Fin Γr.length) (hi : i.val < xs.length) (x : String) (hx : xs.getD i.val "" = x) (L : Expr)
+    (hfid : CExpr.compile nm (deep.next i) = L) :
+    neededOk needed (inl (Atab m b0) nIn (.ref x)) = true ∧
+    leafOk (cutNames d m b0) (inl (Atab m b0) nIn (.ref x)) = true ∧
+    tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn (.ref x)))) = true ∧
+    flat n3 (renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn (.ref x))))) = flat n3 L := by
+  simp only [RegsOkNFp, RegsOkNLp, List.all_eq_true] at h
+  have h1 := h i (List.mem_finRange i)
+  simp only [Bool.or_eq_true, decide_eq_true_eq] at h1
+  rcases h1 with h1 | h1
+  · omega
+  · rw [hx, hfid] at h1
+    exact specOkLeN_sound h1
+
+/-- With `xs.length = Γr.length` the prefix check is the full one. -/
+theorem RegsOkNFp_full {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut) (nm : Fin (Γr ++ Γi).length → String)
+    (d : Design) (m : Module) (b0 : List Stmt) (needed : List String) (tab : List (String × Nat)) (nIn n2 n3 : Nat)
+    (xs : List String) (hl : xs.length = Γr.length) :
+    RegsOkNFp deep nm d m b0 needed tab nIn n2 n3 xs = RegsOkNF deep nm d m b0 needed tab nIn n2 n3 xs := by
+  simp only [RegsOkNFp, RegsOkNLp, RegsOkNF, RegsOkNL]
+  congr 1
+  funext i
+  have : ¬ (xs.length ≤ i.val) := by have := i.isLt; omega
+  simp [this]
+
 end Tools.VedComposeConnect

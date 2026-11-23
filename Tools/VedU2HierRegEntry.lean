@@ -18,6 +18,7 @@ import Tools.VedU2HierLoopRw
 import Tools.VedComposeStep
 import Tools.VedComposeOrder
 import Tools.VedComposeConnectGen
+import Tools.VedH3ChildChainLemmas
 
 /-!
 # Stateful hierarchical entry, H2b: a parent WITH REGISTERS (`#ved_u2_hier decl`)
@@ -347,7 +348,12 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let OOut := deepC opn.openName (ptag ++ "_deep_out")
   let inpU := toString (userName (opn.openName ++ `ved_inpU))
   let irS := toString (userName (opn.openName ++ `ved_irS))
-  let k := di.regWs.length
+  -- `kF`: the register slots of the open circuit (the type of `irS`); `k`: the parent's registers.  They differ only when the open
+  -- circuit has dead trailing slots (option `ved.compose.multiCircuit`, checked by `slotUnused` at the entry); then the invariant, the
+  -- bounds and the register step are over the first `k` slots
+  let kF := di.regWs.length
+  let kP := di.pm.length
+  let k := kP
   let mut L : Array String := #[]
   -- VED compose (option `ved.compose.step`): the shape facts (closed Bool checks) are decided by the kernel (`decide +kernel`:
   -- the kernel evaluates the instance; no `native_decide`, no `ofReduceBool`) instead of the elaborator's `whnf`
@@ -446,7 +452,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         s!"p {sq di.pm[i]!} = {irS} ins t ⟨{i}, by decide⟩") ++ ")"
   let owBody := oracleBody (fun j => callTxt calls[j]!)
   L := L.push s!"  have hinj : ∀ i j, {ONm} i = {ONm} j → i = j := by decide"
-  L := L.push s!"  have hltS : ∀ (ins : Nat → String → Nat) (t : Nat), ∀ i : Fin {k}, {irS} ins t i < 2 ^ ([{", ".intercalate (di.regWs.map toString)}].get ⟨i.val, by simp⟩) := by"
+  L := L.push s!"  have hltS : ∀ (ins : Nat → String → Nat) (t : Nat), ∀ i : Fin {kF}, {irS} ins t i < 2 ^ ([{", ".intercalate (di.regWs.map toString)}].get ⟨i.val, by simp⟩) := by"
   L := L.push s!"    intro ins t i"
   L := L.push s!"    unfold {irS}"
   L := L.push s!"    rw [Cdo.irState_eq {ODeep} {ONm} hinj]"
@@ -483,8 +489,8 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     for n in tbl.binders.map ("_gen_" ++ ·) do
       L := L.push s!"    have hE_{n} : E {sq n} = ins t {sq n} := hEin _ (by decide)"
     L := L.push s!"    have hregE := {T2}.closed_run_reg {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.2.2.2 hb0.2.2.2.2.2.1 ins K envs sts hrun t ht S E hS' hE"
-    for i in List.range di.regWs.length do
-      let proj := (List.range i).foldl (fun s _ => s ++ ".2") "hR" ++ (if i + 1 < di.regWs.length then ".1" else "")
+    for i in List.range kP do
+      let proj := (List.range i).foldl (fun s _ => s ++ ".2") "hR" ++ (if i + 1 < kP then ".1" else "")
       L := L.push s!"    have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {di.regWs.length}) := by"
       L := L.push s!"      rw [hregE _ (by decide)]"
       L := L.push s!"      exact {proj}"
@@ -605,8 +611,8 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         -- the parent's registers at cycle t: the pre-update state, which the invariant speaks about
         unless hoisted do X := X.push s!"  have hregE := {T2}.closed_run_reg {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.2.2.2 hb0.2.2.2.2.2.1 ins K envs sts hrun t ht S E hS' hE"
         -- H3-open: only the registers the instance's net reads get facts
-        for i in List.range di.regWs.length do
-          let proj := (List.range i).foldl (fun s _ => s ++ ".2") "hR" ++ (if i + 1 < di.regWs.length then ".1" else "")
+        for i in List.range kP do
+          let proj := (List.range i).foldl (fun s _ => s ++ ".2") "hR" ++ (if i + 1 < kP then ".1" else "")
           unless hoisted do
             X := X.push s!"  have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {di.regWs.length}) := by"
             X := X.push s!"    rw [hregE _ (by decide)]"
@@ -806,8 +812,8 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       for n in dataN do
         L := L.push s!"    have hE_{n} : E {sq n} = ins t {sq n} := hEin {sq n} (by decide)"
       for i in List.range k do
-        L := L.push s!"    have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {k}) := by rw [hEreg {sq di.pm[i]!} (by decide)]; exact hR{i}"
-        L := L.push s!"    have hlS{i} : {irS} ins t ({i} : Fin {k}) < {2 ^ di.regWs[i]!} := by"
+        L := L.push s!"    have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {kF}) := by rw [hEreg {sq di.pm[i]!} (by decide)]; exact hR{i}"
+        L := L.push s!"    have hlS{i} : {irS} ins t ({i} : Fin {kF}) < {2 ^ di.regWs[i]!} := by"
         L := L.push s!"      have := hl{i}"
         L := L.push s!"      simpa using this"
       for (ii, j) in insts.zipIdx do
@@ -827,11 +833,11 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
             regIn := (List.range k).map fun i => (regIns[(regsB0.map (·.1)).idxOf di.pm[i]!]!).getD "?",
             dataN := dataN, dataW := tbl.ins.map (fun pt => match pt with | .bit => none | .bv w => some w), insts := insts.map fun ii => (ii.y, ii.call), instW := (List.range insts.length).map outsW,
             nCalls := calls.size, fuel := b0.length + 1, contract := toString P.contract, outs := toString P.outs, oe := toString OE, otrace := OTrace,
-            rst := rstN, regNext := regsB0.map fun (o, _, inp) => (o, match inp with | .ref x => x | _ => "?"), outCfg := outCfg, slow := di.noFastWR, normN := di.normN && !di.noFastWR }).toArray
+            rst := rstN, regNext := regsB0.map fun (o, _, inp) => (o, match inp with | .ref x => x | _ => "?"), outCfg := outCfg, slow := di.noFastWR, normN := di.normN && !di.noFastWR, dead := di.pm.length < di.regWs.length }).toArray
         return "\n".intercalate L.toList
       for (bs, bi) in bsl.zipIdx do
         for l in bs.lines do L := L.push ("  " ++ l)
-        L := L.push s!"    have f_bs{bi} : E {sq bs.w} = {irS} ins t ({bs.slot} : Fin {k}) := by rw [{bs.pf}, hEr{bs.slot}]"
+        L := L.push s!"    have f_bs{bi} : E {sq bs.w} = {irS} ins t ({bs.slot} : Fin {kF}) := by rw [{bs.pf}, hEr{bs.slot}]"
         L := L.push s!"    have hlt_bs{bi} : E {sq bs.w} < {2 ^ di.regWs[bs.slot]!} := by rw [f_bs{bi}]; exact hlS{bs.slot}"
       for (w, wi) in chain.zipIdx do
         let wd := di.wd w
@@ -1274,8 +1280,23 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let inWs ← try readWidths (deepCi.type.getAppArgs[1]!) catch e => refuse decl "deep" e.toMessageData
   let pm := (regsOf m.body).map (·.1)
   unless pm.length == regWs.length do
-    refuse decl "deep"
-      m!"the parent has {pm.length} registers, the open parent's circuit has {regWs.length}"
+    -- unit 23 (option `ved.compose.multiCircuit`, with the connection path): the open circuit's TRAILING slots beyond the parent's registers are
+    -- accepted when they are dead (`slotUnused`, a closed Bool the elaborator evaluates here and the generated proof re-checks by the kernel)
+    let opts ← getOptions
+    let sizeMsg := m!"the parent has {pm.length} registers, the open parent's circuit has {regWs.length}"
+    unless pm.length < regWs.length && opts.getBool `ved.compose.multiCircuit && Tools.VedCompose.ved.compose.step.get opts &&
+        Tools.VedComposeConnect.ved.compose.connect.get opts && (← IO.getEnv "VED_COMPOSE_NOFASTWR").isNone do
+      refuse decl "deep" sizeMsg
+    unless (pm.map (declWidth m)) == regWs.take pm.length do
+      refuse decl "deep" (sizeMsg ++ m!"; the parent's register widths {pm.map (declWidth m)} are not the first {pm.length} slot widths {regWs.take pm.length} (only a trailing dead slot block is supported)")
+    unless deepCi.levelParams.isEmpty do refuse decl "deep" (sizeMsg ++ m!"; the deep circuit has universe parameters")
+    let eU ← mkAppM ``Tools.VedH3ChildChain.slotUnused #[mkConst deepCi.name, mkNatLit pm.length]
+    -- the kernel evaluates the closed Bool (the elaborator's `whnf` stops at the `match` of the list fold)
+    let rU ← match Lean.Kernel.whnf (← getEnv) (← getLCtx) (← instantiateMVars eU) with
+      | .ok r => pure r
+      | .error e => refuse decl "deep" (sizeMsg ++ m!"; slotUnused did not evaluate: {e.toMessageData (← getOptions)}")
+    unless rU.isConstOf ``Bool.true do
+      refuse decl "deep" (sizeMsg ++ m!"; the extra slot(s) are read by the next-state cone of a parent register or by the output (slotUnused = {rU}): not a dead register")
   unless inWs.length == tbl.binders.length + opn.calls.size do
     refuse decl "deep" m!"the open circuit has {inWs.length} inputs, expected {tbl.binders.length + opn.calls.size}"
   let block ← if p1.insts.any (·.stateArg) then
