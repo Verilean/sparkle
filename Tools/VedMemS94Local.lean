@@ -373,9 +373,16 @@ elab "ved_pack_extract" : tactic => do
 elab "ved_bv_bounds" : tactic => do
   let mut g ← getMainGoal
   let fs ← g.withContext do
-    let mut fs : Array Expr := #[]
+    -- only the variables the target or a hypothesis mentions: each fact is read by every `omega` call of the closer (the cone keeps the variables of the whole tuple)
+    let mut used : Std.HashSet FVarId := {}
+    for f in fvarsOfDag (← instantiateMVars (← g.getType)) do used := used.insert f
     for d in ← getLCtx do
       if d.isImplementationDetail then continue
+      if (← isProp d.type) then
+        for f in fvarsOfDag (← instantiateMVars d.type) do used := used.insert f
+    let mut fs : Array Expr := #[]
+    for d in ← getLCtx do
+      if d.isImplementationDetail || !used.contains d.fvarId then continue
       let t ← whnfR (← instantiateMVars d.type)
       if t.isAppOf ``BitVec then fs := fs.push d.toExpr
     pure fs
@@ -428,7 +435,7 @@ macro_rules
 macro "ved_local_close" : tactic =>
   `(tactic| (ved_cone_clear; ved_pack_extract; ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *);
              all_goals (ved_bv_bounds
-                        ved_mux)))
+                        (try simp only [mux_mod]); ved_mux)))
 
 /-- the heartbeat limit of one local attempt (thousands; lower than any whole-goal step: a successful attempt needs at most about 4M) -/
 def localCapK : Nat := 8000

@@ -1640,12 +1640,17 @@ elab "#ved_t3_replay " d:str : command => do
           | .error e => throwError "T3: cannot parse step {name}: {e}"
         let t1 ← IO.monoMsNow
         let hb1 ← IO.getNumHeartbeats
+        -- a failed step (also a heartbeat timeout, which `try` does not catch) leaves the state as it was: without this, a half-run step that assigned the goal
+        -- counted as "closed" in the later steps (s94q: the 34 memory goals "closed at ved_addr_post" were such goals)
+        let stSaved ← Lean.Elab.Term.saveState
         let (gsO, r) : Option (List MVarId) × String ← tryCatchRuntimeEx
           (do
             let gs ← withTheReader Core.Context (fun c => { c with maxHeartbeats := cap * 1000, initHeartbeats := hb1 }) do
               Tactic.run cur.head! (do Tactic.setGoals cur; Tactic.withoutRecover (Tactic.evalTactic tac))
             pure (some gs, s!"ok out={gs.length}"))
-          (fun ex => do pure (none, s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 200}"))
+          (fun ex => do
+            stSaved.restore
+            pure (none, s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 200}"))
         if let some gs := gsO then cur := gs
         let mut tr := 0
         for q in cur do tr := tr + Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← q.getType))
