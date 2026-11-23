@@ -1813,3 +1813,9 @@ lean_lib «Tests.Ved.ComposeConnectCheck» where
 
 lean_lib «Tools.VedComposeMultiOut» where
   roots := #[`Tools.VedComposeMultiOut]
+
+lean_lib «Tools.VedU2HierMultiOut» where
+  roots := #[`Tools.VedU2HierMultiOut]
+
+lean_lib «Tests.Ved.MultiOutCheck» where
+  roots := #[`Tests.Ved.MultiOutCheck]
