@@ -85,4 +85,42 @@ No acceptance of a PARENT over such a child is claimed (see docs/VED-COMPOSE-CON
   unless axs.all (fun a => [``propext, ``Classical.choice, ``Quot.sound].contains a) do throwError "axioms outside std3: {axs}"
   logInfo m!"PROBE SEQ OK: kidSeq.ved_u1 is a U1Stmt; module mentions a register: {toString hasReg}; axioms {axs}; no sorryAx"
 
+/-! ### Unit 4: a parent with a register over the SEQUENTIAL struct child, the child's input read from the PARENT REGISTER
+
+Same independent reading as the first probe: the standard `#ved_u2_hier` with the option on, then the stored theorem inspected with
+plain `Lean` code (type `==` `U2HRStmtK c m d top`, the child's own theorem used, no `sorryAx`, std3), and in addition that the child
+module HAS a register (so the child's call is not a one-cycle step). -/
+
+def probeTopSeq (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := kidSeq accS inp
+    acc <~ (c.p + c.q : Signal defaultDomain (BitVec 4))
+    return accS
+
+set_option ved.compose.multiOut true in
+#ved_u2_hier probeTopSeq
+
+#eval show CommandElabM Unit from do
+  let env ← getEnv
+  let thm := `Tests.Ved.MultiOutProbe.probeTopSeq.ved_u1
+  let some (.thmInfo ti) := env.find? thm | throwError "{thm}: not a theorem in the environment"
+  let top := `Tests.Ved.MultiOutProbe.probeTopSeq
+  let expected := mkAppN (mkConst ``Tools.VedU2Hier.U2HRStmtK)
+    #[mkConst (top ++ `ved_contract), mkConst (top ++ `ved_mod), mkConst (top ++ `ved_design), mkConst top]
+  unless ti.type == expected do throwError "the stored type is not U2HRStmtK c m d probeTopSeq:\n{ti.type}"
+  let kidThm := `Tests.Ved.MultiOutProbe.probeTopSeq.ved_child.Tests.Ved.MultiOutProbe.kidSeq.ved_u1
+  unless ti.value.getUsedConstants.contains kidThm do throwError "the child's theorem {kidThm} does not occur in the proof"
+  let some (.defnInfo cm) := env.find? (`Tests.Ved.MultiOutProbe.probeTopSeq.ved_child.Tests.Ved.MultiOutProbe.kidSeq.ved_mod)
+    | throwError "no child module constant"
+  let hasReg : Bool := decide (((toString cm.value).splitOn "register").length > 1)
+  unless hasReg do throwError "the child module has no register"
+  let axs ← liftCoreM (collectAxioms thm)
+  if axs.contains ``sorryAx then throwError "sorryAx"
+  unless axs.all (fun a => [``propext, ``Classical.choice, ``Quot.sound].contains a) do throwError "axioms outside std3: {axs}"
+  logInfo m!"PROBE SEQ PARENT OK: type == U2HRStmtK for probeTopSeq; sequential child (has a register) fed from the parent register; child theorem used; axioms {axs}; no sorryAx"
+
+#print axioms Tests.Ved.MultiOutProbe.probeTopSeq.ved_u1
+
 end Tests.Ved.MultiOutProbe
