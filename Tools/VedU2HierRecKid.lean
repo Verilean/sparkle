@@ -423,4 +423,57 @@ theorem runIn_proj (d : Design) (arr : Module → List Stmt) (m : Module)
                 (List.any_eq_true.mpr ⟨q, hq, by simp⟩)
               exact hlE _ hmemo
 
+/-! ## L3 (arrangements): the parent's admissible arrangement restricted to a sub-design -/
+
+theorem rdH_agree {d1 d2 : Design} (s : Stmt)
+    (h : ∀ mn i cs, s = Stmt.inst mn i cs → findMod d1 mn = findMod d2 mn) : rdH d1 s = rdH d2 s := by
+  cases s with
+  | inst mn i cs => simp only [rdH, instIns, h mn i cs rfl]
+  | assign l r => rfl
+  | register _ _ _ _ _ => rfl
+  | memory _ _ _ _ _ _ _ _ _ _ _ _ => rfl
+
+theorem wrH_agree {d1 d2 : Design} (s : Stmt)
+    (h : ∀ mn i cs, s = Stmt.inst mn i cs → findMod d1 mn = findMod d2 mn) : wrH d1 s = wrH d2 s := by
+  cases s with
+  | inst mn i cs => simp only [wrH, instOuts, h mn i cs rfl]
+  | assign l r => rfl
+  | register _ _ _ _ _ => rfl
+  | memory _ _ _ _ _ _ _ _ _ _ _ _ => rfl
+
+theorem wrsH_agree {d1 d2 : Design} : ∀ b : List Stmt,
+    (∀ mn i cs, Stmt.inst mn i cs ∈ b → findMod d1 mn = findMod d2 mn) → wrsH d1 b = wrsH d2 b := by
+  intro b
+  induction b with
+  | nil => intro _; rfl
+  | cons s rest ih =>
+    intro h
+    simp only [wrsH, List.flatMap_cons] at ih ⊢
+    rw [wrH_agree s (fun mn i cs hs => h mn i cs (hs ▸ List.mem_cons_self ..)),
+      ih (fun mn i cs hm => h mn i cs (List.mem_cons_of_mem _ hm))]
+
+/-- `WOH` only reads the resolution of the instances of the body. -/
+theorem WOH_agree {d1 d2 : Design} : ∀ b : List Stmt,
+    (∀ mn i cs, Stmt.inst mn i cs ∈ b → findMod d1 mn = findMod d2 mn) → WOH d1 b → WOH d2 b := by
+  intro b
+  induction b with
+  | nil => intro _ _; trivial
+  | cons s rest ih =>
+    intro h hw
+    obtain ⟨hrd, hwr, hnd, hrest⟩ := hw
+    have hs : ∀ mn i cs, s = Stmt.inst mn i cs → findMod d1 mn = findMod d2 mn :=
+      fun mn i cs e => h mn i cs (e ▸ List.mem_cons_self ..)
+    have hr : ∀ mn i cs, Stmt.inst mn i cs ∈ rest → findMod d1 mn = findMod d2 mn :=
+      fun mn i cs hm => h mn i cs (List.mem_cons_of_mem _ hm)
+    refine ⟨?_, ?_, ?_, ih hr hrest⟩
+    · intro n hn
+      rw [← rdH_agree s hs] at hn
+      rw [← wrsH_agree rest hr, ← wrH_agree s hs]
+      exact hrd n hn
+    · intro n hn
+      rw [← wrH_agree s hs] at hn
+      rw [← wrsH_agree rest hr]
+      exact hwr n hn
+    · rw [← wrH_agree s hs]; exact hnd
+
 end Tools.VedU2HierRec
