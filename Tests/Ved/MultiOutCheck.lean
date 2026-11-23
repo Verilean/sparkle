@@ -8,3 +8,8 @@ open Tools.VedU2Hier
 #print HierShapeK
 #print connsOkK
 #print outRefNames
+
+#print axioms U2HRStmtK_iff
+#print axioms U2HRStmtK_of_U2HRStmt
+#print axioms HierShapeK_of_S
+#print axioms HierShapeS_of_K
