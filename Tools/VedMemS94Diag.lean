@@ -1756,4 +1756,34 @@ elab "ved_mem_diff" : tactic => withMainContext do
   logInfo out
 
 
+
+def diagKids (x : Expr) : Array Expr := match x with
+  | .app f a => #[f, a] | .lam _ t b _ => #[t, b] | .forallE _ t b _ => #[t, b] | .mdata _ b => #[b] | .proj _ _ b => #[b] | .letE _ t v b _ => #[t, v, b] | _ => #[]
+
+/-- tree sizes by memoised recursion (saturating at 1e18) -/
+partial def diagTsOf (x : Expr) : StateM (Std.HashMap Expr Nat) Nat := do
+  if let some n := (← get)[x]? then return n
+  let mut n := 1
+  for k in diagKids x do n := min (n + (← diagTsOf k)) 1000000000000000000
+  modify (·.insert x n)
+  return n
+
+/-- diagnosis (s94r): the spine of the largest tree of the target: from the root, the child with the largest tree size, one line per step (head symbol, tree size, DAG parents of the node),
+and the memState atoms (number, distinct address arguments) -/
+elab "ved_tree_diag" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let ns := Tools.VedU1WireShare.collectDag (fun _ => true) tgt
+  let (_, ts) := (diagTsOf tgt).run {}
+  let ts : Std.HashMap Expr Nat := ts
+  let mut cur := tgt
+  let mut out := s!"root tree={ts.getD tgt 0} dag={ns.size}"
+  for _ in [0:60] do
+    let ks := (diagKids cur).filter fun k => !k.isConst && !k.isFVar
+    let some best := ks.foldl (fun (b : Option Expr) k => match b with | none => some k | some b => if ts.getD k 0 > ts.getD b 0 then some k else some b) none | break
+    let head := match best.getAppFn with | .const n _ => n.toString | .fvar _ => "fvar" | .lam .. => "lam" | .proj _ i _ => s!"proj{i}" | _ => "?"
+    out := out ++ s!"\n  {head}/{best.getAppNumArgs} tree={ts.getD best 0}"
+    cur := best
+  logInfo out
+
+
 end Tools.VedMemS94Diag

@@ -689,8 +689,13 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
       else `(tactic| skip)
     -- option `ved.mem.s94GenOnce` (new branch only): the loop states are generalised once on the shared goal (stamp 95), no `Bool` splits; at stamp 100
     -- `ved_loop_gen_resid` runs the old per-goal `ved_loop_gen_mem` only when a loop value is left (also when `ved_loop_gen_once` failed: the fallback)
-    let genT : TSyntax `tactic ← if go then `(tactic| first | ved_loop_gen_once $sI | skip) else `(tactic| skip)
-    let genM : TSyntax `tactic ← if go then `(tactic| ved_loop_gen_resid $sI) else `(tactic| ved_loop_gen_mem $sI)
+    -- option `ved.mem.s94Local` (new branch only): two spellings of one loop are one loop (`ved_loop_canon`, before the generalisation at stamp 95 and again for the loop values the
+    -- stage-99 simp creates, before stamp 100); the plain generalisation follows as before
+    let canon : Bool := isNew && Tools.VedMemS94Local.ved.mem.s94Local.get (← getOptions)
+    let genT0 : TSyntax `tactic ← if go then `(tactic| first | ved_loop_gen_once $sI | skip) else `(tactic| skip)
+    let genT : TSyntax `tactic ← if canon then `(tactic| ((try ved_loop_canon); $genT0:tactic)) else pure genT0
+    let genM0 : TSyntax `tactic ← if go then `(tactic| ved_loop_gen_resid $sI) else `(tactic| ved_loop_gen_mem $sI)
+    let genM : TSyntax `tactic ← if canon then `(tactic| (all_goals (try ved_loop_canon); $genM0:tactic)) else pure genM0
     let ex95 : TSyntax `tactic ← if exitAt && (← IO.getEnv "VED_EXIT_AT") == some "95" then `(tactic| ved_s94_exit 95) else `(tactic| skip)
     `(tactic| (
           $nh

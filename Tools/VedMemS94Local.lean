@@ -479,11 +479,45 @@ macro "ved_addr_eq_local" : tactic =>
 because `toNat` of `+ * ++` and of the `ite` stays unexpanded): the `toNat` lemmas first, then the same closer -/
 macro "ved_addr_eq_local2" : tactic =>
   `(tactic| (apply BitVec.eq_of_toNat_eq
-             simp only [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat, Nat.shiftRight_zero, apply_ite BitVec.toNat, BitVec.toNat_add, BitVec.toNat_mul,
+             simp only [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat, Nat.shiftRight_zero, apply_ite BitVec.toNat, BitVec.toNat_add, BitVec.toNat_mul, BitVec.toNat_sub,
                BitVec.toNat_append, Nat.zero_shiftLeft, Nat.zero_or, Nat.reduceMod, Nat.reducePow, Nat.shiftRight_eq_div_pow]
              ved_local_close))
 
+/-- two `memState` atoms whose first 8 arguments (initial value, write address / data / enable ports, ..) are only reducibly defeq (not syntactically equal) are one memory
+spelled twice (observed s94r, R033 goals 40, 62: `ved_mem_diff` says `arg2:red arg3:red`; the trees of 2e7 .. 2e8 nodes are those port arguments): the first atom's arguments replace
+the later one's (`replaceTargetDefEq`), so that the address pairing (`ved_mem_addr_l`) and `ved_addr_post_g` see ONE key.  Returns the number of atoms changed. -/
+def memCanon (g : MVarId) : MetaM (MVarId × Nat) := g.withContext do
+  let tgt ← instantiateMVars (← g.getType)
+  let isMem := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
+  let occs := (collectDag isMem tgt).filter (!·.hasLooseBVars)
+  let mut reps : Array (Expr × Array Expr) := #[]
+  let mut map : Std.HashMap Expr Expr := {}
+  for o in occs do
+    let args := o.getAppArgs
+    let fn := o.getAppFn
+    let mut hit : Option (Array Expr) := none
+    for (f, ra) in reps do
+      if hit.isSome then break
+      if f != fn || ra.size != 8 then continue
+      let mut same := true
+      let mut diff := false
+      for k in [0:8] do
+        if same && args[k]! != ra[k]! then
+          diff := true
+          unless ← withReducible (isDefEq args[k]! ra[k]!) do same := false
+      if same then hit := some (if diff then ra else args.extract 0 8)
+    match hit with
+    | some ra =>
+      if ra != args.extract 0 8 then map := map.insert o (mkAppN fn (ra ++ args.extract 8 args.size))
+    | none => reps := reps.push (fn, args.extract 0 8)
+  if map.isEmpty then return (g, 0)
+  let tgt' := tgt.replace fun e => map[e]?
+  return (← g.replaceTargetDefEq tgt', map.size)
+
 elab "ved_mem_addr_l" : tactic => withMainContext do
+  -- two spellings of one memory (ports only reducibly defeq) are made one first
+  let (gC, nC) ← memCanon (← getMainGoal)
+  if nC > 0 then replaceMainGoal [gC]
   -- cheap gate: nothing to unify unless two memState atoms differ only in the address (the simp below only drops branches)
   let tgt0 ← instantiateMVars (← getMainTarget)
   let isMem0 := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
