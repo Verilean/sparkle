@@ -159,6 +159,8 @@ elab "ved_loop_gen_resid " s:ident : tactic => withMainContext do
           if !(collectDag isV (← instantiateMVars d.type)).isEmpty then f := true
       pure f
     if left then other := true
+    -- the kept equations are used up: the old path has none (the later stages, e.g. `ved_mem_addr`'s `omega`/`simp`, see every hypothesis)
+    cur ← cur.tryClearMany keep
     out := out ++ [cur]
   setGoals out
   if other then

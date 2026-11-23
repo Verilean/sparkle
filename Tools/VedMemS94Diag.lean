@@ -1242,7 +1242,14 @@ elab "#ved_s95_replay " d:str : command => do
     | _ => pure ()
   let mode := (← IO.getEnv "VED_S95_MODE").getD "old"
   let upto := ((← IO.getEnv "VED_S95_UPTO").bind String.toNat?).getD 100
+  -- `VED_S95_LOG=FILE`: the replay's own lines go to FILE (so that `VED_DUMP_DIR`, which makes the tail's tactics dump their goals, can stay unset)
+  let s95lg : String → IO Unit := fun msg => do
+    if let some f ← IO.getEnv "VED_S95_LOG" then
+      let h ← IO.FS.Handle.mk f .append
+      h.putStrLn msg
+    else dbgLog msg
   liftTermElabM do
+    let dbgLog := s95lg
     dbgLog "S95 replay: start"
     let ci ← getConstInfo `ved_ckpt95_goal0
     dbgLog "S95 replay: constant found"
@@ -1329,6 +1336,7 @@ elab "#ved_s95_replay " d:str : command => do
     dbgLog s!"S95 replay mode={mode}: start {← shape cur}; {← resid cur}"
     let tAll ← IO.monoMsNow
     let hbAll ← IO.getNumHeartbeats
+    let mut res0 := "ok"
     for (no, name, tac) in steps do
       if stepNo no > upto then break
       let t0 ← IO.monoMsNow
@@ -1369,7 +1377,110 @@ elab "#ved_s95_replay " d:str : command => do
           pure "ok"
         catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 400}"
       dbgLog s!"S95 step {no} {name}: {res} ms={(← IO.monoMsNow) - t0} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}; {← shape cur}; {← resid cur}"
-      if res != "ok" then break
+      if res != "ok" then res0 := res; break
+    -- `VED_S95_TAIL=FILE` (with `VED_S95_ARGS=DIR`, the stage-94 checkpoint directory): the tail of the script after stamp 100, one step per line of FILE
+    -- (`name TAB tactic`, parsed at run time; the line `@EX2SIMP` stands for the first tail simp `ved_loop_simp [O, M, B, .., ex2F]`, whose arguments are those
+    -- of the stage-94 simp (`DIR/ckpt.txt`) without the first 15 + the probe, plus `hrst`); each step with ms, heartbeats, goals and tree sizes, as the steps above
+    if res0 == "ok" && (upto ≥ 100 || (← IO.getEnv "VED_S95_NAMES").isSome) then
+     if let some tf := (← IO.getEnv "VED_S95_TAIL") then
+      let argDir := (← IO.getEnv "VED_S95_ARGS").getD ""
+      let arows := ((← IO.FS.readFile (argDir ++ "/ckpt.txt")).splitOn "\n").filter (· ≠ "") |>.map (·.splitOn "\t")
+      let mut args : Array (String × Bool × (Sum Nat Name)) := #[]
+      for r in arows do
+        match r with
+        | "fv" :: pre :: ar :: [i] => args := args.push (pre.trimAscii.toString, ar == "1", .inl i.toNat!)
+        | "c" :: pre :: ar :: cs =>
+          unless compsName cs == ``vedMemProbe do args := args.push (pre.trimAscii.toString, ar == "1", .inr (compsName cs))
+        | _ => pure ()
+      let mut binderNames : Array Name := #[]
+      let mut tyW := ci.type
+      repeat
+        match tyW with
+        | .forallE n _ b _ | .letE n _ _ b _ => binderNames := binderNames.push n; tyW := b
+        | _ => break
+      -- the binders of the stage-95 goal are named `ck<i>` with i the position in the STAGE-94 context (the stage-94 replay introduced them so), while the
+      -- replay above names them by their position here: `posOf i` is the position of the binder `ck<i>`
+      let posOf (i : Nat) : Nat := (binderNames.findIdx? (· == Name.mkSimple s!"ck{i}")).getD i
+      args := args.map fun (a, b, x) => (a, b, match x with | .inl i => .inl (posOf i) | y => y)
+      dbgLog s!"S95 tail: binders {binderNames.toList.zipIdx.map fun (n, i) => s!"{i}:{n}"}"
+      if (← IO.getEnv "VED_S95_NAMES").isSome then
+        -- the context entries that are not simp arguments of the stage-94 simp: their position, name and a truncated type
+        let used := args.filterMap fun (_, _, x) => match x with | .inl i => some i | _ => none
+        g.withContext do
+          for d in ← getLCtx do
+            unless d.isImplementationDetail do
+              let nm := d.userName.toString
+              let i := (nm.drop 2).toNat!
+              unless used.contains i do
+                let ty ← instantiateMVars d.type
+                unless ty.isAppOf ``Tools.VedMem.MemInv do
+                  dbgLog s!"S95 names: {nm} : {((← ppExpr ty).pretty.replace "\n" " ").take 200}"
+        return
+      let some hrstI := (← IO.getEnv "VED_S95_HRST").bind String.toNat? | throwError "S95 tail: VED_S95_HRST (position of hrst) not set"
+      let mkLem (a : String × Bool × Sum Nat Name) : TermElabM (TSyntax ``Lean.Parser.Tactic.simpLemma) := do
+        let (pre, ar, x) := a
+        let t : Term := match x with
+          | .inl i => mkIdent (Name.mkSimple s!"ck{i}")
+          | .inr n => mkCIdent n
+        match pre, ar with
+        | "↓", false => `(Lean.Parser.Tactic.simpLemma| ↓ $t:term)
+        | "↓", true => `(Lean.Parser.Tactic.simpLemma| ↓ ← $t:term)
+        | _, false => `(Lean.Parser.Tactic.simpLemma| $t:term)
+        | _, true => `(Lean.Parser.Tactic.simpLemma| ← $t:term)
+      let mut ex2 : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[]
+      for a in args.extract 0 9 do ex2 := ex2.push (← mkLem a)
+      for a in args.extract 15 args.size do ex2 := ex2.push (← mkLem a)
+      ex2 := ex2.push (← `(Lean.Parser.Tactic.simpLemma| $(mkIdent (Name.mkSimple s!"ck{hrstI}")):term))
+      dbgLog s!"S95 tail: {ex2.size} simp arguments, hrst = ck{hrstI}"
+      let tailRows := ((← IO.FS.readFile tf).splitOn "\n").filter (· ≠ "") |>.map (·.splitOn "\t")
+      let mut perGoal := false
+      for row in tailRows do
+        let [name, txt] := row | continue
+        let tac : TSyntax `tactic ← if txt == "@EX2SIMP" then `(tactic| all_goals (try ved_loop_simp [$ex2,*])) else
+          match Parser.runParserCategory (← getEnv) `tactic txt with
+          | .ok st => pure ⟨st⟩
+          | .error e => throwError "S95 tail: cannot parse step {name}: {e}"
+        let t0 ← IO.monoMsNow
+        let hb0 ← IO.getNumHeartbeats
+        -- `VED_S95_PERGOAL=step`: from that step on every step runs goal by goal, each under `VED_S95_GOALHB` thousand heartbeats (default 30000), one line per goal
+        -- (ms, heartbeats, goals out, process RSS in MB); a failing goal stays as it is
+        if name == (← IO.getEnv "VED_S95_PERGOAL").getD "" then perGoal := true
+        let res ← if perGoal then do
+            let cap := ((← IO.getEnv "VED_S95_GOALHB").bind String.toNat?).getD 30000
+            let mut outG : List MVarId := []
+            let mut nFail := 0
+            let mut i := 0
+            for gq in cur do
+              let t1 ← IO.monoMsNow
+              let hb1 ← IO.getNumHeartbeats
+              dbgLog s!"S95 tail {name} goal {i}: start tree={Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← gq.getType))} ctx={(← gq.withContext getLCtx).decls.size}"
+              let (gsO, r) : Option (List MVarId) × String ← tryCatchRuntimeEx
+                (do
+                  let gs ← withTheReader Core.Context (fun c => { c with maxHeartbeats := cap * 1000, initHeartbeats := hb1 }) do
+                    Tactic.run gq (Tactic.evalTactic tac)
+                  pure (some gs, s!"ok out={gs.length}"))
+                (fun ex => do pure (none, s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 200}"))
+              match gsO with
+              | some gs => outG := outG ++ gs
+              | none => outG := outG ++ [gq]; nFail := nFail + 1
+              let rss := ((← IO.FS.readFile "/proc/self/status").splitOn "\n").find? (·.startsWith "VmRSS") |>.getD ""
+              let ms1 := (← IO.monoMsNow) - t1
+              let hbk := ((← IO.getNumHeartbeats) - hb1) / 1000
+              if i < 8 || ms1 > 3000 || r.startsWith "FAILED" then
+                dbgLog s!"S95 tail {name} goal {i}: {r} ms={ms1} hb(k)={hbk} {rss.replace " " ""}"
+              i := i + 1
+            cur := outG
+            pure s!"ok (per goal; {nFail} failed)"
+          else try
+            let gs ← Tactic.run cur.head! (do Tactic.setGoals cur; Tactic.evalTactic tac)
+            cur := gs
+            pure "ok"
+          catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 400}"
+        dbgLog s!"S95 tail {name}: {res} ms={(← IO.monoMsNow) - t0} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}; {← shape cur}; {← resid cur}"
+        if !res.startsWith "ok" then
+          for gq in cur.take 1 do
+            dbgLog s!"S95 tail failing goal (truncated): {((← gq.withContext do ppExpr (← instantiateMVars (← gq.getType))).pretty.replace "\n" " ").take 600}"
+          break
     dbgLog s!"S95 replay total ms={(← IO.monoMsNow) - tAll} hb(k)={((← IO.getNumHeartbeats) - hbAll) / 1000}"
     Tools.VedMemLoop.declWidthTab.set none
 
