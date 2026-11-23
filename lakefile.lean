@@ -490,6 +490,9 @@ lean_lib «Tools.VedU1StructWires» where
 lean_lib «Tools.VedU1StructSlice» where
   roots := #[`Tools.VedU1StructSlice]
 
+lean_lib «Tools.VedU1StructWireEqs» where
+  roots := #[`Tools.VedU1StructWireEqs]
+
 lean_lib «Tools.VedU1StructSeq» where
   roots := #[`Tools.VedU1StructSeq]
 

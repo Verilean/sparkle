@@ -4,6 +4,7 @@ import Tools.VedU1Loop
 import Tools.VedU1StructSeqTac
 import Tools.VedU1StructWires
 import Tools.VedU1StructSlice
+import Tools.VedU1StructWireEqs
 import Tools.VedU1OrderFast
 import Tools.VedMemWidth
 import Tools.VedU1WireShare
@@ -249,7 +250,11 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
     tacs := tacs.push (← wrap (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = (applyIns ($C).table.ins ($C).inNames $insI $f).val $sI := ⟨_, rfl⟩)))
   if ved.sseq.zeta.get (← getOptions) then
     tacs := tacs.push (← wrap (← `(tactic| ved_ss_zeta $hv [$fI:ident, $(helpers.map mkCIdent),*])))
-  tacs := tacs.push (← wrap (← `(tactic| ved_ss_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, Signal.fst, Signal.snd, $exHelp,*] at $hv:ident)))
+  if Tools.VedU1StructWireEqs.ved.sseq.wireEqs.get (← getOptions) then
+    -- per-wire value lemmas (`Tools/VedU1StructWireEqs.lean`): the same simp set, chunk by chunk
+    tacs := tacs.push (← wrap (← `(tactic| ved_ss_wiresimp $hv:ident [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, Signal.fst, Signal.snd, $exHelp,*])))
+  else
+    tacs := tacs.push (← wrap (← `(tactic| ved_ss_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, Signal.fst, Signal.snd, $exHelp,*] at $hv:ident)))
   if wires then
     let rPats ← (hs.toList).mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)
     let wPat : TSyntax `rcasesPat ← `(rcasesPat| ⟨$LI:ident, $hLI:ident, $[$(rPats.toArray)],*⟩)
