@@ -57,6 +57,27 @@ theorem mod_pow_dvd (a M Wm m w : Nat) (hM : M = 2 ^ m) (hW : Wm = 2 ^ w) (h : w
   subst hM hW
   exact Nat.mod_mod_of_dvd _ (Nat.pow_dvd_pow 2 h)
 
+/-- a slice `[t, t+w)` of the field `a % 2^wl` at `[s, s+wl)` of a packed state (`s ≤ t`, `t + w ≤ s + wl`, `k = t - s`): the value is `a / 2^k % 2^w` -/
+theorem pack_in (a r Wl C T Wm K wl s t w k : Nat) (hW : Wl = 2 ^ wl) (hC : C = 2 ^ s) (hT : T = 2 ^ t) (hWm : Wm = 2 ^ w) (hK : K = 2 ^ k)
+    (hk : k + s = t) (hr : r < C) (hw : k + w ≤ wl) : (a % Wl * C + r) / T % Wm = a / K % Wm := by
+  have hTC : T = C * K := by rw [hT, hC, hK, ← Nat.pow_add]; congr 1; omega
+  have hCp : 0 < C := by subst hC; exact Nat.two_pow_pos s
+  rw [hTC, ← Nat.div_div_eq_div_mul, Nat.add_comm, Nat.add_mul_div_right _ _ hCp, Nat.div_eq_of_lt hr, Nat.zero_add]
+  exact mod_div_mod a Wl K Wm wl k w hW hK hWm hw
+
+/-- the low `w ≤ wl` bits of the field at the start offset `s = t`: `a % 2^w` -/
+theorem pack_hit_n (a r Wl C T Wm wl s w : Nat) (hW : Wl = 2 ^ wl) (hC : C = 2 ^ s) (hT : T = C) (hWm : Wm = 2 ^ w)
+    (hr : r < C) (hw : w ≤ wl) : (a % Wl * C + r) / T % Wm = a % Wm := by
+  subst hT
+  have hCp : 0 < T := by subst hC; exact Nat.two_pow_pos s
+  rw [Nat.add_comm, Nat.add_mul_div_right _ _ hCp, Nat.div_eq_of_lt hr, Nat.zero_add]
+  subst hW hWm
+  exact Nat.mod_mod_of_dvd _ (Nat.pow_dvd_pow 2 hw)
+
+/-- a 0/1 flag as a proposition: the condition of the case hypotheses `(if p then 1 else 0) % 2 = 1` -/
+theorem ite10_mod2 (p : Prop) [Decidable p] : ((if p then 1 else 0) % 2 = 1) ↔ p := by
+  by_cases h : p <;> simp [h]
+
 theorem atom_div (x T Wm : Nat) (hT : T = 1) : x / T % Wm = x % Wm := by subst hT; rw [Nat.div_one]
 
 theorem mod_as_div (x Wm : Nat) : x % Wm = x / 1 % Wm := by rw [Nat.div_one]
@@ -151,6 +172,17 @@ partial def extField (E T Wm : Expr) (t w : Nat) : MetaM (Option (Expr × Expr))
     if t == s && w == wl then
       let pf := mkAppN (mkConst ``pack_hit) #[a, r, Wl, C, T, Wm, nl wl, nl s, ← refl Wl, ← refl C, ← refl C, ← refl Wl, hr]
       return some (am, pf)
+    else if t == s && w < wl then
+      -- the low `w` bits of the field: `a % 2^w`
+      let pf := mkAppN (mkConst ``pack_hit_n) #[a, r, Wl, C, T, Wm, nl wl, nl s, nl w, ← refl Wl, ← refl C, ← refl C, ← refl Wm, hr, leP w wl]
+      return some (← mkAppM ``HMod.hMod #[a, Wm], pf)
+    else if s < t && t + w ≤ s + wl then
+      -- a slice inside the field: `a / 2^(t-s) % 2^w`
+      let k := t - s
+      let K := nl (2 ^ k)
+      let pf := mkAppN (mkConst ``pack_in) #[a, r, Wl, C, T, Wm, K, nl wl, nl s, nl t, nl w, nl k, ← refl Wl, ← refl C, ← refl T, ← refl Wm, ← refl K,
+        ← mkEqRefl (nl t), hr, leP (k + w) wl]
+      return some (← mkAppM ``HMod.hMod #[← mkAppM ``HDiv.hDiv #[a, K], Wm], pf)
     else if t + w ≤ s then
       let step := mkAppN (mkConst ``pack_skip) #[a, r, Wl, C, T, Wm, nl wl, nl s, nl t, nl w, ← refl Wl, ← refl C, ← refl T, ← refl Wm, hr, leP (t + w) s]
       let some (v, pf) ← extField r T Wm t w | return none
@@ -253,7 +285,7 @@ elab "ved_local_small" : tactic => withMainContext do
 
 /-- `ved_local_close`: the goal from its own cone: cone clear, field extraction, bounds, then `omega` (with `split` for the `if`s) -/
 macro "ved_local_close" : tactic =>
-  `(tactic| (ved_cone_clear; ved_pack_extract; ved_local_small; (try dsimp only at *)
+  `(tactic| (ved_cone_clear; ved_pack_extract; ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *);
              all_goals (ved_bv_bounds
                         first | omega | (split <;> omega) | (split <;> split <;> omega))))
 
