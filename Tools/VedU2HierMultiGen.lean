@@ -329,7 +329,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
           -- F xs o x = packRegister inits (the reduced writes over the state x and the oracle tuple o)
           let some wtup := (if r.isAppOfArity ``Prod.mk 4 then some r.appArg! else none)
             | refuse decl "open" m!"the reduced loop body is not a pair (output, writes): {r}"
-          let f2Name := base ++ Name.mkSimple (openSuf ++ "_F2")
+          let f2Name := base ++ Name.mkSimple (openSuf ++ (if chain then "_FL" else "_F2"))  -- chain: `_F{j}` of the third call would clash with `_F2`
           let wO := wtup.replace fun e =>
             if e.isApp then
               match e.getAppFn with

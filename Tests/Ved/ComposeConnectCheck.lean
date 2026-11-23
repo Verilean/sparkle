@@ -514,4 +514,118 @@ def chainControls : CommandElabM Unit := do
 #guard_msgs in
 run_cmd chainControls
 
+/-! ## Chained instances (R230's shape): the output of one combinational instance feeds the next instance's data port
+
+`chainTx`: `mkB (mkA ph)` (`ph` a register); `chain3Tx`: `mkC (mkB (mkA ph))`.  The synthesiser emits the chain twice (the second
+copy is not read by any register); both copies are instances of the checked design and are paired with the same calls.  The
+accepted rows are checked as above (stored type `==` `U2HRStmt`, same artifact, std3, kernel, the children's real theorems occur,
+no per-cone fallback: connection lemmas only).  CONTROLS: wrong wiring, instance mix-up, width mismatch on the chained port,
+the option off (the old refusal text). -/
+
+@[hardware_module]
+def mkB (x : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  (x - (Signal.pure 5#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4))
+
+@[hardware_module]
+def mkC (x : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  (x + (Signal.pure 7#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4))
+
+def chainTx (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let phase ← Signal.reg 0#4
+    let outR ← Signal.reg 0#4
+    let ph := (phase : Signal defaultDomain (BitVec 4))
+    let k1 := mkA ph
+    let k2 := mkB k1
+    phase <~ Signal.mux go (ph + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4)) ph
+    outR <~ k2
+    return (outR : Signal defaultDomain (BitVec 4))
+
+/-- A copy for the controls (never accepted itself). -/
+def chainTxRef (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let phase ← Signal.reg 0#4
+    let outR ← Signal.reg 0#4
+    let ph := (phase : Signal defaultDomain (BitVec 4))
+    let k1 := mkA ph
+    let k2 := mkB k1
+    phase <~ Signal.mux go (ph + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4)) ph
+    outR <~ k2
+    return (outR : Signal defaultDomain (BitVec 4))
+
+def chain3Tx (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let phase ← Signal.reg 0#4
+    let outR ← Signal.reg 0#4
+    let ph := (phase : Signal defaultDomain (BitVec 4))
+    let k1 := mkA ph
+    let k2 := mkB k1
+    let k3 := mkC k2
+    phase <~ Signal.mux go (ph + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4)) ph
+    outR <~ k3
+    return (outR : Signal defaultDomain (BitVec 4))
+
+/-- As `checkRow`, for several children: every child's real theorem occurs in the proof. -/
+def checkChain (decl : Name) (kidThms : List Name) (nRegs : Nat) : CommandElabM Unit := do
+  unless Tools.VedComposeConnect.ved.compose.connect.get (← getOptions) do throwError "the option ved.compose.connect is not on"
+  let nMsg0 := (← get).messages.toList.length
+  let (m, d, thm, nDom, _) ← vedU2HierEntryR decl
+  let logs := ((← get).messages.toList.drop nMsg0).filter fun msg => msg.severity == .information
+  let logTxt ← logs.mapM fun msg => msg.data.toString
+  let conn := logTxt.filter fun s => (s.splitOn "VED COMPOSE CONNECT").length > 1
+  modify fun s => { s with messages := (s.messages.toList.take nMsg0).foldl (fun l msg => l.add msg) {} }
+  unless conn.length == nRegs + 1 do throwError "{decl}: {conn.length} connection log lines, expected {nRegs + 1}: {conn}"
+  let (m2, d2) ← synthOf decl
+  liftTermElabM do
+    let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+    unless ti.type == expectedOf decl nDom do throwError "{thm}: type is not U2HRStmt c m d decl"
+    unless decide (m = m2) && d.topModule == d2.topModule && decide (d.modules = d2.modules) do
+      throwError "{decl}: the returned module/design differ from the declaration's own synthesis"
+    let nm := HNames.ofBase decl
+    let some ci := (← getEnv).find? nm.mod | throwError "{nm.mod} missing"
+    unless ci.value! == toExpr m2 do throwError "{nm.mod} is not the declaration's own module"
+    discard <| Tools.VedStrictAudit.strictAudit thm
+    std3Only thm
+    for k in kidThms do
+      unless ti.value.getUsedConstants.contains k do throwError "{thm}: the child theorem {k} does not occur"
+    let nr := countApps ti.value ``Tools.VedComposeConnect.reg_connect
+    let no := countApps ti.value ``Tools.VedComposeConnect.out_connect
+    unless nr == nRegs && no == 1 do throwError "{decl}: reg_connect sites {nr} (expected {nRegs}), out_connect sites {no} (expected 1)"
+    logInfo m!"compose connect chain OK: {nRegs} registers by reg_connect, 1 port by out_connect, {kidThms.length} child theorems, std3, type ==, same artifact"
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 2 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+run_cmd checkChain ``chainTx [`Tests.Ved.ComposeConnectCheck.chainTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1, `Tests.Ved.ComposeConnectCheck.chainTx.ved_child.Tests.Ved.ComposeConnectCheck.mkB.ved_u1] 2
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 3 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+run_cmd checkChain ``chain3Tx [`Tests.Ved.ComposeConnectCheck.chain3Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1, `Tests.Ved.ComposeConnectCheck.chain3Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkB.ved_u1, `Tests.Ved.ComposeConnectCheck.chain3Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkC.ved_u1] 2
+
+/- Names in the synthesised `chainTxRef`: instances (in body order) 0 = `mkA` on `_tmp_op_a_2` (output wire `_tmp_arg0_6`), 1 = `mkB`
+on `_tmp_arg0_6`, 2 and 3 = the dead copy of the chain (`_gen_k1`, `_gen_k2`); `_tmp_op_a_2` is the register `phase`'s read. -/
+
+def chainTxControls : CommandElabM Unit := do
+  let (m, d) ← synthOf ``chainTxRef
+  let noT : Phase1 → CommandElabM Phase1 := fun p => pure p
+  withScope (fun sc => { sc with opts := (sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true }) do
+    -- WRONG WIRING: the consumer's port is fed by another net (the register read instead of the producer's output), both copies
+    expectRefusedT ``chainTxRef "kernel" "?" { m with body := setConnAt 3 "_gen_x" (.ref "_tmp_op_a_2") (setConnAt 1 "_gen_x" (.ref "_tmp_op_a_2") m.body) } d noT
+    -- INSTANCE MIX-UP: every instance is paired with the other child's call
+    expectRefusedT ``chainTxRef "proof" "unsolved goals" m d fun p => pure { p with insts := p.insts.map fun ii => { ii with call := 1 - ii.call } }
+    -- WIDTH MISMATCH on the chained port: the declared width of the producer's output wire is not the port's
+    expectRefusedT ``chainTxRef "hier-shape" "width mismatch" { m with wires := m.wires.map fun w =>
+      if w.name == "_tmp_arg0_6" then { w with ty := .bitVector 5 } else w } d noT
+  -- the option OFF: the old refusal text, unchanged
+  expectRefusedT ``chainTxRef "conns" "another instance's output" m d noT
+
+/-- info: compose connect chain controls: 4 refused -/
+#guard_msgs in
+run_cmd do
+  chainTxControls
+  logInfo m!"compose connect chain controls: 4 refused"
+
 end Tests.Ved.ComposeConnectCheck
