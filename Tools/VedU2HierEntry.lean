@@ -162,6 +162,9 @@ structure CallInfo where
   /-- H2c-state: the call's argument is computed from the parent's REGISTER state (a closed Signal
   term over the inputs, containing the parent's own loop), not only from inputs -/
   stateArg : Bool := false
+  /-- option `ved.compose.multiOut`: this oracle input is the field `proj` (index `leaf`) of a structure-valued call -/
+  leaf : Nat := 0
+  proj : Option String := none
   deriving BEq, Inhabited
 
 structure OpenInfo where

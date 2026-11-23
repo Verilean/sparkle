@@ -228,10 +228,37 @@ def mkPointwise (gName pwName : Name) (fn fnTy : Lean.Expr) : TermElabM Bool := 
         return true
       catch _ => return false
 
+/-- Option `ved.compose.multiOut`: a call whose value is a structure of signals (a child with several output ports).  Its oracle is one
+free signal PER FIELD (the open parent keeps Signal parameters only); the call's occurrence in the body is the constructor
+applied to those signals.  `none` for a call that is itself a `Signal`. -/
+def structCallOf (ty : Lean.Expr) : MetaM (Option (Lean.Expr × Array Name)) := do
+  let ty ← whnf ty
+  match ty.getAppFn with
+  | .const sn us =>
+    if sn == ``Sparkle.Core.Signal.Signal then return none
+    let env ← getEnv
+    unless isStructure env sn do return none
+    let fs := getStructureFields env sn
+    let ctor := mkAppN (Lean.mkConst (getStructureCtor env sn).name us) ty.getAppArgs
+    return some (ctor, fs.map (sn ++ ·))
+  | _ => return none
+
+/-- Projections of constructor applications reduced (`P2.s (P2.mk a b)` to `a`), under binders: what the oracle replacement of a
+structure-valued call leaves in the open parent's body (the synthesizer has no rule for `P2.mk`/`P2.s`). -/
+def reduceCtorProjs (e : Lean.Expr) : MetaM Lean.Expr :=
+  Meta.transform e (post := fun x => do
+    if let .const n _ := x.getAppFn then
+      if (← getEnv).isProjectionFn n && x.getAppNumArgs > 0 then
+        if (← whnfCore x.appArg!).getAppFn.isConst then
+          if let some x' ← unfoldDefinition? x then
+            let r ← whnfCore x'
+            if !r.isProj then return .done r
+    return .continue)
+
 /-- The analysis and the generated constants.  `pw` (option `ved.compose.step`): the proof of `hOs` uses the children's
 pointwise lemmas (`mkPointwise`) instead of unfolding them; the produced definitions are the same. -/
 def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable) (kids : Array Kid)
-    (base : Name) (openSuf : String) (pw : Bool := false) (chain : Bool := false) : TermElabM OpenInfo := do
+    (base : Name) (openSuf : String) (pw : Bool := false) (chain : Bool := false) (multiOutOn : Bool := false) : TermElabM OpenInfo := do
   let openName := base ++ Name.mkSimple openSuf
   Tools.VedU2HierDbg.openTick "genOpenMulti begin"
   let ty ← inferType stmt
@@ -311,9 +338,30 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
         let mut orcTys : Array Lean.Expr := #[]
         for (key, k) in orcKey.zip orcSite do
           orcTys := orcTys.push (← inferType (mkAppN siteFn[k]! (key.2.map realCalls)))
-        let osTy ← tupleTy orcTys
-        withFVars (orcTys.mapIdx fun i _ => Name.mkSimple s!"ved_o{i}") orcTys fun os => do
-          let bodyO ← replaceCalls (nested := chain) kids body fun idx _ _ _ _ => pure os[(kToJ[idx]!).get!]!
+        -- the oracle signals: one per call, or one per field of a structure-valued call (option `ved.compose.multiOut`)
+        let mut structs : Array (Option (Lean.Expr × Array Name)) := #[]
+        let mut leafTerms : Array (Array Lean.Expr) := #[]
+        let mut leafBase : Array Nat := #[]
+        let mut leafTys : Array Lean.Expr := #[]
+        for ((key, k), j) in (orcKey.zip orcSite).zipIdx do
+          let callE := mkAppN siteFn[k]! (key.2.map realCalls)
+          let st ← if multiOutOn then structCallOf orcTys[j]! else pure none
+          structs := structs.push st
+          leafBase := leafBase.push leafTys.size
+          let ls : Array Lean.Expr ← match st with
+            | some (_, fns) => fns.mapM fun f => mkAppM f #[callE]
+            | none => pure #[callE]
+          leafTerms := leafTerms.push ls
+          for l in ls do leafTys := leafTys.push (← inferType l)
+        let nL := leafTys.size
+        let osTy ← tupleTy leafTys
+        withFVars (leafTys.mapIdx fun i _ => Name.mkSimple s!"ved_o{i}") leafTys fun os => do
+          let callVal (j : Nat) : Lean.Expr :=
+            match structs[j]! with
+            | some (ctor, fns) => mkAppN ctor (os.extract leafBase[j]! (leafBase[j]! + fns.size))
+            | none => os[leafBase[j]!]!
+          let bodyO0 ← replaceCalls (nested := chain) kids body fun idx _ _ _ _ => pure (callVal (kToJ[idx]!).get!)
+          let bodyO ← if multiOutOn then reduceCtorProjs bodyO0 else pure bodyO0
           if (bodyO.find? fun x => kids.any (fun k => x.isConstOf k.decl)).isSome then
             refuse decl "open" m!"a call of a child remains in the open parent's body (a call nested in another call's argument?)"
           -- the open parent: the struct result (the declaration's field is the port)
@@ -335,19 +383,19 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
               match e.getAppFn with
               | .fvar v =>
                 match gs.findIdx? (·.fvarId! == v) with
-                | some k => (kToJ[k]!).bind fun j => some os[j]!
+                | some k => (kToJ[k]!).bind fun j => some (callVal j)
                 | none => none
               | _ => none
             else none
           let f2Const := Lean.mkConst f2Name
           withLocalDeclD `o osTy fun ot => withLocalDeclD `x liveTy fun x => do
-            let projs ← (List.range n).toArray.mapM (tupleGet ot ·)
+            let projs ← (List.range nL).toArray.mapM (tupleGet ot ·)
             let w := (wO.replaceFVars os projs).replaceFVar live x
             let f2Val ← mkLambdaFVars (xs ++ #[ot, x]) (← mkAppOptM ``Sparkle.Core.packRegister #[some dom, some αs, some inits, some w])
             addDefnRegular f2Name (← inferType f2Val) f2Val
             Tools.VedU2HierDbg.openTickE "F2 definition added" f2Val
           -- Os xs live = the oracle values the real children give
-          let osComps : Array Lean.Expr := (orcKey.zip orcSite).map fun (key, k) => mkAppN siteFn[k]! (key.2.map realCalls)
+          let osComps : Array Lean.Expr := leafTerms.flatten
           let osName := base ++ Name.mkSimple (openSuf ++ "_Os")
           let osVal ← mkLambdaFVars (xs ++ #[live]) (← mkTuple osComps)
           addDefnRegular osName (← inferType osVal) osVal
@@ -364,7 +412,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
           withLocalDeclD `o osTy fun o => withLocalDeclD `o' osTy fun o' => withLocalDeclD `t natTy fun t => do
             let conj ← withLocalDeclD `i natTy fun i => do
               let mut c := Lean.mkConst ``True
-              for j in (List.range n).reverse do
+              for j in (List.range nL).reverse do
                 let eq ← mkEq (← valAt (← tupleGet o j) i) (← valAt (← tupleGet o' j) i)
                 c := mkApp2 (Lean.mkConst ``And) eq c
               mkForallFVars #[i] (← mkArrow (← mkAppM ``LT.lt #[i, t]) c)
@@ -410,7 +458,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
             let lhs ← valAt (mkAppN (mkConst f2Name) (xs ++ #[o, x])) t
             let rhs ← valAt (mkAppN (mkConst f2Name) (xs ++ #[o', x])) t
             mkForallFVars #[o, o', x, t] (← mkArrow hyp (← mkEq lhs rhs)))
-          let hn := (List.range n).map fun j => s!"e{j}"
+          let hn := (List.range nL).map fun j => s!"e{j}"
           let pat := ", ".intercalate (hn ++ ["_"])
           proveByScript decl hcOName hcOTy s!"by
   intro {intros} o o' x t h
@@ -500,7 +548,13 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
                 addDefnRegular nmA (← inferType lam) lam
                 ds := ds ++ [nmA]
               return ds
-            infos := infos.push { kid := key.1, args := defs.map fun _ => "?", derived := true, argDefs := defs, stateArg := true }
+            match structs[j]! with
+            | some (_, fns) =>
+              for (f, l) in fns.toList.zipIdx do
+                infos := infos.push { kid := key.1, args := defs.map fun _ => "?", derived := true, argDefs := defs, stateArg := true,
+                                      leaf := l, proj := some (f.getString!) }
+            | none =>
+              infos := infos.push { kid := key.1, args := defs.map fun _ => "?", derived := true, argDefs := defs, stateArg := true }
           Tools.VedU2HierDbg.openTick "arg definitions end"
           -- the ports of the open parent: the fields of its struct result
           let ports : List String ← do

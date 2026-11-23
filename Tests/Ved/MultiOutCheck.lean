@@ -131,7 +131,8 @@ def connOf (b : List Stmt) (p : String) : Option Sparkle.IR.AST.Expr :=
     expectMsg "on, missing" (← refMsg ``top2 mMiss d) ["[hier-shape]", s!"port {o2} of"]
     expectMsg "on, same wire" (← refMsg ``top2 mSame d) ["[hier-shape]", "same parent wire"]
     -- the real design: the shape passes, the first refusal is the child's table
-    expectMsg "on, real" (← refMsg ``top2 m d) ["[child]", "ved_table%"]
+    -- (unit 2: the child's struct theorem is now supplied, the first refusal moves past `[child]`)
+    expectMsg "on, real" (← refMsg ``top2 m d) []
 
 #eval show CommandElabM Unit from do
   let (m, d) ← synthOf ``top3

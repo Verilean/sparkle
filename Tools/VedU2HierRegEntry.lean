@@ -3,6 +3,7 @@ import Tools.VedH3ChildEntry
 import Tools.VedU2HierClose
 import Tools.VedU2HierEntry
 import Tools.VedU2HierMultiOut
+import Tools.VedU1StructOut
 import Tools.VedU2HierReg
 import Tools.VedU2HierNet
 import Tools.VedU2HierStGen
@@ -350,11 +351,27 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let irS := toString (userName (opn.openName ++ `ved_irS))
   let k := di.regWs.length
   let mut L : Array String := #[]
+  -- option `ved.compose.multiOut`: the shape is `HierShapeK`, the kernel chain its `_multi` copies; a child with several output
+  -- ports (a struct result) is applied through its bundle statement (`ved_bundle`, the child theorem's function) and its call's
+  -- output ports are the fields of the call's struct value
+  let mo := di.multiOut
+  let hsN := if mo then "HierShapeK" else "HierShapeS"
+  let sfx := if mo then "_multi" else ""
+  let isMultiK (k : Kid) : Bool := mo && k.c.outputs.length > 1
+  let GS (k : Kid) : String :=
+    if isMultiK k then toString (userName (k.nm.mod.getPrefix ++ `ved_bundle)) else declTerm k.decl k.nDom
+  -- the (port, wire) pairs of an instance's outputs, in the order of its connections (`instOuts`)
+  let outsOf (ii : InstInfo) (k : Kid) : List (Sparkle.IR.AST.Port × String) :=
+    if isMultiK k then
+      ii.cs.filterMap fun (p, e) => match e, k.c.outputs.find? (·.name == p) with
+        | .ref x, some q => some (q, x)
+        | _, _ => none
+    else [(k.c.outputs.headD ⟨"out", .bit⟩, ii.y)]
   -- VED compose (option `ved.compose.step`): the shape facts (closed Bool checks) are decided by the kernel (`decide +kernel`:
   -- the kernel evaluates the instance; no `native_decide`, no `ofReduceBool`) instead of the elaborator's `whnf`
   let dk := if di.compose && !di.noKernelDecide then "decide +kernel" else "decide"
-  L := L.push s!"  have hS : {T2}.HierShapeS {P.design} {P.mod} = true := by {dk}"
-  L := L.push s!"  have hne := {T2}.hierS_ne hS"
+  L := L.push s!"  have hS : {T2}.{hsN} {P.design} {P.mod} = true := by {dk}"
+  L := L.push s!"  have hne := {T2}.{if mo then "hierK_ne" else "hierS_ne"} hS"
   -- VED compose: `OrderOkHS` is evaluated once (it is the largest closed check: it scans the whole arrangement); `hord` is
   -- `hOK` under the witness (`OrderHS d m` is `∃ b, OrderOkHS d m b = true`)
   if di.compose && !di.noOkOnce then
@@ -393,7 +410,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   L := L.push s!"  have htie : {P.contract}.clkRst = {T2}.designClkRst {P.design} {P.mod} := by decide"
   L := L.push s!"  have hout : {P.contract}.outputs = {P.outs} := by decide"
   for (k, i) in kids.zipIdx do
-    let G := declTerm k.decl k.nDom
+    let G := GS k
     let K := k.nm
     L := L.push s!"  have hmem{i} : {K.mod} ∈ {P.design}.modules := by rw [hmods]; simp"
     L := L.push s!"  have hpw{i} := hadm.2.2 _ hmem{i}"
@@ -420,11 +437,20 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let callTxt (c : CallInfo) : String :=
     let k := kidA[c.kid]!
     let G := declTerm k.decl k.nDom
-    if c.derived then s!"({G} {" ".intercalate (c.argDefs.map fun n => s!"({userName n} ins)")})"
-    else if c.args.isEmpty then G else s!"({G} {" ".intercalate (c.args.map argTxt)})"
+    let base :=
+      if c.derived then s!"({G} {" ".intercalate (c.argDefs.map fun n => s!"({userName n} ins)")})"
+      else if c.args.isEmpty then G else s!"({G} {" ".intercalate (c.args.map argTxt)})"
+    match c.proj with
+    | some f => s!"({base}.{f})"
+    | none => base
   let obsOf (p : PTy) (sg : String) : String :=
     s!"(Tools.VedU1Contract.PTy.obs {ptyTxt p} ({sg}.val t))"
   let kidOut (ki : Nat) : PTy := outPTy kidA[ki]!.tbl
+  -- the port type of an oracle input (a call's output, or the field of a structure-valued call)
+  let callOut (c : CallInfo) : PTy :=
+    match c.proj with
+    | some _ => kidA[c.kid]!.tbl.out.flat.getD c.leaf .bit
+    | none => kidOut c.kid
   let calls := opn.calls
   let sigsAll := " ".intercalate (tbl.binders.map argTxt ++ calls.toList.map callTxt)
   let spn : Sp :=
@@ -433,11 +459,16 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     knot := opn.knot.map fun kn => s!"{userName kn} {" ".intercalate (tbl.binders.map argTxt)}" }
   let oracleBody (sg : Nat → String) : String :=
     insts.foldr (fun (ii : InstInfo) acc =>
+      if isMultiK kidA[ii.kid]! then
+        -- one wire per output port; the oracle input of port `l` is the call's `l`-th leaf (`ii.call` is the first)
+        (outsOf ii kidA[ii.kid]!).zipIdx.foldr (fun ((_, y), l) acc =>
+          s!"if y = {sq y} then {obsOf (callOut calls[ii.call + l]!) (sg (ii.call + l))} else {acc}") acc
+      else
       s!"if y = {sq ii.y} then {obsOf (kidOut ii.kid) (sg ii.call)} else {acc}") "0"
   let _ := O
   -- the instances' outputs are single wires, known from the design
   for (ii, j) in insts.zipIdx do
-    L := L.push s!"  have hO{j} : Tools.VedU1Hier.instOuts {P.design} {sq ii.mn} {connsLit ii.cs} = [{sq ii.y}] := by decide"
+    L := L.push s!"  have hO{j} : Tools.VedU1Hier.instOuts {P.design} {sq ii.mn} {connsLit ii.cs} = [{", ".intercalate ((outsOf ii kidA[ii.kid]!).map fun (_, y) => sq y)}] := by decide"
   let hOl := ", ".intercalate (insts.zipIdx.map fun (_, j) => s!"hO{j}")
   -- the invariant: parent register slot i is `irS ins t i`
   let regsTxt := "[" ++ ", ".intercalate (di.pm.map sq) ++ "]"
@@ -455,9 +486,9 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let st := insts.any (·.stateArg)
   if st then
     -- H2c-state: the instance fact is asked at cycle t under the invariant (goals: h0, hkid, hstep)
-    L := L.push s!"  refine {T2}.outputsOnHS_of_stepRK {P.contract} {P.mod} {P.design} arr {FT} hS hadm hsupp hsch {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.1 hb0.2.2.1 (fun ins y t => {owBody}) {rTerm} ?_ ?_ ?_"
+    L := L.push s!"  refine {T2}.outputsOnHS_of_stepRK{sfx} {P.contract} {P.mod} {P.design} arr {FT} hS hadm hsupp hsch {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.1 hb0.2.2.1 (fun ins y t => {owBody}) {rTerm} ?_ ?_ ?_"
   else
-    L := L.push s!"  refine {T2}.outputsOnHS_of_stepR {P.contract} {P.mod} {P.design} arr {FT} hS hadm hsupp hsch {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.1 hb0.2.2.1 (fun ins y t => {owBody}) ?_ {rTerm} ?_ ?_"
+    L := L.push s!"  refine {T2}.outputsOnHS_of_stepR{sfx} {P.contract} {P.mod} {P.design} arr {FT} hS hadm hsupp hsch {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.1 hb0.2.2.1 (fun ins y t => {owBody}) ?_ {rTerm} ?_ ?_"
   let hkStart := L.size
   -- hkid (as in H2a)
   if st then
@@ -504,210 +535,224 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   for (ii, j) in insts.zipIdx do
     let k := kidA[ii.kid]!
     let K := k.nm
-    let G := declTerm k.decl k.nDom
-    let outPort := k.c.outputs.headD ⟨"out", .bit⟩
-    let outName := outPort.name
+    let G := GS k
+    -- the child theorem's function is the bundle lambda: unfolded where its value is read
+    let bx := if isMultiK k then s!"{G}, Sparkle.Core.Signal.bundle2, Seq.seq, Functor.map, Signal.map, Signal.seq, Signal.ap, " else ""
     let ind := if nI == 1 then "    " else "      "
     let first := if nI == 1 then "    " else "    · "
-    let plainLines : List String := [
-      s!"have hy' : y = {sq ii.y} := by\n  have h1 := hO{j}\n  rw [h1] at hy\n  simpa using hy",
-      s!"subst hy'",
-      s!"have hq : (⟨{sq outName}, {hwTxt outPort.ty}⟩ : Sparkle.IR.AST.Port) ∈ {K.mod}.outputs := by simp [{K.mod}]",
-      s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_inst {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsIn_sound (by decide)) ({T2}.dataIn_sound (by decide)) t ht E hE _ hq",
-      s!"have hx' : x = {sq ii.y} := by\n  have h2 : ({connsLit ii.cs}).lookup {sq outName} = some (Sparkle.IR.AST.Expr.ref {sq ii.y}) := by decide\n  rw [h2] at hx\n  simpa using hx.symm",
-      s!"subst hx'",
-      s!"rw [hv]",
-      s!"simp [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.applyIns, {K.contract}, Tools.VedU1Contract.contractOf, {T2}.insCIn, List.lookup, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig]"]
-    -- H2c: an instance whose data ports read derived parent nets
-    let derivedLines : List String := Id.run do
-      let call : CallInfo := opn.calls[ii.call]!
-      let Fj := toString (userName (fDefName opn ii.call))
-      let ports : List (String × PTy × Name) := k.tbl.binders.zip (k.tbl.ins.zip call.argDefs)
-      let hwList := "[" ++ ", ".intercalate (ports.map fun (bn, (pt, _)) =>
-        s!"(⟨{sq ("_gen_" ++ bn)}, {hwTxt pt.hw}⟩ : Sparkle.IR.AST.Port)") ++ "]"
-      let pat : String := if ports.length ≤ 1 then "rfl" else " | ".intercalate (ports.map fun _ => "rfl")
-      let mut X : Array String := #[]
-      X := X.push s!"have hdl : {K.contract}.dataInputs = {hwList} := by decide"
-      -- VED compose connect: the kid fact (same cycle) of every producer instance this instance's nets read
-      let producers : List Nat :=
-        if hoist && ii.stateArg && di.connect then
-          let rootsB := (ii.cs.filterMap fun (_, e) => match e with | .ref x => some x | _ => none) ++
-            (ii.chain.flatMap fun (w, _) => match asgOf di.b0 w with | some r => refsOf r | none => [])
-          (insts.zipIdx.filter fun (pi, pj) => pj < j && pi.iname != ii.iname && rootsB.contains pi.y).map (·.2)
-        else []
-      let mut prodFacts : List String := []
-      let mut prodLts : List String := []
-      for (pi, pj) in insts.zipIdx do
-        unless producers.contains pj do continue
-        let sgP := callTxt calls[pi.call]!
-        X := X.push s!"have hkp{pj} : E {sq pi.y} = {obsOf (kidOut pi.kid) sgP} := by"
-        X := X.push s!"  have hky : ∀ y, y ∈ Tools.VedU1Hier.instOuts {P.design} {sq pi.mn} {connsLit pi.cs} → E y = {owBody} := by"
-        X := X.push s!"    intro y hy"
-        X := X.push s!"    have hin0 := hb0.1.mem_iff.mp (show Sparkle.IR.AST.Stmt.inst {sq pi.mn} {sq pi.iname} {connsLit pi.cs} ∈ {P.body} by simp [{P.body}])"
-        for l in linesDone.getD pj [] do X := X.push ("    " ++ l.replace "\n" "\n    ")
-        X := X.push s!"  have h := hky {sq pi.y} (by rw [hO{pj}]; simp)"
-        X := X.push s!"  simpa using h"
-        match kidOut pi.kid with
-        | .bv w =>
-          X := X.push s!"have hlkp{pj} : E {sq pi.y} < 2 ^ {w} := by"
-          X := X.push s!"  rw [hkp{pj}]"
-          X := X.push s!"  simpa [Tools.VedU1Contract.PTy.obs] using ({sgP}.val t).isLt"
-        | .bit =>
-          X := X.push s!"have hlkp{pj} : E {sq pi.y} < 2 ^ 1 := by"
-          X := X.push s!"  rw [hkp{pj}]"
-          X := X.push s!"  have h : Bool.toNat ({sgP}.val t) < 2 ^ 1 := by cases ({sgP}.val t) <;> simp"
-          X := X.push s!"  simpa [Tools.VedU1Contract.PTy.obs] using h"
-        prodFacts := prodFacts ++ [s!"hkp{pj}"]
-        prodLts := prodLts ++ [s!"hlkp{pj}"]
-      X := X.push s!"have hrange : ∀ t, ∀ p ∈ {K.contract}.dataInputs, {Fj} ins t p.name < 2 ^ Tools.VedU1Contract.declWidth {K.mod} p.name := by"
-      X := X.push s!"  intro t p hp"
-      X := X.push s!"  rw [hdl] at hp"
-      X := X.push s!"  simp only [List.mem_cons, List.not_mem_nil, or_false] at hp"
-      X := X.push s!"  rcases hp with {pat}"
-      for (bn, (pt, ad)) in ports do
-        let nm := "_gen_" ++ bn
-        let A := s!"(({toString (userName ad)} ins).val t)"
-        X := X.push s!"  · show {Fj} ins t {sq nm} < 2 ^ Tools.VedU1Contract.declWidth {K.mod} {sq nm}"
-        X := X.push s!"    have hw : Tools.VedU1Contract.declWidth {K.mod} {sq nm} = {pt.width} := by decide"
-        X := X.push s!"    rw [hw]"
-        match pt with
-        | .bv _ =>
-          X := X.push s!"    have h := {A}.isLt"
-          X := X.push s!"    simpa [{Fj}, Tools.VedU1Contract.PTy.obs] using h"
-        | .bit =>
-          X := X.push s!"    have h : Bool.toNat {A} < 2 ^ 1 := by cases {A} <;> simp"
-          X := X.push s!"    simpa [{Fj}, Tools.VedU1Contract.PTy.obs] using h"
-      if ii.stateArg then
-        X := X.push s!"have hrunF : ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E x = {Fj} ins t p.name := by"
-        X := X.push s!"  intro p hp"
-      else
-        X := X.push s!"have hrunF : ∀ t, t < K → ∀ E, envs[t]? = some E → ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E x = {Fj} ins t p.name := by"
-        X := X.push s!"  intro t ht E hE p hp"
-      let hoisted := hoist && ii.stateArg
-      unless hoisted do
-        X := X.push s!"  have hasgF := {T2}.closed_run_asgOf {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 (Tools.VedU1Contract.seedFwd {P.mod} K ins) K ({T2}.st0H {P.design} {P.mod}) envs sts hrun t ht E hE"
-        X := X.push s!"  have hEin : ∀ x ∈ {T2}.inNames {P.mod}, E x = ins t x := fun x hx => by"
-        X := X.push s!"    have := {T2}.runHS_inputs {P.design} arr {P.mod} hadm hwr ins K K (Nat.le_refl K) _ envs sts hrun t ht E hE x hx"
-        X := X.push s!"    simpa using this"
-        if di.connect then
-          X := X ++ (Tools.VedComposeConnectGen.hinLines "  " tbl.binders (tbl.ins.map (·.width))).toArray
+    let outsL := outsOf ii k
+    let mut branches : List (List String) := []
+    for (outPort, yv) in outsL do
+      let outName := outPort.name
+      let plainLines : List String := [
+        s!"have hy' : y = {sq yv} := by\n  have h1 := hO{j}\n  rw [h1] at hy\n  simpa using hy",
+        s!"subst hy'",
+        s!"have hq : (⟨{sq outName}, {hwTxt outPort.ty}⟩ : Sparkle.IR.AST.Port) ∈ {K.mod}.outputs := by simp [{K.mod}]",
+        s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_inst{sfx} {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsIn_sound (by decide)) ({T2}.dataIn_sound (by decide)) t ht E hE _ hq",
+        s!"have hx' : x = {sq yv} := by\n  have h2 : ({connsLit ii.cs}).lookup {sq outName} = some (Sparkle.IR.AST.Expr.ref {sq yv}) := by decide\n  rw [h2] at hx\n  simpa using hx.symm",
+        s!"subst hx'",
+        s!"rw [hv]",
+        s!"simp [{bx}Tools.VedU1Contract.srcOf, Tools.VedU1Contract.applyIns, {K.contract}, Tools.VedU1Contract.contractOf, {T2}.insCIn, List.lookup, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig]"]
+      -- H2c: an instance whose data ports read derived parent nets
+      let derivedLines : List String := Id.run do
+        let call : CallInfo := opn.calls[ii.call]!
+        let Fj := toString (userName (fDefName opn ii.call))
+        let ports : List (String × PTy × Name) := k.tbl.binders.zip (k.tbl.ins.zip call.argDefs)
+        let hwList := "[" ++ ", ".intercalate (ports.map fun (bn, (pt, _)) =>
+          s!"(⟨{sq ("_gen_" ++ bn)}, {hwTxt pt.hw}⟩ : Sparkle.IR.AST.Port)") ++ "]"
+        let pat : String := if ports.length ≤ 1 then "rfl" else " | ".intercalate (ports.map fun _ => "rfl")
+        let mut X : Array String := #[]
+        X := X.push s!"have hdl : {K.contract}.dataInputs = {hwList} := by decide"
+        -- VED compose connect: the kid fact (same cycle) of every producer instance this instance's nets read
+        let producers : List Nat :=
+          if hoist && ii.stateArg && di.connect then
+            let rootsB := (ii.cs.filterMap fun (_, e) => match e with | .ref x => some x | _ => none) ++
+              (ii.chain.flatMap fun (w, _) => match asgOf di.b0 w with | some r => refsOf r | none => [])
+            (insts.zipIdx.filter fun (pi, pj) => pj < j && pi.iname != ii.iname && rootsB.contains pi.y).map (·.2)
+          else []
+        let mut prodFacts : List String := []
+        let mut prodLts : List String := []
+        for (pi, pj) in insts.zipIdx do
+          unless producers.contains pj do continue
+          let sgP := callTxt calls[pi.call]!
+          X := X.push s!"have hkp{pj} : E {sq pi.y} = {obsOf (kidOut pi.kid) sgP} := by"
+          X := X.push s!"  have hky : ∀ y, y ∈ Tools.VedU1Hier.instOuts {P.design} {sq pi.mn} {connsLit pi.cs} → E y = {owBody} := by"
+          X := X.push s!"    intro y hy"
+          X := X.push s!"    have hin0 := hb0.1.mem_iff.mp (show Sparkle.IR.AST.Stmt.inst {sq pi.mn} {sq pi.iname} {connsLit pi.cs} ∈ {P.body} by simp [{P.body}])"
+          for l in linesDone.getD pj [] do X := X.push ("    " ++ l.replace "\n" "\n    ")
+          X := X.push s!"  have h := hky {sq pi.y} (by rw [hO{pj}]; simp)"
+          X := X.push s!"  simpa using h"
+          match kidOut pi.kid with
+          | .bv w =>
+            X := X.push s!"have hlkp{pj} : E {sq pi.y} < 2 ^ {w} := by"
+            X := X.push s!"  rw [hkp{pj}]"
+            X := X.push s!"  simpa [Tools.VedU1Contract.PTy.obs] using ({sgP}.val t).isLt"
+          | .bit =>
+            X := X.push s!"have hlkp{pj} : E {sq pi.y} < 2 ^ 1 := by"
+            X := X.push s!"  rw [hkp{pj}]"
+            X := X.push s!"  have h : Bool.toNat ({sgP}.val t) < 2 ^ 1 := by cases ({sgP}.val t) <;> simp"
+            X := X.push s!"  simpa [Tools.VedU1Contract.PTy.obs] using h"
+          prodFacts := prodFacts ++ [s!"hkp{pj}"]
+          prodLts := prodLts ++ [s!"hlkp{pj}"]
+        X := X.push s!"have hrange : ∀ t, ∀ p ∈ {K.contract}.dataInputs, {Fj} ins t p.name < 2 ^ Tools.VedU1Contract.declWidth {K.mod} p.name := by"
+        X := X.push s!"  intro t p hp"
+        X := X.push s!"  rw [hdl] at hp"
+        X := X.push s!"  simp only [List.mem_cons, List.not_mem_nil, or_false] at hp"
+        X := X.push s!"  rcases hp with {pat}"
+        for (bn, (pt, ad)) in ports do
+          let nm := "_gen_" ++ bn
+          let A := s!"(({toString (userName ad)} ins).val t)"
+          X := X.push s!"  · show {Fj} ins t {sq nm} < 2 ^ Tools.VedU1Contract.declWidth {K.mod} {sq nm}"
+          X := X.push s!"    have hw : Tools.VedU1Contract.declWidth {K.mod} {sq nm} = {pt.width} := by decide"
+          X := X.push s!"    rw [hw]"
+          match pt with
+          | .bv _ =>
+            X := X.push s!"    have h := {A}.isLt"
+            X := X.push s!"    simpa [{Fj}, Tools.VedU1Contract.PTy.obs] using h"
+          | .bit =>
+            X := X.push s!"    have h : Bool.toNat {A} < 2 ^ 1 := by cases {A} <;> simp"
+            X := X.push s!"    simpa [{Fj}, Tools.VedU1Contract.PTy.obs] using h"
+        if ii.stateArg then
+          X := X.push s!"have hrunF : ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E x = {Fj} ins t p.name := by"
+          X := X.push s!"  intro p hp"
         else
-          X := X.push s!"  have hin := hok.1 t"
-          X := X.push s!"  simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
-      let dataNames := tbl.binders.map ("_gen_" ++ ·)
-      let mut facts : List String := []
-      for n in dataNames do
-        unless hoisted do X := X.push s!"  have hE_{n} : E {sq n} = ins t {sq n} := hEin _ (by decide)"
-        facts := facts ++ [s!"hE_{n}"]
-      facts := facts ++ prodFacts
-      let mut stFacts : List String := []
-      let mut loopFs : List String := []
-      if ii.stateArg then
-        -- the parent's registers at cycle t: the pre-update state, which the invariant speaks about
-        unless hoisted do X := X.push s!"  have hregE := {T2}.closed_run_reg {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.2.2.2 hb0.2.2.2.2.2.1 ins K envs sts hrun t ht S E hS' hE"
-        -- H3-open: only the registers the instance's net reads get facts
-        for i in List.range di.regWs.length do
-          let proj := (List.range i).foldl (fun s _ => s ++ ".2") "hR" ++ (if i + 1 < di.regWs.length then ".1" else "")
-          unless hoisted do
-            X := X.push s!"  have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {di.regWs.length}) := by"
-            X := X.push s!"    rw [hregE _ (by decide)]"
-            X := X.push s!"    exact {proj}"
-            X := X.push s!"  have hlS{i} : {irS} ins t ({i} : Fin {di.regWs.length}) < {2 ^ di.regWs[i]!} := by"
-            X := X.push s!"    have := hltS ins t ⟨{i}, by decide⟩"
-            X := X.push s!"    simpa using this"
-          if opn.knot.isNone || ii.needSlots.contains i then facts := facts ++ [s!"hEr{i}", s!"hlS{i}"]
-        -- H2d (`Tools/VedU2HierStateArgs.lean`): an argument that is a derived net over the register state reads
-        -- the loop inside a term; the state theorems rewrite it to its pack
-        let derivedArgs := ports.any fun (bn, _) =>
-          (ii.slots.lookup (match ii.cs.lookup ("_gen_" ++ bn) with | some (.ref x) => x | _ => "?")).isNone
-        if derivedArgs then
-          let (ls, fs, lfs) := stateFacts spn di
-          X := X ++ ls
-          stFacts := fs
-          loopFs := lfs
-        -- the argument signal is the register's Signal-level state (the exported state theorem)
+          X := X.push s!"have hrunF : ∀ t, t < K → ∀ E, envs[t]? = some E → ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E x = {Fj} ins t p.name := by"
+          X := X.push s!"  intro t ht E hE p hp"
+        let hoisted := hoist && ii.stateArg
+        unless hoisted do
+          X := X.push s!"  have hasgF := {T2}.closed_run_asgOf {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 (Tools.VedU1Contract.seedFwd {P.mod} K ins) K ({T2}.st0H {P.design} {P.mod}) envs sts hrun t ht E hE"
+          X := X.push s!"  have hEin : ∀ x ∈ {T2}.inNames {P.mod}, E x = ins t x := fun x hx => by"
+          X := X.push s!"    have := {T2}.runHS_inputs {P.design} arr {P.mod} hadm hwr ins K K (Nat.le_refl K) _ envs sts hrun t ht E hE x hx"
+          X := X.push s!"    simpa using this"
+          if di.connect then
+            X := X ++ (Tools.VedComposeConnectGen.hinLines "  " tbl.binders (tbl.ins.map (·.width))).toArray
+          else
+            X := X.push s!"  have hin := hok.1 t"
+            X := X.push s!"  simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at hin"
+        let dataNames := tbl.binders.map ("_gen_" ++ ·)
+        let mut facts : List String := []
+        for n in dataNames do
+          unless hoisted do X := X.push s!"  have hE_{n} : E {sq n} = ins t {sq n} := hEin _ (by decide)"
+          facts := facts ++ [s!"hE_{n}"]
+        facts := facts ++ prodFacts
+        let mut stFacts : List String := []
+        let mut loopFs : List String := []
+        if ii.stateArg then
+          -- the parent's registers at cycle t: the pre-update state, which the invariant speaks about
+          unless hoisted do X := X.push s!"  have hregE := {T2}.closed_run_reg {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.2.2.2 hb0.2.2.2.2.2.1 ins K envs sts hrun t ht S E hS' hE"
+          -- H3-open: only the registers the instance's net reads get facts
+          for i in List.range di.regWs.length do
+            let proj := (List.range i).foldl (fun s _ => s ++ ".2") "hR" ++ (if i + 1 < di.regWs.length then ".1" else "")
+            unless hoisted do
+              X := X.push s!"  have hEr{i} : E {sq di.pm[i]!} = {irS} ins t ({i} : Fin {di.regWs.length}) := by"
+              X := X.push s!"    rw [hregE _ (by decide)]"
+              X := X.push s!"    exact {proj}"
+              X := X.push s!"  have hlS{i} : {irS} ins t ({i} : Fin {di.regWs.length}) < {2 ^ di.regWs[i]!} := by"
+              X := X.push s!"    have := hltS ins t ⟨{i}, by decide⟩"
+              X := X.push s!"    simpa using this"
+            if opn.knot.isNone || ii.needSlots.contains i then facts := facts ++ [s!"hEr{i}", s!"hlS{i}"]
+          -- H2d (`Tools/VedU2HierStateArgs.lean`): an argument that is a derived net over the register state reads
+          -- the loop inside a term; the state theorems rewrite it to its pack
+          let derivedArgs := ports.any fun (bn, _) =>
+            (ii.slots.lookup (match ii.cs.lookup ("_gen_" ++ bn) with | some (.ref x) => x | _ => "?")).isNone
+          if derivedArgs then
+            let (ls, fs, lfs) := stateFacts spn di
+            X := X ++ ls
+            stFacts := fs
+            loopFs := lfs
+          -- the argument signal is the register's Signal-level state (the exported state theorem)
+          for (bn, (_, ad)) in ports do
+            let nm := "_gen_" ++ bn
+            let wire := match ii.cs.lookup nm with | some (.ref x) => x | _ => "?"
+            -- an argument that is not one of the parent's register slots (a data input, or a derived
+            -- net) has no state fact; defaulting it to slot 0 gave a type mismatch (H2d)
+            let some slot := ii.slots.lookup wire | continue
+            X := X ++ slotLines spn di bn (toString (userName ad)) slot
+            facts := facts ++ [s!"hAl{bn}"]
+        let mut lts : List String := prodLts
+        -- H3-open: each read of the register bundle is ONE fact per slice step (`bundle_slice_fact`), not an evaluation of the
+        -- concatenation
+        -- VED compose connect: the chain's closed shape facts of all the reads of this block in ONE kernel check (`ChainOkF`), or
+        -- (`VED_COMPOSE_NOFASTWR`) each by its own kernel `decide` (~0.3 s each at 34 registers)
+        let (chainLine, chainLs) :=
+          if di.connect && !di.noFastWR then Tools.VedComposeConnectGen.batchChain "hbch" (toString P.mod) (toString P.body) (ii.bsl.map (·.lines))
+          else ("", ii.bsl.map fun bs => bs.lines.map (·.replace "(by decide)" "(by decide +kernel)"))
+        if di.connect && !di.noFastWR && !ii.bsl.isEmpty then X := X.push chainLine
+        for (bs, bi) in ii.bsl.zipIdx do
+          X := X ++ (if di.connect then chainLs[bi]! else bs.lines)
+          X := X.push s!"  have f_bs{bi} : E {sq bs.w} = {irS} ins t ({bs.slot} : Fin {di.regWs.length}) := by rw [{bs.pf}, hEr{bs.slot}]"
+          let wBs := di.regWs[bs.slot]!
+          X := X.push s!"  have hlt_bs{bi} : E {sq bs.w} < {2 ^ wBs} := by rw [f_bs{bi}]; exact hlS{bs.slot}"
+          facts := facts ++ [s!"f_bs{bi}"]
+          lts := lts ++ [s!"hlt_bs{bi}"]
+        for ((w, wd), wi) in ii.chain.zipIdx do
+          X := X.push s!"  have e_{wi} := hasgF {sq w} _ rfl"
+          X := X.push s!"  simp (config := \{ maxSteps := 2000000 }) [{netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
+          -- an operator whose operand has no range fact (`~~~` of a computed value: the checksum's complement) stays
+          -- `evalOp`: the range-free forms evaluate it
+          X := X.push s!"  try simp (config := \{ maxSteps := 2000000 }) [{rawOpL}, {netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
+          X := X.push s!"  have f_{wi} := e_{wi}.symm"
+          X := X.push s!"  have hlt_{wi} : E {sq w} < {2 ^ wd} := by first | omega | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.and_lt_two_pow _ (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.or_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.xor_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; (repeat' split) <;> (first | omega | exact Nat.and_lt_two_pow _ (by omega) | exact Nat.or_lt_two_pow (by omega) (by omega) | exact Nat.xor_lt_two_pow (by omega) (by omega)))"
+          facts := facts ++ [s!"f_{wi}"]
+          lts := lts ++ [s!"hlt_{wi}"]
+        X := X.push s!"  rw [hdl] at hp"
+        X := X.push s!"  simp only [List.mem_cons, List.not_mem_nil, or_false] at hp"
+        X := X.push s!"  rcases hp with {pat}"
         for (bn, (_, ad)) in ports do
           let nm := "_gen_" ++ bn
           let wire := match ii.cs.lookup nm with | some (.ref x) => x | _ => "?"
-          -- an argument that is not one of the parent's register slots (a data input, or a derived
-          -- net) has no state fact; defaulting it to slot 0 gave a type mismatch (H2d)
-          let some slot := ii.slots.lookup wire | continue
-          X := X ++ slotLines spn di bn (toString (userName ad)) slot
-          facts := facts ++ [s!"hAl{bn}"]
-      let mut lts : List String := prodLts
-      -- H3-open: each read of the register bundle is ONE fact per slice step (`bundle_slice_fact`), not an evaluation of the
-      -- concatenation
-      -- VED compose connect: the chain's closed shape facts of all the reads of this block in ONE kernel check (`ChainOkF`), or
-      -- (`VED_COMPOSE_NOFASTWR`) each by its own kernel `decide` (~0.3 s each at 34 registers)
-      let (chainLine, chainLs) :=
-        if di.connect && !di.noFastWR then Tools.VedComposeConnectGen.batchChain "hbch" (toString P.mod) (toString P.body) (ii.bsl.map (·.lines))
-        else ("", ii.bsl.map fun bs => bs.lines.map (·.replace "(by decide)" "(by decide +kernel)"))
-      if di.connect && !di.noFastWR && !ii.bsl.isEmpty then X := X.push chainLine
-      for (bs, bi) in ii.bsl.zipIdx do
-        X := X ++ (if di.connect then chainLs[bi]! else bs.lines)
-        X := X.push s!"  have f_bs{bi} : E {sq bs.w} = {irS} ins t ({bs.slot} : Fin {di.regWs.length}) := by rw [{bs.pf}, hEr{bs.slot}]"
-        let wBs := di.regWs[bs.slot]!
-        X := X.push s!"  have hlt_bs{bi} : E {sq bs.w} < {2 ^ wBs} := by rw [f_bs{bi}]; exact hlS{bs.slot}"
-        facts := facts ++ [s!"f_bs{bi}"]
-        lts := lts ++ [s!"hlt_bs{bi}"]
-      for ((w, wd), wi) in ii.chain.zipIdx do
-        X := X.push s!"  have e_{wi} := hasgF {sq w} _ rfl"
-        X := X.push s!"  simp (config := \{ maxSteps := 2000000 }) [{netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
-        -- an operator whose operand has no range fact (`~~~` of a computed value: the checksum's complement) stays
-        -- `evalOp`: the range-free forms evaluate it
-        X := X.push s!"  try simp (config := \{ maxSteps := 2000000 }) [{rawOpL}, {netSimpL}, Tools.VedU1Contract.declWidth, {P.mod}, hin, {", ".intercalate (facts ++ lts)}] at e_{wi}"
-        X := X.push s!"  have f_{wi} := e_{wi}.symm"
-        X := X.push s!"  have hlt_{wi} : E {sq w} < {2 ^ wd} := by first | omega | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.and_lt_two_pow _ (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.or_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; exact Nat.xor_lt_two_pow (by omega) (by omega)) | (rw [f_{wi}]; show _ < 2 ^ {wd}; (repeat' split) <;> (first | omega | exact Nat.and_lt_two_pow _ (by omega) | exact Nat.or_lt_two_pow (by omega) (by omega) | exact Nat.xor_lt_two_pow (by omega) (by omega)))"
-        facts := facts ++ [s!"f_{wi}"]
-        lts := lts ++ [s!"hlt_{wi}"]
-      X := X.push s!"  rw [hdl] at hp"
-      X := X.push s!"  simp only [List.mem_cons, List.not_mem_nil, or_false] at hp"
-      X := X.push s!"  rcases hp with {pat}"
-      for (bn, (_, ad)) in ports do
-        let nm := "_gen_" ++ bn
-        let wire := match ii.cs.lookup nm with | some (.ref x) => x | _ => "?"
-        X := X.push s!"  · refine ⟨{sq wire}, by decide, ?_⟩"
-        if dbg then X := X.push s!"    trace \"H2D-PORT {bn} begin\""
+          X := X.push s!"  · refine ⟨{sq wire}, by decide, ?_⟩"
+          if dbg then X := X.push s!"    trace \"H2D-PORT {bn} begin\""
+          if ii.stateArg then
+            -- a non-register argument (a constant, a data input, a derived net) is unfolded like the stateless case
+            let isSlot := (ii.slots.lookup wire).isSome
+            X := X ++ portLines di dbg bn isSlot (toString (userName ad)) Fj netSimpL (facts ++ lts)
+              (if isSlot then [] else stFacts) (if isSlot then [] else loopFs)
+          else
+            X := X.push s!"    simp [{Fj}, {toString (userName ad)}, {netSimpL}, hin, {", ".intercalate (facts ++ lts)}]"
+          -- H2e: the pack is read back and a complement `x ^^^ 65535` rewritten, with the context cleared of what
+          -- `omega` cannot read, before `omega` (`omega` on the unread goal in the full context, and `split <;> omega`,
+          -- do not terminate on a checksum)
+          if ii.stateArg && dbg then X := X.push s!"    all_goals (ved_eprint_state \"P1-before-close {bn}\")"
+          if ii.stateArg && dbg then X := X.push s!"    all_goals (try (ved_port_ctx; ved_eprint_state \"P2-cleared {bn}\"))"
+          if ii.stateArg then X := X.push s!"    all_goals (try (ved_port_ctx; ved_hier_close))"
+          if ii.stateArg && dbg then X := X.push s!"    all_goals (ved_eprint_state \"P3-after-close {bn}\")"
+          X := X.push s!"    try omega"
+          if ii.stateArg then X := X.push s!"    all_goals (try (split <;> omega))"
+          -- VED compose connect: the producer's call is stated over its argument definition, the consumer's input over the
+          -- loop terms: the two are definitionally the same signal
+          if !prodFacts.isEmpty then X := X.push s!"    all_goals (try rfl)"
         if ii.stateArg then
-          -- a non-register argument (a constant, a data input, a derived net) is unfolded like the stateless case
-          let isSlot := (ii.slots.lookup wire).isSome
-          X := X ++ portLines di dbg bn isSlot (toString (userName ad)) Fj netSimpL (facts ++ lts)
-            (if isSlot then [] else stFacts) (if isSlot then [] else loopFs)
+          X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_step{sfx} {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange t ht E hE hrunF _ hq"
         else
-          X := X.push s!"    simp [{Fj}, {toString (userName ad)}, {netSimpL}, hin, {", ".intercalate (facts ++ lts)}]"
-        -- H2e: the pack is read back and a complement `x ^^^ 65535` rewritten, with the context cleared of what
-        -- `omega` cannot read, before `omega` (`omega` on the unread goal in the full context, and `split <;> omega`,
-        -- do not terminate on a checksum)
-        if ii.stateArg && dbg then X := X.push s!"    all_goals (ved_eprint_state \"P1-before-close {bn}\")"
-        if ii.stateArg && dbg then X := X.push s!"    all_goals (try (ved_port_ctx; ved_eprint_state \"P2-cleared {bn}\"))"
-        if ii.stateArg then X := X.push s!"    all_goals (try (ved_port_ctx; ved_hier_close))"
-        if ii.stateArg && dbg then X := X.push s!"    all_goals (ved_eprint_state \"P3-after-close {bn}\")"
-        X := X.push s!"    try omega"
-        if ii.stateArg then X := X.push s!"    all_goals (try (split <;> omega))"
-        -- VED compose connect: the producer's call is stated over its argument definition, the consumer's input over the
-        -- loop terms: the two are definitionally the same signal
-        if !prodFacts.isEmpty then X := X.push s!"    all_goals (try rfl)"
-      if ii.stateArg then
-        X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_step {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange t ht E hE hrunF _ hq"
-      else
-        X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_inst_net {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange hrunF t ht E hE _ hq"
-      -- the signals the child's theorem is applied to are the declaration's arguments
-      X := X.push s!"generalize hNS : {T2}.netIn {K.contract} ({connsLit ii.cs}) ins ({Fj} ins) = NS at hv"
-      let mut sigFacts : List String := []
-      for ((bn, (pt, ad)), kk) in ports.zipIdx do
-        let nm := "_gen_" ++ bn
-        let lem := match pt with | .bv w => s!"{T2}.sig_of_obs_bv {w}" | .bit => s!"{T2}.sig_of_obs_bit"
-        X := X.push s!"have hsig{kk} := {lem} (({toString (userName ad)}) ins) NS {sq nm} (fun t => by rw [← hNS]; simp (config := \{ maxSteps := 2000000 }) [{T2}.netIn, {K.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {Fj}, Tools.VedU1Contract.PTy.obs])"
-        sigFacts := sigFacts ++ [s!"hsig{kk}"]
-      X := X.push s!"have hx' : x = {sq ii.y} := by\n  have h2 : ({connsLit ii.cs}).lookup {sq outName} = some (Sparkle.IR.AST.Expr.ref {sq ii.y}) := by decide\n  rw [h2] at hx\n  simpa using hx.symm"
-      X := X.push s!"subst hx'"
-      X := X.push s!"rw [hv]"
-      X := X.push s!"simp (config := \{ maxSteps := 2000000 }) [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.applyIns, {K.contract}, Tools.VedU1Contract.contractOf, List.lookup, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {", ".intercalate sigFacts}]"
-      return X.toList
-    let lines : List String := if ii.derived then
-      -- the shared prefix of the plain lines (the instance's output wire) stays; the child's
-      -- theorem is applied through `kid_inst_net`
-      (plainLines.take 3) ++ derivedLines else plainLines
+          X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_inst_net{sfx} {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange hrunF t ht E hE _ hq"
+        -- the signals the child's theorem is applied to are the declaration's arguments
+        X := X.push s!"generalize hNS : {T2}.netIn {K.contract} ({connsLit ii.cs}) ins ({Fj} ins) = NS at hv"
+        let mut sigFacts : List String := []
+        for ((bn, (pt, ad)), kk) in ports.zipIdx do
+          let nm := "_gen_" ++ bn
+          let lem := match pt with | .bv w => s!"{T2}.sig_of_obs_bv {w}" | .bit => s!"{T2}.sig_of_obs_bit"
+          X := X.push s!"have hsig{kk} := {lem} (({toString (userName ad)}) ins) NS {sq nm} (fun t => by rw [← hNS]; simp (config := \{ maxSteps := 2000000 }) [{T2}.netIn, {K.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {Fj}, Tools.VedU1Contract.PTy.obs])"
+          sigFacts := sigFacts ++ [s!"hsig{kk}"]
+        X := X.push s!"have hx' : x = {sq yv} := by\n  have h2 : ({connsLit ii.cs}).lookup {sq outName} = some (Sparkle.IR.AST.Expr.ref {sq yv}) := by decide\n  rw [h2] at hx\n  simpa using hx.symm"
+        X := X.push s!"subst hx'"
+        X := X.push s!"rw [hv]"
+        X := X.push s!"simp (config := \{ maxSteps := 2000000 }) [{bx}Tools.VedU1Contract.srcOf, Tools.VedU1Contract.applyIns, {K.contract}, Tools.VedU1Contract.contractOf, List.lookup, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {", ".intercalate sigFacts}]"
+        return X.toList
+      branches := branches ++ [if ii.derived then
+        -- the shared prefix of the plain lines (the instance's output wire) stays; the child's
+        -- theorem is applied through `kid_inst_net`
+        (plainLines.take 3) ++ derivedLines else plainLines]
+    -- several outputs (option `ved.compose.multiOut`): the wire the fact is asked of is one of them; one branch per output
+    let lines : List String :=
+      match branches with
+      | [one] => one
+      | _ =>
+        let hyo := " ∨ ".intercalate (outsL.map fun (_, yv) => s!"y = {sq yv}")
+        let pat := " | ".intercalate (outsL.map fun _ => "hy'")
+        [s!"have hyo : {hyo} := by\n  have h1 := hO{j}\n  rw [h1] at hy\n  simpa using hy",
+         s!"rcases hyo with {pat}"] ++
+        branches.map fun br => "· " ++ "\n  ".intercalate ((br.drop 1).map fun l => l.replace "\n" "\n  ")
     linesDone := linesDone.push lines
     let mut firstL := true
     for l in lines do
@@ -740,7 +785,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   -- the oracle values are in range (a bit-vector signal's value is below `2 ^ w`)
   for (c, j) in calls.toList.zipIdx do
     let sg := callTxt c
-    match kidOut c.kid with
+    match callOut c with
     | .bv w => L := L.push s!"    have hlo{j} : ({sg}.val t).toNat < 2 ^ {w} := ({sg}.val t).isLt"
     | .bit => L := L.push s!"    have hlo{j} : Bool.toNat ({sg}.val t) < 2 ^ 1 := by cases ({sg}.val t) <;> simp"
   L := L.push s!"    simp (config := \{ maxSteps := 4000000 }) [{P.contract}, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.Contract.dataInputs, {P.mod}, Tools.VedU1Contract.declWidth] at {if di.connect then "hrst" else "hin hrst"}"
@@ -966,6 +1011,10 @@ structure Phase1 where
 def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
     (clkRstOverride : Option (Option (String × String))) : TermElabM Phase1 := do
   let nm := HNames.ofBase decl
+  -- option `ved.compose.multiOut`: the output port names of a child with several output projections are its module's own
+  let mo := ved.compose.multiOut.get (← getOptions)
+  let kON : DeclTable → Sparkle.IR.AST.Module → List String := fun tb cm =>
+    if mo && cm.outputs.length > 1 then cm.outputs.map (·.name) else ["out"]
   let tbl ← try readTableOfType decl (← inferType stmt) catch e => refuse decl "table" e.toMessageData
   unless tbl.out.flat.length == 1 do
     refuse decl "multi-output"
@@ -1069,17 +1118,33 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
     let cdecl := cm.name.toName
     unless (← getEnv).contains cdecl do
       refuse decl "child" m!"child module {cm.name}: no declaration of that name"
-    let (cstmt, cdom) ← try specialiseDomain cdecl
+    let (cstmt0, cdom0) ← try specialiseDomain cdecl
       catch e => refuse decl "child" m!"child {cm.name}: {e.toMessageData}"
-    let ctbl ← try readTableOfType cdecl (← inferType cstmt)
-      catch e => refuse decl "child" m!"child {cm.name}: {e.toMessageData}"
+    -- option `ved.compose.multiOut`: a child whose table is refused (a structure result) is read through the struct entry
+    -- (`Tools.VedU1StructOut.stmtOfStruct`): the statement is the bundled lambda over the ORIGINAL declaration, the output
+    -- ports are the field names; the module of the child is the design's own
+    let (cstmt, cdom, ctbl) ←
+      if ved.compose.multiOut.get (← getOptions) then
+        match ← (try pure (Except.ok (← readTableOfType cdecl (← inferType cstmt0))) catch e => pure (Except.error e)) with
+        | .ok t => pure (cstmt0, cdom0, t)
+        | .error e0 =>
+          try
+            let (b, nd, names) ← Tools.VedU1StructOut.stmtOfStruct cdecl
+            unless cm.outputs.map (·.name) == names do
+              refuse decl "child" m!"child {cm.name}: the module's output ports {cm.outputs.map (·.name)} are not the declaration's projections' ports {names}"
+            pure (b, nd, ← readTableOfType cdecl (← inferType b))
+          catch e =>
+            if ← isRefusal e then refuse decl "child" m!"child {cm.name}: {e0.toMessageData}" else throw e
+      else
+        pure (cstmt0, cdom0, ← try readTableOfType cdecl (← inferType cstmt0)
+          catch e => refuse decl "child" m!"child {cm.name}: {e.toMessageData}")
     pre := pre ++ [(cm, cdecl, cstmt, cdom, ctbl)]
   for s in m.body do
     match s with
     | .inst mn iname cs =>
       let some (cm, _, _, _, ctbl) := pre.find? (fun x => x.1.name == mn)
         | refuse decl "child" m!"instance {iname}: no module {mn}"
-      let ck := contractOf ctbl ["out"] (clkRstOf cm) cm
+      let ck := contractOf ctbl (kON ctbl cm) (clkRstOf cm) cm
       unless connsIn m cm cs && dataIn c m ck cm cs do
         -- H2c: a data port may read a net computed from the parent data inputs only; H2c-state: for a
         -- COMBINATIONAL child (no registers) also from the parent's register outputs
@@ -1093,9 +1158,15 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   for (cm, cdecl, cstmt, cdom, ctbl) in pre do
     let base := (decl ++ `ved_child) ++ cdecl
     Tools.VedU2HierDbg.phaseLog s!"p1: child {cdecl} begin (registers={(regsOf cm.body).length}, body={cm.body.length})"
-    try discard <| (if (regsOf cm.body).isEmpty then Tools.VedH3ChildEntry.checkCombChild cdecl cdom base cstmt cm
+    try discard <| (if ved.compose.multiOut.get (← getOptions) && cm.outputs.length > 1 then
+          checkU1E cdecl base cstmt cm .generated (cm.outputs.map (·.name))
+        else if (regsOf cm.body).isEmpty then Tools.VedH3ChildEntry.checkCombChild cdecl cdom base cstmt cm
         else checkU1E cdecl base cstmt cm (.built (buildDeepWith cdecl cdecl ctbl)))
     catch e => refuse decl "child" m!"child {cm.name}: {e.toMessageData}"
+    -- a child with several outputs: its theorem's function (the bundle lambda) as a constant, the parent's proof applies the
+    -- child theorem to it
+    if ved.compose.multiOut.get (← getOptions) && cm.outputs.length > 1 then
+      addDefn (base ++ `ved_bundle) (← inferType cstmt) cstmt
     Tools.VedU2HierDbg.phaseLog s!"p1: child {cdecl} end"
     kids := kids ++ [{ c := cm, decl := cdecl, nDom := cdom, tbl := ctbl, nm := Names.ofBase base }]
   let t1 ← IO.monoMsNow
@@ -1108,7 +1179,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
     | .inst mn iname cs =>
       match kids.find? (fun k => k.c.name == mn) with
       | some k =>
-        let ck := contractOf k.tbl ["out"] (clkRstOf k.c) k.c
+        let ck := contractOf k.tbl (kON k.tbl k.c) (clkRstOf k.c) k.c
         if (regsOf k.c.body).isEmpty && ck.dataInputs.any (fun p => match cs.lookup p.name with
             | some (.ref x) => netReadsB regLeaves b0 b0.length x
             | _ => false) then some iname else none
@@ -1121,12 +1192,13 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let nInst := (b0.filter fun s => match s with | .inst .. => true | _ => false).length
   -- VED compose connect: a single instance whose output is NOT the declaration's output (it feeds the parent's own registers) is
   -- generated by the instance loop too; the single-call `genOpenSt` slice needs the declaration to BE the child's call
-  let multi := useState && (!(kids.length == 1 && nInst == 1) || Tools.VedComposeConnect.ved.compose.connect.get (← getOptions))
+  let multi := useState && (!(kids.length == 1 && nInst == 1) || Tools.VedComposeConnect.ved.compose.connect.get (← getOptions) ||
+    (mo && kids.any (·.c.outputs.length > 1)))
   Tools.VedU2HierDbg.openTick s!"genOpen dispatch begin multi={multi} kids={kids.length} instances={nInst}"
   let opn ← if multi then
       Tools.VedU2HierMultiGen.genOpenMulti decl stmt nDom tbl kids.toArray nm.mod.getPrefix openSuf
         (pw := Tools.VedCompose.ved.compose.step.get (← getOptions) && (← IO.getEnv "VED_COMPOSE_NOPW").isNone)
-        (chain := connOn)
+        (chain := connOn) (multiOutOn := mo)
     else if useState then
       Tools.VedU2HierStGen.genOpenSt decl stmt nDom tbl kids[0]! nm.mod.getPrefix openSuf
     else genOpen decl stmt nDom tbl kids nm.mod.getPrefix openSuf (allowDerived := true)
@@ -1139,7 +1211,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
     | .inst mn _ cs =>
       match (kids.zipIdx.find? fun (k, _) => k.c.name == mn) with
       | some (k, ki) =>
-        let ck := contractOf k.tbl ["out"] (clkRstOf k.c) k.c
+        let ck := contractOf k.tbl (kON k.tbl k.c) (clkRstOf k.c) k.c
         some (ki, ck.dataInputs.map fun p => match cs.lookup p.name with
           | some (.ref x) =>
             if connOn then
@@ -1155,12 +1227,13 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   Tools.VedU2HierDbg.openTick s!"classKeys end, classes={classKeys.length}"
   let callOfClass (key : Nat × List Sparkle.IR.AST.Expr) : Option Nat :=
     let rank := (classKeys.filter (·.1 == key.1)).idxOf key
-    let calls := (List.range opn.calls.size).filter fun j => opn.calls[j]!.kid == key.1
+    -- (a structure-valued call has one oracle input per field; the first one, `leaf = 0`, stands for the call)
+    let calls := (List.range opn.calls.size).filter fun j => opn.calls[j]!.kid == key.1 && opn.calls[j]!.leaf == 0
     calls[rank]?
   if multi then
     for ki in List.range kids.length do
       let nCls := (classKeys.filter (·.1 == ki)).length
-      let nCalls := (opn.calls.toList.filter (·.kid == ki)).length
+      let nCalls := (opn.calls.toList.filter (fun c => c.kid == ki && c.leaf == 0)).length
       unless nCls == nCalls do
         refuse decl "open" m!"child {kids[ki]!.c.name}: its instances' input nets form {nCls} distinct classes, the declaration's loop body has {nCalls} distinct calls of it (the instances and the calls cannot be paired)"
   Tools.VedU2HierDbg.openTick "pairing check end"
@@ -1180,7 +1253,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
         match cs.lookup ("_gen_" ++ b) with
         | some (.ref x) => if x.startsWith "_gen_" then (x.drop 5).toString else "?"
         | _ => "?"
-      let ck := contractOf k.tbl ["out"] (clkRstOf k.c) k.c
+      let ck := contractOf k.tbl (kON k.tbl k.c) (clkRstOf k.c) k.c
       if useState then
         let chain := ((ck.dataInputs.map fun p => match cs.lookup p.name with
           | some (.ref x) => netChain (dataInsP ++ regLeaves) b0 b0.length x
@@ -1300,7 +1373,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       if (← getEnv).contains n then
         if let some c ← dupTargetOf n then
           dups := dups ++ [(slot, c, deepC opn.openName (ptag ++ s!"_deep_dup_r{slot}"))]
-  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, perm := Tools.VedCompose.permIdx m.body p1.b0, wd := declWidth m, compose := Tools.VedCompose.ved.compose.step.get (← getOptions), connect := Tools.VedComposeConnect.ved.compose.connect.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome, noHoist := (← IO.getEnv "VED_COMPOSE_NOHOIST").isSome, noKernelDecide := (← IO.getEnv "VED_COMPOSE_NODK").isSome, noOkOnce := (← IO.getEnv "VED_COMPOSE_NOOKONCE").isSome, noFastOrder := (← IO.getEnv "VED_COMPOSE_NOFAST").isSome, noFastWidth := (← IO.getEnv "VED_COMPOSE_NOFASTW").isSome, noFastWR := (← IO.getEnv "VED_COMPOSE_NOFASTWR").isSome }
+  let di : DeepInfo := { regWs, nIn := inWs.length, pm, block, nested, dups, openUser := toString (userName opn.openName), b0 := p1.b0, perm := Tools.VedCompose.permIdx m.body p1.b0, wd := declWidth m, multiOut := ved.compose.multiOut.get (← getOptions), compose := Tools.VedCompose.ved.compose.step.get (← getOptions) && !(ved.compose.multiOut.get (← getOptions) && kids.any (·.c.outputs.length > 1)), connect := Tools.VedComposeConnect.ved.compose.connect.get (← getOptions), noShare := (← IO.getEnv "VED_COMPOSE_NOSHARE").isSome, noHoist := (← IO.getEnv "VED_COMPOSE_NOHOIST").isSome, noKernelDecide := (← IO.getEnv "VED_COMPOSE_NODK").isSome, noOkOnce := (← IO.getEnv "VED_COMPOSE_NOOKONCE").isSome, noFastOrder := (← IO.getEnv "VED_COMPOSE_NOFAST").isSome, noFastWidth := (← IO.getEnv "VED_COMPOSE_NOFASTW").isSome, noFastWR := (← IO.getEnv "VED_COMPOSE_NOFASTWR").isSome }
   let kidA := kids.toArray
   let kidsU := kids.map fun k => { k with nm := namesUser k.nm }
   let _ := kidsU
@@ -1312,8 +1385,12 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let callTxt (c : CallInfo) : String :=
     let k := kidA[c.kid]!
     let G := declTerm k.decl k.nDom
-    if c.derived then s!"({G} {" ".intercalate (c.argDefs.map fun n => s!"({userName n} ins)")})"
-    else if c.args.isEmpty then G else s!"({G} {" ".intercalate (c.args.map argTxt)})"
+    let base :=
+      if c.derived then s!"({G} {" ".intercalate (c.argDefs.map fun n => s!"({userName n} ins)")})"
+      else if c.args.isEmpty then G else s!"({G} {" ".intercalate (c.args.map argTxt)})"
+    match c.proj with
+    | some f => s!"({base}.{f})"
+    | none => base
   let sigsAll := " ".intercalate (tbl.binders.map argTxt ++ opn.calls.toList.map callTxt)
   let parseTerm (txt : String) : TermElabM Term := do
     match Lean.Parser.runParserCategory (← getEnv) `term txt "<ved_u2_hier_reg>" with
@@ -1336,7 +1413,7 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
           s!"if n = {sq ("_gen_" ++ bn)} then Tools.VedU1Contract.PTy.obs {ptyTxt pt} (({toString (userName ad)} ins).val t) else {acc}") "0"
         addTermDef (fDefName opn j) (← parseTerm s!"fun (ins : Nat → String → Nat) (t : Nat) (n : String) => {body}")
   catch e => refuse decl "deep" m!"auxiliary definitions: {e.toMessageData}"
-  let expected := mkAppN (Lean.mkConst ``U2HRStmt)
+  let expected := mkAppN (Lean.mkConst (if ved.compose.multiOut.get (← getOptions) then ``U2HRStmtK else ``U2HRStmt))
     #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst nm.design, stmt]
   try check expected catch e => refuse decl "type" e.toMessageData
   unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
