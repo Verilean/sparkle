@@ -143,7 +143,7 @@ set_option ved.compose.nested true in
 
 /-- the accepted theorem, read independently of the entry: the type, the artifact, std3, kernel, the middle module's theorem occurs, the
 leaf's own theorem (`<decl>.ved_child.<leaf>.ved_u1`) occurs -/
-def acceptedL (decl midThm leafThm : Name) : CommandElabM Unit := do
+def acceptedL (decl midThm leafThm : Name) (leafName : String) : CommandElabM Unit := do
   let (m, d) ← synthOf decl
   let (_, nDom) ← liftTermElabM (specialiseDomain decl)
   let nm := HNames.ofBase decl
@@ -163,11 +163,20 @@ def acceptedL (decl midThm leafThm : Name) : CommandElabM Unit := do
     unless used.contains ``Tools.VedU2HierRec.kid_seq_RL || used.contains ``Tools.VedU2HierRec.kid_inst_RL do
       throwError "{nm.thm}: neither kid_seq_RL nor kid_inst_RL occurs"
     discard <| Tools.VedStrictAudit.strictAudit nm.thm
-    logInfo m!"ACCEPTED {decl}: U2HRStmtR type ==, same artifact, std3, kernel, {midThm} and {leafThm} occur, kid_seq_RL used ({used.size} direct constants)"
+    -- the leaf's own theorem is about THE leaf module of the parent's real design (by value), through the module the design resolves
+    let some (.thmInfo tl) := (← getEnv).find? leafThm | throwError "{leafThm} is not a theorem"
+    unless tl.type.getAppFn.isConstOf ``U1Stmt do throwError "{leafThm} is not a U1Stmt"
+    let largs := tl.type.getAppArgs
+    let some lmC := largs[1]? | throwError "{leafThm}: unexpected arity"
+    let some lmI := (← getEnv).find? lmC.constName! | throwError "{lmC} missing"
+    let some lmod := d.modules.find? (·.name == leafName) | throwError "no module {leafName} in the parent's design"
+    unless lmI.value! == toExpr lmod do throwError "{lmC} is not the leaf module of the parent's design (by value)"
+    unless (findMod d leafName).isSome && (findMod d leafName) == some lmod do throwError "findMod d {leafName} is not the leaf module"
+    logInfo m!"ACCEPTED {decl}: U2HRStmtR type ==, same artifact, std3, kernel, {midThm} and {leafThm} occur, kid_seq_RL used ({used.size} direct constants); {leafThm} is a U1Stmt over the leaf module of the real design (by value, findMod agrees)"
 
-#eval acceptedL ``topc `Tests.Ved.RecLeaf.midc.ved_u2r `Tests.Ved.RecLeaf.topc.ved_child.Tests.Ved.RecLeaf.cl.ved_u1
-#eval acceptedL ``topc2 `Tests.Ved.RecLeaf.midc.ved_u2r `Tests.Ved.RecLeaf.topc2.ved_child.Tests.Ved.RecLeaf.cl.ved_u1
-#eval acceptedL ``topls `Tests.Ved.RecLeaf.midq.ved_u2r `Tests.Ved.RecLeaf.topls.ved_child.Tests.Ved.RecLeaf.leafs.ved_u1
+#eval acceptedL ``topc `Tests.Ved.RecLeaf.midc.ved_u2r `Tests.Ved.RecLeaf.topc.ved_child.Tests.Ved.RecLeaf.cl.ved_u1 "Tests.Ved.RecLeaf.cl"
+#eval acceptedL ``topc2 `Tests.Ved.RecLeaf.midc.ved_u2r `Tests.Ved.RecLeaf.topc2.ved_child.Tests.Ved.RecLeaf.cl.ved_u1 "Tests.Ved.RecLeaf.cl"
+#eval acceptedL ``topls `Tests.Ved.RecLeaf.midq.ved_u2r `Tests.Ved.RecLeaf.topls.ved_child.Tests.Ved.RecLeaf.leafs.ved_u1 "Tests.Ved.RecLeaf.leafs"
 
 -- the closed run of the parent's real design (the nested semantics), against a hand-written reference
 #eval show CommandElabM Unit from do
@@ -191,6 +200,28 @@ def acceptedL (decl midThm leafThm : Name) : CommandElabM Unit := do
     let ref := refRun K 0 0
     unless outs == ref do throwError "run {outs} differs from the reference {ref}"
     logInfo m!"RUN topc (leaf next to a struct middle module, runHSR on the real design): out = {outs} = reference {ref}"
+
+-- the sequential-leaf variant: the leaf's OWN state lives at the path `[leafInstance]` of the parent's state (state: acc, r, lr, le)
+#eval show CommandElabM Unit from do
+  let (m, d) ← synthOf ``topls
+  let arr : Sparkle.IR.AST.Module → List Stmt := fun c => orderBodyH d c.body
+  let K := 7
+  let b := [2, 7, 1, 8, 2, 8, 3]
+  let ins : Nat → String → Nat := fun t n => if n == "_gen_b" then b.getD t 0 else 0
+  match runHSR d arr m (seedFwd m K ins) K (st0HR d m) with
+  | none => throwError "the closed run of the sequential-leaf design failed"
+  | some envs =>
+    let outs := envs.map (fun e => e "out")
+    -- midq: lr' = lr + acc, r' = r + lr + b, s = r, d = lr; the direct leaf: le' = le + b, e = le; acc' = acc + (s - d) + e
+    let rec refRun : Nat → Nat → Nat → Nat → Nat → List Nat
+      | 0, _, _, _, _ => []
+      | k + 1, acc, r, lr, le =>
+        let t := K - (k + 1)
+        let y := b.getD t 0
+        acc :: refRun k ((acc + (r + 16 - lr) + le) % 16) ((r + lr + y) % 16) ((lr + acc) % 16) ((le + y) % 16)
+    let ref := refRun K 0 0 0 0
+    unless outs == ref do throwError "run {outs} differs from the reference {ref}"
+    logInfo m!"RUN topls (sequential leaf next to a struct middle module, runHSR on the real design): out = {outs} = reference {ref}"
 
 /-! ## Controls through the entry's checker `checkU2HR` on edited `(m, d)` -/
 
