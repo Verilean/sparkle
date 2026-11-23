@@ -2,6 +2,7 @@ import Tools.VedU2HierDbg
 import Tools.VedH3ChildEntry
 import Tools.VedU2HierClose
 import Tools.VedU2HierEntry
+import Tools.VedU2HierMultiOut
 import Tools.VedU2HierReg
 import Tools.VedU2HierNet
 import Tools.VedU2HierStGen
@@ -981,8 +982,13 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   addDefn nm.mod (Lean.mkConst ``Sparkle.IR.AST.Module) mE
   addDefn nm.design (Lean.mkConst ``Design) dE
   Tools.VedU2HierDbg.phaseLog "p1: artifact evals + defns"
-  if let some msg := hierDiagS d m then refuse decl "hier-shape" msg
-  unless HierShapeS d m do refuse decl "hier-shape" m!"HierShapeS fails"
+  if ved.compose.multiOut.get (← getOptions) then
+    -- option `ved.compose.multiOut`: the shape is `HierShapeK` (children with k >= 1 outputs), the statement `U2HRStmtK`
+    if let some msg := hierDiagK d m then refuse decl "hier-shape" msg
+    unless HierShapeK d m do refuse decl "hier-shape" m!"HierShapeK fails"
+  else
+    if let some msg := hierDiagS d m then refuse decl "hier-shape" msg
+    unless HierShapeS d m do refuse decl "hier-shape" m!"HierShapeS fails"
   let some clkRst0 := parentClkRst tbl m
     | refuse decl "clkrst" m!"the parent has {m.inputs.length - tbl.ins.length} inputs after the declaration's {tbl.ins.length} data inputs (expected none, or exactly clock and reset)"
   let clkRst := clkRstOverride.getD clkRst0

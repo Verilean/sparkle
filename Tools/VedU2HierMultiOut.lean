@@ -1037,4 +1037,76 @@ theorem kid_step_multi (d : Design) (arr : Module → List Stmt) (m : Module)
   subst hee
   rw [hxv]; exact hv
 
+/-! ## Option and refusal diagnosis (entry side) -/
+
+open Lean in
+register_option ved.compose.multiOut : Bool := {
+  defValue := false
+  descr := "VED compose: children with k >= 1 outputs (statement `U2HRStmtK`, shape `HierShapeK`); off = the previous behaviour"
+}
+
+/-- The first reason `connsOkK` fails, as text (the diagnosis of `connDiagS` without the one-output clause,
+plus the two clauses `connsOkK` adds). -/
+def connDiagK (d : Design) (m : Sparkle.IR.AST.Module) (mn iname : String)
+    (cs : List (String × Sparkle.IR.AST.Expr)) : Option String :=
+  match findMod d mn with
+  | none => some s!"instance {iname}: module {mn} is not in the returned design"
+  | some c =>
+    let ports := c.inputs ++ c.outputs
+    if c.isPrimitive then some s!"instance {iname}: child {mn} is a primitive module"
+    else if !c.parameters.isEmpty then some s!"instance {iname}: child {mn} has parameters"
+    else if !c.assertions.isEmpty then some s!"instance {iname}: child {mn} has assertions"
+    else if !leafBody c.body then
+      some s!"instance {iname}: child {mn} is not a leaf (memory or instance in its body: depth 1 only)"
+    else if !childSane c then
+      some s!"instance {iname}: child {mn} is not sane (duplicate input names, an assignment to an input, or a register output that is an input)"
+    else if c.outputs.length < 1 then some s!"instance {iname}: child {mn} has no output"
+    else if !(decide (c.outputs.map (·.name)).Nodup) then
+      some s!"instance {iname}: child {mn} has duplicate output port names"
+    else if !(decide (outRefNames c cs).Nodup) then
+      some s!"instance {iname}: two outputs of {mn} are connected to the same parent wire"
+    else if !(decide (cs.map (·.1)).Nodup) then
+      some s!"instance {iname}: duplicate port connection"
+    else match ports.find? (fun p => !cs.any (fun q => q.1 == p.name)) with
+    | some p => some s!"instance {iname}: port {p.name} of {mn} is not connected"
+    | none =>
+    match cs.find? (fun q => !ports.any (fun p => p.name == q.1)) with
+    | some q => some s!"instance {iname}: connection to {q.1}, which {mn} has no such port"
+    | none =>
+    match cs.find? (fun q => match q.2 with | .ref _ => false | _ => true) with
+    | some q => some s!"instance {iname}: port {q.1} is not connected to a plain wire reference (ref only)"
+    | none =>
+    match cs.find? (fun q => match q.2 with
+      | .ref x => !ports.any (fun p => p.name == q.1 && scalar p.ty &&
+          (declWidth m x == p.ty.bitWidth || isClkRstPort c p.name))
+      | _ => false) with
+    | some q => some s!"instance {iname}: width mismatch on port {q.1} (wire {q.2} against the port)"
+    | none => none
+
+/-- The first reason `HierShapeK` fails, as text. -/
+def hierDiagK (d : Design) (m : Sparkle.IR.AST.Module) : Option String :=
+  if d.topModule != m.name then
+    some s!"the design's top module {d.topModule} is not the returned module {m.name}"
+  else if !(decide (d.modules.map (·.name)).Nodup) then
+    some s!"duplicate child module names in the design: {d.modules.map (·.name)}"
+  else if (d.modules.map (·.name)).contains m.name then
+    some s!"the top module {m.name} is also listed among the design's modules"
+  else match m.body.find? (fun s => !isAsgInstReg s) with
+  | some s => some s!"top statement {s} is not an assignment, a register or an instance (memories at the top are not in H2)"
+  | none =>
+  match (m.body.filterMap fun s => match s with
+      | .inst mn i cs => connDiagK d m mn i cs
+      | _ => none).head? with
+  | some msg => some msg
+  | none =>
+  if !(decide (instNames m.body).Nodup) then some "duplicate instance names"
+  else match d.modules.find? (fun c => !(m.body.any (fun s => match s with
+        | .inst mn _ _ => mn == c.name
+        | _ => false))) with
+  | some c => some s!"module {c.name} of the design is not instantiated by the top module (an unused or unsupported leftover module is refused, never dropped)"
+  | none =>
+  if !clkRstOk d m then
+    some "clock/reset: every register-carrying instance must connect its clock and reset ports to the SAME pair of distinct parent inputs (a constant, a derived signal or another input is refused)"
+  else none
+
 end Tools.VedU2Hier
