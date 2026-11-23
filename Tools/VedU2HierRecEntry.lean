@@ -285,10 +285,11 @@ def transformN (base : String) (nm : HNames) (kids : List Kid) (mids : List MidI
       let dC := midA[ii.kid]!
       let G := declTerm k.decl k.nDom
       let ind := if nI == 1 then "    " else "    · "
+      let ind2 := if nI == 1 then "    " else "      "
       X := X ++ [
         s!"{ind}have hfm : Tools.VedU1Hier.findMod {P.design} {sq ii.mn} = some {k.nm.mod} := by decide",
-        s!"    rw [hfm] at hf; obtain rfl := Option.some.inj hf",
-        s!"    exact {T}.succF_of_theoremR {P.design} arr {P.mod} hS hadm _ hmemN{ii.kid} hnl{ii.kid} {dC} hsub{ii.kid} {k.nm.contract} {G} {k.nm.thm}"]
+        s!"{ind2}rw [hfm] at hf; obtain rfl := Option.some.inj hf",
+        s!"{ind2}exact {T}.succF_of_theoremR {P.design} arr {P.mod} hS hadm _ hmemN{ii.kid} hnl{ii.kid} {dC} hsub{ii.kid} {k.nm.contract} {G} {k.nm.thm}"]
     return X
   ls := replaceBlock ls (·.startsWith "  have hmem0") (·.startsWith "  have hsupp") []
   let some iSupp := (List.range ls.size).find? (fun i => ls[i]!.startsWith "  have hsupp") | return "?"
@@ -315,7 +316,13 @@ def transformN (base : String) (nm : HNames) (kids : List Kid) (mids : List MidI
       ((((l.replace s!"{T2}.st0H " s!"{T}.st0HR ").replace s!"{T2}.runHS_inputs " s!"{T}.runHS_inputsR ").replace
         s!"{T2}.closed_run_asgOf " s!"{T}.closed_run_asgOfR ").replace s!"{T2}.closed_run_reg " s!"{T}.closed_run_regR ").replace
         s!"{T2}.st0H)" s!"{T}.st0HR)"
-  return "\n".intercalate ls.toList
+  let txt := "\n".intercalate ls.toList
+  -- the text transformation must have removed every depth-1 block: a leftover marker makes the script fail (refused at `[proof]`
+  -- with the marker named), it is never silently accepted
+  let markers := ["HierShapeS", "hierS_ne", "hierK_", "HierShapeK", "outputsOnHS_of", "ChildSucc", "hsch", "exists_arrHS", "hmods", "Tools.VedU2Hier.kid_inst ", "kid_inst_multi"]
+  match markers.find? (fun mk => (txt.splitOn mk).length > 1) with
+  | some mk => return txt ++ s!"\n  ved_nested_transform_incomplete_{mk.replace "." "_" |>.replace " " "_"}"
+  | none => return txt
 
 def scriptTextN (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : OpenInfo)
     (mids : List MidInfo) (nl : List NlInfo) (insts : List InstInfo) : String :=

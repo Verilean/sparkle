@@ -74,6 +74,27 @@ def topr1 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec
     acc <~ (accS + c : Signal defaultDomain (BitVec 4))
     return accS
 
+/-- a second middle module over the SAME leaf (the grandchild `leafs` is shared by both middle modules) -/
+@[hardware_module] def midsB (x y : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let r ← Signal.reg 0#4
+    let c := leafs y
+    r <~ r + c + x
+    return r
+
+/-- TWO distinct middle modules (sharing the grandchild) and a register-free parent -/
+def topm (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) := mids a b + midsB b a
+
+/-- the same with a register in the parent -/
+def topmr (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := mids a b
+    let e := midsB b a
+    acc <~ (accS + c + e : Signal defaultDomain (BitVec 4))
+    return accS
+
 /-- DEPTH 3: a middle module over a middle module (one register of its own, one instance of `mids`) -/
 @[hardware_module] def mids2 (x y : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
   circuit do
@@ -117,6 +138,13 @@ set_option ved.compose.nested true in
 set_option ved.compose.nested true in
 #ved_u2_hier topr2
 
+-- TWO distinct middle modules sharing one grandchild
+set_option ved.compose.nested true in
+#ved_u2_hier topm
+
+set_option ved.compose.nested true in
+#ved_u2_hier topmr
+
 /-- the accepted theorem, read independently of the entry -/
 def acceptedN (decl midThm : Name) (hit : Bool) : CommandElabM Unit := do
   let (m, d) ← synthOf decl
@@ -146,6 +174,9 @@ def acceptedN (decl midThm : Name) (hit : Bool) : CommandElabM Unit := do
 
 #eval acceptedN ``tops2 `Tests.Ved.RecEntry.mids2.ved_u1 false
 #eval acceptedN ``topr2 `Tests.Ved.RecEntry.mids2.ved_u1 true
+
+#eval acceptedN ``topm `Tests.Ved.RecEntry.midsB.ved_u2r false
+#eval acceptedN ``topmr `Tests.Ved.RecEntry.midsB.ved_u2r true
 
 def withNested {α : Type} (act : CommandElabM α) : CommandElabM α :=
   withScope (fun sc => { sc with opts := sc.opts.setBool `ved.compose.nested true }) act
@@ -342,6 +373,14 @@ def topq (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 
       pure "ACCEPTED"
     catch e => liftTermElabM (e.toMessageData.toString)
   logInfo m!"PROBE struct middle module under the option: {r.take 500}"
+
+-- the struct middle module as a PARENT of its own entry (multiOut on): the first refusal
+#eval show CommandElabM Unit from do
+  let r ← try
+      discard <| withScope (fun sc => { sc with opts := sc.opts.setBool `ved.compose.multiOut true }) (vedU2HierEntryR ``midq)
+      pure "ACCEPTED"
+    catch e => liftTermElabM (e.toMessageData.toString)
+  logInfo m!"PROBE struct middle module as a parent, multiOut on: {r.take 500}"
 
 end Tests.Ved.RecEntry
 
