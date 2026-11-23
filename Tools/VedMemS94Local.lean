@@ -599,6 +599,8 @@ elab "ved_mem_addr_l" : tactic => withMainContext do
                 replaceMainGoal [← g.replaceTargetEq newTgt (← mkCongrArg motive hm)]
             else
               evalTactic (← `(tactic| rw [hmaddr]))
+            -- the `rw` closes the goal by `rfl` when the two atoms were all there was (small cases; never on the R033 goals)
+            if (← getGoals).isEmpty then return
             progress := true
             Tools.VedMemLoop.dbgT "addr: rewrite ok"
           catch e => Tools.VedMemLoop.dbgT "addr: equality failed"; Tools.VedMemLoop.dbgLog s!"no equality for {← ppExpr a}: {← e.toMessageData.toString}"

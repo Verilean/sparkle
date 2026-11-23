@@ -544,6 +544,9 @@ lean_lib «Tests.Ved.VedMemPackCheck» where
 lean_lib «Tests.Ved.VedMemCloseCheck» where
   roots := #[`Tests.Ved.VedMemCloseCheck]
 
+lean_lib «Tests.Ved.VedMemLocalCheck» where
+  roots := #[`Tests.Ved.VedMemLocalCheck]
+
 lean_lib «Tests.Ved.VedSupplementCheck» where
   roots := #[`Tests.Ved.VedSupplementCheck]
 

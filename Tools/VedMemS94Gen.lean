@@ -183,6 +183,7 @@ the relation "the second tuple is the first" is lost: the register-update goals 
 /-- counters / test seams (CloseCheck) -/
 initialize canonHits : IO.Ref Nat ← IO.mkRef 0
 initialize canonRefuse : IO.Ref Bool ← IO.mkRef false
+initialize canonFailLate : IO.Ref Bool ← IO.mkRef false
 /-- the heartbeat limit (thousands) of one default-transparency comparison of two loops -/
 def canonHbK : Nat := 4000
 
@@ -248,6 +249,7 @@ elab "ved_loop_canon" : tactic => withMainContext do
       let t ← instantiateMVars d.type
       let t' := t.replace f
       if t' != t then g ← g.replaceLocalDeclDefEq d.fvarId t'
+  if (← canonFailLate.get) then throwError "ved_loop_canon: late failure (test seam)"
   canonHits.modify (· + pairs.size)
   dbgLog s!"loop_canon: {pairs.size} loops replaced by an earlier one"
   replaceMainGoal [g]
