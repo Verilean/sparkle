@@ -1109,4 +1109,290 @@ def hierDiagK (d : Design) (m : Sparkle.IR.AST.Module) : Option String :=
     some "clock/reset: every register-carrying instance must connect its clock and reset ports to the SAME pair of distinct parent inputs (a constant, a derived signal or another input is refused)"
   else none
 
+/-! ## Unit 4: sequential (register-carrying) children under a register parent
+
+The three lemmas below are the kernel side of a sequential multi-output child that is fed from the parent's registers: a
+prefix property of `runModule`, the child's causality from its own theorem (`srcOf_prefix`), and the instance step at ONE
+cycle `t0` that asks the wire/stream agreement at the cycles `s ≤ t0` only (`kid_seq_multi`, the sequential counterpart of
+`kid_step_multi`, which needs a body of assignments). -/
+
+/-- The first `k` cycles of a successful `k + n`-cycle run are the `k`-cycle run under the shifted seed. -/
+theorem runModule_prefix (we : WEnv) (body : List Stmt) (seed : Nat → (String → Nat) → Env) :
+    ∀ (k n : Nat) (st : String → Nat) (mems : MEnv) (L : List Env),
+      runModule we body seed (k + n) st mems = some L →
+      ∃ L', runModule we body (fun j => seed (j + n)) k st mems = some L' ∧ L' = L.take k := by
+  intro k
+  induction k with
+  | zero => intro n st mems L _; exact ⟨[], rfl, by simp⟩
+  | succ k ih =>
+    intro n st mems L h
+    have e : k + 1 + n = (k + n) + 1 := by omega
+    rw [e] at h
+    simp only [runModule, Option.bind_eq_bind] at h
+    cases hs : stepModule we body (seed (k + n) st) mems with
+    | none => rw [hs] at h; simp at h
+    | some trip =>
+      obtain ⟨envF, nexts, mems'⟩ := trip
+      rw [hs] at h
+      simp only [Option.bind_some] at h
+      cases hr : runModule we body seed (k + n) (applyNexts st nexts) mems' with
+      | none => rw [hr] at h; simp at h
+      | some rest =>
+        rw [hr] at h
+        simp only [Option.bind_some, Option.some.injEq] at h
+        obtain ⟨L', hL', hLe⟩ := ih n (applyNexts st nexts) mems' rest hr
+        refine ⟨envF :: L', ?_, ?_⟩
+        · simp only [runModule, Option.bind_eq_bind]
+          rw [hs]
+          simp only [Option.bind_some]
+          rw [hL']
+          rfl
+        · rw [← h, hLe]
+          simp
+
+/-- CAUSALITY OF A CHILD FROM ITS OWN THEOREM: the output of a `U1Stmt` module at cycle `t` depends on its input stream
+at the cycles `≤ t` only. -/
+theorem srcOf_prefix {ck : Contract} {c : Module} {g : ck.table.Ty} (hU : U1Stmt ck c g)
+    (I1 I2 : Nat → String → Nat) (hok1 : InputsOk ck c I1) (hok2 : InputsOk ck c I2) (t : Nat)
+    (h : ∀ t' ≤ t, ∀ n, I1 t' n = I2 t' n) :
+    ∀ q ∈ ck.outputs, srcOf ck g I1 q.name t = srcOf ck g I2 q.name t := by
+  obtain ⟨_, _, _, ⟨b, hb⟩, hout⟩ := hU
+  have hb' := hb
+  simp only [OrderOk, Bool.and_eq_true, decide_eq_true_eq] at hb'
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨hp, hwo⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := hb'
+  have hperm : b.Perm c.body := isPermOf_sound hp
+  have hwo' := woCheck_sound _ _ hwo
+  obtain ⟨e1, r1, a1⟩ := hout b hperm hwo' I1 hok1 (t + 1)
+  obtain ⟨e2, r2, a2⟩ := hout b hperm hwo' I2 hok2 (t + 1)
+  have hseed : ∀ j, j < t + 1 → seedFwd c (t + 1) I1 j = seedFwd c (t + 1) I2 j := by
+    intro j hj
+    funext st n
+    simp only [seedFwd]
+    split
+    · exact h (t + 1 - 1 - j) (by omega) n
+    · rfl
+  rw [runModule_congr_seed _ _ _ _ (t + 1) hseed] at r1
+  have he : e1 = e2 := Option.some.inj (r1.symm.trans r2)
+  subst he
+  intro q hq
+  obtain ⟨env1, h1, v1⟩ := a1 t (by omega) q hq
+  obtain ⟨env2, h2, v2⟩ := a2 t (by omega) q hq
+  have : env1 = env2 := Option.some.inj (h1.symm.trans h2)
+  subst this
+  rw [← v1, ← v2]
+
+/-- `kid_inst_net_multi` at ONE cycle `t0` for a SEQUENTIAL child: the stream `F` need only agree with the parent's wires at the
+cycles `s ≤ t0` (`hrunF`), `F` itself being a total stream in range.  The child's run is cut at `t0 + 1` cycles
+(`runModule_prefix`) and the child's theorem is applied to `netIn ck cs ins F` at `K0 = t0 + 1`. -/
+theorem kid_seq_multi (d : Design) (arr : Module → List Stmt) (m : Module)
+    (hS : HierShapeK d m = true) (hA : AdmArr d m arr)
+    (hwr : ∀ n ∈ wrsH d (arr m), n ∉ inNames m)
+    (cc : Contract) (htie : cc.clkRst = designClkRst d m)
+    (ins : Nat → String → Nat) (hok : InputsOk cc m ins) (K : Nat) (envs : List Env)
+    (sts : List HSt)
+    (hrun : runHSTrace d arr m (seedFwd m K ins) K (st0H d m) = some (envs, sts))
+    (mn i : String) (cs : List (String × Expr)) (hin : Stmt.inst mn i cs ∈ m.body)
+    (c : Module) (hf : findMod d mn = some c)
+    (ck : Contract) (g : ck.table.Ty) (hU : U1Stmt ck c g)
+    (hclkc : ck.clkRst = regClkRst c.body)
+    (hconn : ∀ p ∈ c.inputs, ∃ x, cs.lookup p.name = some (Expr.ref x) ∧
+      (ck.dataInputs.any (·.name == p.name) = true ∨ x ∈ inNames m))
+    (hrstnd : ∀ kr, ck.clkRst = some kr → ck.dataInputs.any (·.name == kr.2) = false)
+    (F : Nat → String → Nat)
+    (hrange : ∀ t, ∀ p ∈ ck.dataInputs, F t p.name < 2 ^ declWidth c p.name)
+    (t0 : Nat) (ht0 : t0 < K)
+    (hrunF : ∀ s, s ≤ t0 → ∀ E, envs[s]? = some E → ∀ p ∈ ck.dataInputs,
+      ∃ x, cs.lookup p.name = some (Expr.ref x) ∧ E x = F s p.name) :
+    ∀ E, envs[t0]? = some E → ∀ q ∈ c.outputs,
+      ∃ x, cs.lookup q.name = some (Expr.ref x) ∧
+        E x = srcOf ck g (netIn ck cs ins F) q.name t0 := by
+  obtain ⟨c', cenvs, cstates, hf', hrunM, hrunR, hcorr⟩ :=
+    runHS_proj_multi d arr m hS hA ins K envs sts hrun mn i cs hin
+  have hcc : c = c' := by rw [hf] at hf'; exact Option.some.inj hf'
+  subst hcc
+  obtain ⟨_, ⟨hcore, _⟩, _, _, hout⟩ := hU
+  have hperm := hA.2.2 c (findMod_mem hf)
+  have hinits : (regsOf c.body).map (fun r => (r.1, r.2.2.2)) = ck.inits := hcore.2.2.2.2.2.2.2.1
+  have hst0 : st0Of c = st0 ck c := st0Of_eq_st0 ck c hinits
+  -- the child stream is in range
+  have hok' : InputsOk ck c (netIn ck cs ins F) := by
+    refine ⟨?_, ?_⟩
+    · intro t p hp
+      have hd : ck.dataInputs.any (·.name == p.name) = true :=
+        List.any_eq_true.mpr ⟨p, hp, by simp⟩
+      have h1 : netIn ck cs ins F t p.name = F t p.name := by simp [netIn, hd]
+      rw [h1]
+      exact hrange t p hp
+    · intro t kr hkr
+      rw [hclkc] at hkr
+      have hreg : regsOf c.body ≠ [] := by
+        intro h0; simp [regClkRst, h0] at hkr
+      obtain ⟨x, y, kc, kr', hrc, h1, h2, hcl, hx, hy, hne, hkc, hkr2⟩ :=
+        instPair_tie d m (hierK_clk hS) mn i cs c hin hf hreg cc htie
+      have hkk : (kc, kr') = kr := Option.some.inj (hrc.symm.trans hkr)
+      subst hkk
+      have hnd := hrstnd (kc, kr') (hclkc.trans hrc)
+      have : netIn ck cs ins F t kr' = ins t y := by simp [netIn, hnd, insCIn, h2]
+      show netIn ck cs ins F t kr' = 0
+      rw [this]
+      exact hok.2 t (x, y) hcl
+  -- the seeds agree at every cycle `s ≤ t0`
+  have hpre : ∀ s, s ≤ t0 → ∀ E, envs[s]? = some E → ∀ n ∈ inNames c,
+      netIn ck cs ins F s n = insCOf (declWidth m) cs envs s n := by
+    intro s hs E hE n hn
+    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hn
+    obtain ⟨x, hl, hx⟩ := hconn p hp
+    by_cases hd : ck.dataInputs.any (·.name == p.name) = true
+    · obtain ⟨p', hp', hpn⟩ := List.any_eq_true.mp hd
+      have hpn' : p'.name = p.name := by simpa using hpn
+      obtain ⟨x', hl', hEx'⟩ := hrunF s hs E hE p' hp'
+      rw [hpn'] at hl' hEx'
+      have hxx : x' = x := by
+        rw [hl] at hl'; exact (Expr.ref.inj (Option.some.inj hl')).symm
+      subst hxx
+      have h1 : netIn ck cs ins F s p.name = F s p.name := by simp [netIn, hd]
+      rw [h1, ← hEx']
+      simp [insCOf, hl, hE, evalExpr]
+    · have hxin : x ∈ inNames m := hx.resolve_left hd
+      have hEx := runHS_inputs d arr m hA hwr ins K K (Nat.le_refl K) _ envs sts hrun s (by omega) E hE x hxin
+      have hd' : ck.dataInputs.any (·.name == p.name) = false := by simpa using hd
+      simp [netIn, hd', insCIn, insCOf, hl, hE, evalExpr, hEx]
+  have hseed : ∀ j, j < t0 + 1 → seedFwd c (t0 + 1) (insCOf (declWidth m) cs envs) j =
+      seedFwd c (t0 + 1) (netIn ck cs ins F) j := by
+    intro j hj
+    funext st n
+    simp only [seedFwd]
+    by_cases hn : (c.inputs.map (·.name)).contains n = true
+    · rw [if_pos hn, if_pos hn]
+      obtain ⟨E, Ec, S, Sc, hE, _⟩ := hcorr (t0 + 1 - 1 - j) (by omega)
+      exact (hpre _ (by omega) E hE n (List.contains_iff_mem.mp hn)).symm
+    · rw [if_neg hn, if_neg hn]
+  -- the child's run, cut at `t0 + 1` cycles
+  obtain ⟨L', hL', hLe⟩ := runModule_prefix (declWidth c) (arr c)
+    (seedFwd c K (insCOf (declWidth m) cs envs)) (t0 + 1) (K - (t0 + 1)) (st0Of c) (fun _ _ => 0) cenvs
+    (by rw [show t0 + 1 + (K - (t0 + 1)) = K by omega]; exact hrunR)
+  have hshift : ∀ j, j < t0 + 1 →
+      (fun j => seedFwd c K (insCOf (declWidth m) cs envs) (j + (K - (t0 + 1)))) j =
+        seedFwd c (t0 + 1) (insCOf (declWidth m) cs envs) j := by
+    intro j hj
+    funext st n
+    simp only [seedFwd]
+    have : K - 1 - (j + (K - (t0 + 1))) = t0 + 1 - 1 - j := by omega
+    rw [this]
+  rw [runModule_congr_seed _ _ _ _ (t0 + 1) hshift, runModule_congr_seed _ _ _ _ (t0 + 1) hseed] at hL'
+  obtain ⟨envs', hrun', hall⟩ := hout (arr c) hperm.1 hperm.2 (netIn ck cs ins F) hok' (t0 + 1)
+  rw [hst0] at hL'
+  have hce : envs' = L' := Option.some.inj (hrun'.symm.trans hL')
+  intro E hE q hq
+  obtain ⟨E0, Ec, S, Sc, hE0, hEc, _, _, hproj⟩ := hcorr t0 ht0
+  have hEE : E = E0 := Option.some.inj (hE.symm.trans hE0)
+  subst hEE
+  obtain ⟨x, hl, hxv⟩ := hproj.2.1 q hq
+  refine ⟨x, hl, ?_⟩
+  have hqk : q ∈ ck.outputs := by rw [← hcore.2.2.2.2.2.1]; exact hq
+  obtain ⟨env, he, hv⟩ := hall t0 (by omega) q hqk
+  rw [hce, hLe, List.getElem?_take_of_lt (by omega), hEc] at he
+  have hee : env = Ec := (Option.some.inj he).symm
+  subst hee
+  rw [hxv]; exact hv
+
+/-- `outputsOnHS_of_stepRK_multi` for a design with a SEQUENTIAL child: `hkid` at cycle `t` also receives the invariant `R` at every
+earlier cycle `s ≤ t` (the chain induction already has it; the combinational statement only needed cycle `t`).  Same
+conclusion; the proof is the copy with the invariant of `chain` strengthened to the history. -/
+theorem outputsOnHS_of_stepRKH_multi (c : Contract) (m : Module) (d : Design)
+    (arr : Module → List Stmt) (f : c.table.Ty)
+    (hS : HierShapeK d m = true) (hA : AdmArr d m arr)
+    (hsupp : ExprsSupp m (arr m)) (hch : ∀ x ∈ d.modules, ChildSucc x (arr x))
+    (b0 : List Stmt) (hp : (arr m).Perm b0) (hw0 : WOH d b0) (hnd : (regOuts b0).Nodup)
+    (hai0 : ∀ s ∈ b0, isAsgInstReg s = true)
+    (Ow : (Nat → String → Nat) → String → Nat → Nat)
+    (R : (Nat → String → Nat) → Nat → (String → Nat) → Prop)
+    (h0 : ∀ ins, InputsOk c m ins → R ins 0 (st0Of m))
+    (hkid : ∀ ins, InputsOk c m ins → ∀ K envs sts,
+      runHSTrace d arr m (seedFwd m K ins) K (st0H d m) = some (envs, sts) →
+      ∀ t, t < K → ∀ S E, sts[t]? = some S → envs[t]? = some E → R ins t (S []) →
+        (∀ s, s ≤ t → ∀ S' E', sts[s]? = some S' → envs[s]? = some E' → R ins s (S' [])) →
+        ∀ mn i cs, Stmt.inst mn i cs ∈ m.body → ∀ y ∈ instOuts d mn cs, E y = Ow ins y t)
+    (hstep : ∀ ins, InputsOk c m ins → ∀ t p, R ins t p →
+      ∃ E nx, evalAssignsI (declWidth m) (oracleIE d (fun y => Ow ins y t)) b0
+          (seedIn m ins t (restrictTo (regOuts b0) p)) = some E ∧
+        regNexts (declWidth m) (fun _ _ => 0) b0 E = some nx ∧
+        (∀ o ∈ c.outputs, E o.name = srcOf c f ins o.name t) ∧
+        R ins (t + 1) (applyNexts p nx)) :
+    OutputsOnHS c m d arr f := by
+  intro ins hok K
+  obtain ⟨envs, sts, hrun⟩ := runHS_exists_multi d arr m hS hA hsupp hch (seedFwd m K ins) K (st0H d m)
+  refine ⟨envs, ?_, ?_⟩
+  · have := runHSTrace_fst d arr m (seedFwd m K ins) K (st0H d m)
+    rw [hrun] at this
+    simp at this
+    exact this.symm
+  -- one cycle: the closed run's cycle is the open fold, so `hstep` applies
+  have cyc : ∀ t, t < K → ∀ S E, sts[t]? = some S → envs[t]? = some E → R ins t (S []) →
+      (∀ s, s ≤ t → ∀ S' E', sts[s]? = some S' → envs[s]? = some E' → R ins s (S' [])) →
+      (∀ o ∈ c.outputs, E o.name = srcOf c f ins o.name t) ∧
+      ∀ nx, regNexts (declWidth m) (fun _ _ => 0) (arr m) E = some nx →
+        R ins (t + 1) (applyNexts (S []) nx) := by
+    intro t ht S E hS' hE' hR hh
+    obtain ⟨E', S', hE2, hS2, hfold⟩ := runHSTrace_cycle d arr m (seedFwd m K ins) K (st0H d m)
+      envs sts hrun t ht
+    rw [hE'] at hE2; rw [hS'] at hS2
+    cases hE2; cases hS2
+    have hseed : seedFwd m K ins (K - 1 - t) (restrictTo (regOuts (arr m)) (S []))
+        = seedIn m ins t (restrictTo (regOuts b0) (S [])) := by
+      rw [restrictTo_perm hp]
+      exact seedFwd_time m K ins ht _
+    rw [hseed] at hfold
+    have hfold0 := evalAssignsI_perm d _ _ (instEvalS_laws d arr S (declWidth m)) hp hA.2.1 hw0 hfold
+    have hmem : ∀ s, s ∈ b0 → s ∈ m.body := fun s hs => hA.1.mem_iff.mp (hp.mem_iff.mpr hs)
+    have hor := fold_oracle d _ _ (instEvalS_laws d arr S (declWidth m)) (fun y => Ow ins y t) b0 _ E
+      hw0 hfold0 (fun mn i cs hin y hy => hkid ins hok K envs sts hrun t ht S E hS' hE' hR hh mn i cs (hmem _ hin) y hy)
+    obtain ⟨E1, nx1, hE1, hn1, hout, hR'⟩ := hstep ins hok t (S []) hR
+    rw [hE1] at hor
+    cases hor
+    refine ⟨hout, ?_⟩
+    intro nx hnx
+    have hperm : nx.Perm nx1 := by
+      have := regNexts_perm (declWidth m) (fun _ _ => 0) E hp
+      rw [hnx, hn1] at this
+      simpa [OPerm] using this
+    have hkeys : (nx1.map Prod.fst).Nodup := by
+      rw [regNexts_keys _ _ _ b0 nx1 hn1, nextKeys_eq_regOuts b0 hai0]; exact hnd
+    have heq : applyNexts (S []) nx = applyNexts (S []) nx1 :=
+      applyNexts_perm hperm ((hperm.map Prod.fst).nodup_iff.mpr hkeys) _
+    rw [heq]; exact hR'
+  -- the invariant along the trace, with its history
+  have histOf : ∀ t, (∀ s, s ≤ t → ∃ S, sts[s]? = some S ∧ R ins s (S [])) →
+      (∀ s, s ≤ t → ∀ S' E', sts[s]? = some S' → envs[s]? = some E' → R ins s (S' [])) := by
+    intro t h s hs S' E' hS' _
+    obtain ⟨S, hS, hR⟩ := h s hs
+    rw [hS'] at hS; cases hS; exact hR
+  have chain : ∀ t, t < K → ∀ s, s ≤ t → ∃ S, sts[s]? = some S ∧ R ins s (S []) := by
+    intro t
+    induction t with
+    | zero =>
+      intro ht s hs
+      have hs0 : s = 0 := by omega
+      subst hs0
+      obtain ⟨hs0, _⟩ := runHSTrace_next d arr m (seedFwd m K ins) K (st0H d m) envs sts hrun
+      exact ⟨st0H d m, hs0 ht, h0 ins hok⟩
+    | succ t ih =>
+      intro ht s hs
+      by_cases hle : s ≤ t
+      · exact ih (by omega) s hle
+      · have hst : s = t + 1 := by omega
+        subst hst
+        obtain ⟨S, hS', hR⟩ := ih (by omega) t (Nat.le_refl t)
+        obtain ⟨_, hnx⟩ := runHSTrace_next d arr m (seedFwd m K ins) K (st0H d m) envs sts hrun
+        obtain ⟨E, S2, S3, nx, hE2, hS2, hS3, hnx2, hS3r⟩ := hnx t ht
+        rw [hS'] at hS2; cases hS2
+        refine ⟨S3, hS3, ?_⟩
+        rw [hS3r]
+        exact (cyc t (by omega) S E hS' hE2 hR (histOf t (ih (by omega)))).2 nx hnx2
+  intro t ht o ho
+  obtain ⟨S, hS', hR⟩ := chain t ht t (Nat.le_refl t)
+  obtain ⟨E, S2, hE2, hS2, _⟩ := runHSTrace_cycle d arr m (seedFwd m K ins) K (st0H d m) envs sts hrun t ht
+  rw [hS'] at hS2; cases hS2
+  exact ⟨E, hE2, (cyc t ht S E hS' hE2 hR (histOf t (chain t ht))).1 o ho⟩
+
 end Tools.VedU2Hier
