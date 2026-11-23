@@ -171,4 +171,69 @@ elab "ved_loop_gen_resid " s:ident : tactic => withMainContext do
     genResidClean.modify (· + 1)
     dbgLog s!"gen_resid: {replaced} replacements, no loop value left"
 
+/-! ## Two spellings of one loop (`ved_loop_canon`, option `ved.mem.s94Local`)
+
+Observed (s94r, `#ved_s95_loops` on the stage-95 checkpoint goal of R033): the goal has 8 distinct loop values `(loop).val s`, and 4 PAIRS of them are one loop
+(`isDefEq` at reducible transparency for 3 pairs, at default transparency for the 4th); the second spelling occurs only in the target (the declared state) and in the
+memory write ports, the hypotheses (wire facts) only mention the first.  `ved_loop_gen_once` / `ved_loop_gen_mem` generalise each spelling to its own state tuple, so
+the relation "the second tuple is the first" is lost: the register-update goals then mention fields (s94r goal 0: `ck277 ck276 ck275`) that no hypothesis mentions.
+`ved_loop_canon` replaces every loop (target and hypotheses) that is `isDefEq` to an earlier loop of the same state type by that loop (`replaceTargetDefEq` /
+`replaceLocalDeclDefEq`, the replacement by `Expr.replace` with its pointer cache), before the generalisation. -/
+
+/-- counters / test seams (CloseCheck) -/
+initialize canonHits : IO.Ref Nat ← IO.mkRef 0
+initialize canonRefuse : IO.Ref Bool ← IO.mkRef false
+/-- the heartbeat limit (thousands) of one default-transparency comparison of two loops -/
+def canonHbK : Nat := 4000
+
+/-- the pairs (loop, earlier loop it is `isDefEq` to) among `loops`; the comparison is only made between loops of the same (reducibly defeq) state type -/
+def loopCanonPairs (loops : Array Expr) : MetaM (Array (Expr × Expr)) := do
+  let mut reps : Array Expr := #[]
+  let mut out : Array (Expr × Expr) := #[]
+  for l in loops do
+    let mut found := false
+    for r in reps do
+      if found then break
+      let some a := l.getAppArgs[1]? | continue
+      let some b := r.getAppArgs[1]? | continue
+      unless a == b || (← withReducible (isDefEq a b)) do continue
+      if l == r then continue
+      let same ← do
+        if ← withReducible (isDefEq l r) then pure true
+        else
+          let st ← saveState
+          let hb0 ← IO.getNumHeartbeats
+          let ok ← tryCatchRuntimeEx
+            (withTheReader Core.Context (fun c => { c with maxHeartbeats := canonHbK * 1000, initHeartbeats := hb0 }) (isDefEq l r))
+            (fun _ => pure false)
+          unless ok do st.restore
+          pure ok
+      if same then
+        out := out.push (l, r)
+        found := true
+    unless found do reps := reps.push l
+  return out
+
+/-- `ved_loop_canon`: see the section comment.  Fails (so that `try` leaves the goal) when no loop is replaced. -/
+elab "ved_loop_canon" : tactic => withMainContext do
+  if (← canonRefuse.get) then throwError "ved_loop_canon: refused (test seam)"
+  let g0 ← getMainGoal
+  let loops ← goalLoops g0
+  let pairs ← loopCanonPairs loops
+  if pairs.isEmpty then throwError "ved_loop_canon: no two loops are the same loop"
+  let map : Std.HashMap Expr Expr := pairs.foldl (fun m (l, r) => m.insert l r) {}
+  let f := fun (e : Expr) => if e.isAppOfArity ``Signal.loop 4 then map[e]? else none
+  let mut g := g0
+  let tgt ← instantiateMVars (← g.getType)
+  let tgt' := tgt.replace f
+  if tgt' != tgt then g ← g.replaceTargetDefEq tgt'
+  for d in ← g0.withContext getLCtx do
+    unless d.isImplementationDetail do
+      let t ← instantiateMVars d.type
+      let t' := t.replace f
+      if t' != t then g ← g.replaceLocalDeclDefEq d.fvarId t'
+  canonHits.modify (· + pairs.size)
+  dbgLog s!"loop_canon: {pairs.size} loops replaced by an earlier one"
+  replaceMainGoal [g]
+
 end Tools.VedMemS94Gen

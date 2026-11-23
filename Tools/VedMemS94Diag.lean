@@ -1338,8 +1338,10 @@ elab "#ved_s95_replay " d:str : command => do
       peelAlt ← `(tactic| first | (ved_mem_peel_dag $[$hs]*) | ($peelAlt:tactic))
     let once := mode == "once" || mode == "once2"
     -- `once2`: the stage-99 simp (`memoryComboRead_val`, which creates new loop values) runs on the shared goal before the generalisation
+    -- s94r: `VED_S95_CANON=1`: `ved_loop_canon` (the two spellings of one loop are one) before the generalisation
+    let canonT ← if (← IO.getEnv "VED_S95_CANON") == some "1" then `(tactic| try ved_loop_canon) else `(tactic| skip)
     let genOnceT ← if mode == "once2" then `(tactic| first | ((try (ved_loop_simp [$r99,*])); ved_loop_gen_once $sId) | skip)
-      else if once then `(tactic| first | ved_loop_gen_once $sId | skip) else `(tactic| skip)
+      else if once then `(tactic| (($canonT:tactic); first | ved_loop_gen_once $sId | skip)) else `(tactic| ($canonT:tactic))
     let genLastT ← if once then `(tactic| ved_loop_gen_resid $sId) else `(tactic| ved_loop_gen_mem $sId)
     let steps : List (Nat × String × TSyntax `tactic) := [
       (95, "gen_once", genOnceT),
@@ -1657,5 +1659,79 @@ elab "#ved_t3_replay " d:str : command => do
         let ctxN ← match cur.head? with | some q => q.withContext do return (← getLCtx).decls.size | none => pure 0
         lg s!"T3 goal {i} step {name}: {r} ms={(← IO.monoMsNow) - t1} hb(k)={((← IO.getNumHeartbeats) - hb1) / 1000} goals={cur.length} tree={tr} ctx={ctxN}"
         if cur.isEmpty then break
+
+open Lean Meta Elab Command Term Tools.VedU1WireShare in
+/-- diagnosis (s94r): the loop values `(loop).val s` of the stage-95 checkpoint goal (`ved_ckpt95_goal0`): per distinct loop value the number of target / hypothesis
+occurrences, and for each pair whether the two loops are syntactically equal, `isDefEq` at reducible / default transparency (heartbeats bounded by `VED_LOOPS_HB`
+thousand) -- the question: are two of the generalised state tuples (s94r goal 0: `ck88..` and `ck265..`, the same field types) two spellings of ONE loop? -/
+elab "#ved_s95_loops " d:str : command => do
+  let dir := d.getString
+  let rows := ((← IO.FS.readFile (dir ++ "/ckpt95.txt")).splitOn "\n").filter (· ≠ "") |>.map (·.splitOn "\t")
+  let mut sp := 0
+  let mut tab : Option (Name × Std.HashMap String Nat) := none
+  for r in rows do
+    match r with
+    | ["sp", _, i] => sp := i.toNat!
+    | "tab" :: cs => tab := some (compsName cs, {})
+    | ["w", k, v] => tab := tab.map fun (n, t) => (n, t.insert k v.toNat!)
+    | _ => pure ()
+  let lg : String → IO Unit := fun msg => do
+    if let some f ← IO.getEnv "VED_S95_LOG" then
+      let h ← IO.FS.Handle.mk f .append
+      h.putStrLn msg
+    else dbgLog msg
+  let hbK := ((← IO.getEnv "VED_LOOPS_HB").bind String.toNat?).getD 2000
+  liftTermElabM do
+    let ci ← getConstInfo `ved_ckpt95_goal0
+    let seen ← IO.mkRef (({} : Std.HashSet Name))
+    for c in (Tools.VedU1WireShare.collectDag (fun x => x.isConst) ci.type).map (·.constName!) do ckptRealize seen c 6
+    let mut g := (← mkFreshExprMVar ci.type).mvarId!
+    let mut k := 0
+    repeat
+      unless (← g.getType).isForall || (← g.getType).isLet do break
+      let (_, g') ← g.intro (Name.mkSimple s!"ck{k}")
+      g := g'; k := k + 1
+    Tools.VedMemLoop.declWidthTab.set tab
+    let sId := mkIdent (Name.mkSimple s!"ck{sp}")
+    let sE ← g.withContext do elabTerm sId none
+    let isV := fun (e : Expr) => e.isAppOfArity ``Sparkle.Core.Signal.Signal.val 4 && (e.getArg! 2).isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 && e.getArg! 3 == sE
+    g.withContext do
+      let tgt ← instantiateMVars (← g.getType)
+      let mut vals : Array Expr := #[]
+      let mut cntT : Array Nat := #[]
+      let mut cntH : Array Nat := #[]
+      let add (e : Expr) (inT : Bool) (vals : Array Expr) (cntT cntH : Array Nat) : Array Expr × Array Nat × Array Nat := Id.run do
+        let mut vals := vals; let mut cntT := cntT; let mut cntH := cntH
+        for x in collectDag isV e do
+          match vals.findIdx? (· == x) with
+          | some i => if inT then cntT := cntT.modify i (· + 1) else cntH := cntH.modify i (· + 1)
+          | none => vals := vals.push x; cntT := cntT.push (if inT then 1 else 0); cntH := cntH.push (if inT then 0 else 1)
+        return (vals, cntT, cntH)
+      (vals, cntT, cntH) := add tgt true vals cntT cntH
+      for d in ← getLCtx do
+        unless d.isImplementationDetail do
+          (vals, cntT, cntH) := add (← instantiateMVars d.type) false vals cntT cntH
+      lg s!"S95 loops: ctx={k} distinct loop values={vals.size} s={k}"
+      for i in [0:vals.size] do
+        let lp := vals[i]!.getArg! 2
+        lg s!"S95 loop {i}: tree={Tools.VedU1Loop.treeSizeVal lp} dag={(collectDag (fun _ => true) lp).size} target-occ={cntT[i]!} hyp-occ={cntH[i]!} stateType={((← ppExpr (lp.getArg! 1)).pretty.replace "\n" " ").take 90}"
+      for i in [0:vals.size] do
+        for j in [i+1:vals.size] do
+          let a := vals[i]!.getArg! 2
+          let b := vals[j]!.getArg! 2
+          let ta ← inferType a
+          let tb ← inferType b
+          let sameTy ← withReducible (isDefEq ta tb)
+          let t1 ← IO.monoMsNow
+          let hb1 ← IO.getNumHeartbeats
+          let res ← tryCatchRuntimeEx
+            (withTheReader Core.Context (fun c => { c with maxHeartbeats := hbK * 1000, initHeartbeats := hb1 }) do
+              let r1 ← withReducible (isDefEq a b)
+              if r1 then pure "defEq(reducible)" else
+              let r2 ← isDefEq a b
+              pure (if r2 then "defEq(default)" else "not defeq"))
+            (fun _ => pure "timeout")
+          lg s!"S95 pair {i},{j}: sameStateType={sameTy} {res} ms={(← IO.monoMsNow) - t1} hb(k)={((← IO.getNumHeartbeats) - hb1) / 1000}"
+
 
 end Tools.VedMemS94Diag
