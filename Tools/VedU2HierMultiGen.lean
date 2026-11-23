@@ -265,9 +265,13 @@ def mkPointwise (gName pwName : Name) (fn fnTy : Lean.Expr) : TermElabM Bool := 
         return true
       catch _ => return false
 
-/-- Closed subterms of `e` (not under a bound variable of `e`) that reduce to a `runCircuitH`: `(subterm, run, projection wrapper)`. -/
-partial def innerRuns (skip : Array Name) (e : Lean.Expr) (acc : Array (Lean.Expr × Lean.Expr × (Lean.Expr → Lean.Expr))) :
+/-- Closed subterms of `e` (not under a bound variable of `e`) that reduce to a `runCircuitH`: `(subterm, run, projection wrapper)`.
+The result of a subterm is remembered (`memo`): a fused body is a DAG whose tree is exponentially large (connect17); the order and
+the multiplicity of the result are those of the plain traversal. -/
+partial def innerRunsM (skip : Array Name) (memo : IO.Ref (Std.HashMap Lean.Expr (Array (Lean.Expr × Lean.Expr × (Lean.Expr → Lean.Expr)))))
+    (e : Lean.Expr) (acc : Array (Lean.Expr × Lean.Expr × (Lean.Expr → Lean.Expr))) :
     MetaM (Array (Lean.Expr × Lean.Expr × (Lean.Expr → Lean.Expr))) := do
+  if let some r := (← memo.get)[e]? then return acc ++ r
   let env ← getEnv
   let here : MetaM (Option (Lean.Expr × Lean.Expr × (Lean.Expr → Lean.Expr))) := do
     if e.isApp && !e.hasLooseBVars then
@@ -281,16 +285,22 @@ partial def innerRuns (skip : Array Name) (e : Lean.Expr) (acc : Array (Lean.Exp
         | none => return none
       | _ => return none
     else return none
-  match ← here with
-  | some c => return acc.push c
-  | none =>
-    match e with
-    | .app f a => innerRuns skip a (← innerRuns skip f acc)
-    | .lam _ _ b _ => innerRuns skip b acc
-    | .letE _ _ v b _ => innerRuns skip b (← innerRuns skip v acc)
-    | .mdata _ b => innerRuns skip b acc
-    | .proj _ _ b => innerRuns skip b acc
-    | _ => return acc
+  let res ← match ← here with
+    | some c => pure #[c]
+    | none =>
+      match e with
+      | .app f a => do innerRunsM skip memo a (← innerRunsM skip memo f #[])
+      | .lam _ _ b _ => innerRunsM skip memo b #[]
+      | .letE _ _ v b _ => do innerRunsM skip memo b (← innerRunsM skip memo v #[])
+      | .mdata _ b => innerRunsM skip memo b #[]
+      | .proj _ _ b => innerRunsM skip memo b #[]
+      | _ => pure #[]
+  memo.modify (·.insert e res)
+  return acc ++ res
+
+def innerRuns (skip : Array Name) (e : Lean.Expr) (acc : Array (Lean.Expr × Lean.Expr × (Lean.Expr → Lean.Expr))) :
+    MetaM (Array (Lean.Expr × Lean.Expr × (Lean.Expr → Lean.Expr))) := do
+  innerRunsM skip (← IO.mkRef {}) e acc
 
 /-- `Prod.mk _ _ out writes` of a reduced circuit result. -/
 def splitResult (decl : Name) (r : Lean.Expr) : MetaM (Lean.Expr × Lean.Expr) := do
