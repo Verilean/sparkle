@@ -1,6 +1,7 @@
 import Lean
 import Tools.VedU1Contract
 import Tools.VedU1StructSeqTac
+import Tools.VedU1StructSlice
 
 /-!
 # Per-wire value lemmas of the source value (`ved.sseq.wireEqs`, sparkle-ved-multiout unit 12)
@@ -83,6 +84,7 @@ structure WS where
   cache : Std.HashMap Expr (Expr × Nat) := {}
   g : MVarId
   cuts : Array (FVarId × Expr) := #[]
+  loops : Array FVarId := #[]
   maxH : Nat := 0
 
 abbrev WM := StateRefT WS TacticM
@@ -104,9 +106,23 @@ where
     | .proj n i b =>
       let (b', h) ← visit K b
       return (if b' == b then e else .proj n i b', h)
+    | .lam n t b bi =>
+      -- the thunk `fun _ => x` of `<*>` / `Seq.seq` (its body does not use the binder): entered; any other lambda is left alone
+      if b.hasLooseBVars then return (e, 0)
+      let (b', h) ← visit K b
+      return (if b' == b then e else .lam n t b' bi, h)
     | .app .. =>
       let fn := e.getAppFn
-      if fn.isConstOf ``Sparkle.Core.Signal.Signal.loop then return (e, 0)
+      if fn.isConstOf ``Sparkle.Core.Signal.Signal.loop then
+        -- the loop is a wire of its own (opaque to every simp below; its body `F` is never visited here); put back at the end
+        if e.hasLooseBVars then return (e, 0)
+        let g := (← get).g
+        let ty ← g.withContext (inferType e)
+        let n := (← get).cuts.size
+        let g1 ← g.define (Name.mkSimple s!"ved_w{n}") ty e
+        let (fv, g2) ← g1.intro1P
+        modify fun s => { s with g := g2, cuts := s.cuts.push (fv, e), loops := s.loops.push fv }
+        return (mkFVar fv, 0)
       let args := e.getAppArgs
       let mut h := 0
       let mut changed := false
@@ -174,6 +190,9 @@ elab "ved_ss_wiresimp " h:ident " [" ls:Lean.Parser.Tactic.simpLemma,* "]" : tac
   let mut hVs : Array Name := #[]
   let mut j := 0
   for (fv, _) in st.cuts do
+    if st.loops.contains fv then
+      j := j + 1
+      continue
     let nm := Name.mkSimple s!"ved_hV{j}"
     let gcur ← getMainGoal
     let g' ← gcur.withContext do
@@ -186,8 +205,20 @@ elab "ved_ss_wiresimp " h:ident " [" ls:Lean.Parser.Tactic.simpLemma,* "]" : tac
       pure (← gA.intro1P).2
     replaceMainGoal [g']
     let hid := mkIdent nm
+    if (← IO.getEnv "VED_WIRE_DUMP").isSome then
+      let txt ← withMainContext do
+        let dd ← fv.getDecl
+        let f ← ppExpr (dd.value?.getD (mkConst ``True))
+        pure (f.pretty.take 2500).toString
+      logF s!"VED WIRES CUT {j}: {txt}"
+    let stats ← withMainContext do
+      let dd ← fv.getDecl
+      let v := dd.value?.getD (mkConst ``True)
+      let (dg, tr) := Tools.VedU1StructSlice.dagTree v
+      pure s!"dag={dg} tree={tr} depth={((Tools.VedU1StructSlice.depthOf v).run' {})}"
     -- simplified by the stage's own set; a lemma the simp removes (or cannot change) is left out of the rewrite list
-    try evalTactic (← `(tactic| ved_ss_core_simp_big [$ls,*] at $hid:ident)) catch _ => pure ()
+    tryCatchRuntimeEx (evalTactic (← `(tactic| ved_ss_core_simp_big [$ls,*] at $hid:ident)))
+      fun e => do logF s!"VED WIRES hV{j} ({stats}) simp failed: {(← e.toMessageData.toString).take 200}"
     let has ← withMainContext do pure ((← getLCtx).findFromUserName? nm).isSome
     if has then hVs := hVs.push nm
     j := j + 1
@@ -198,9 +229,16 @@ elab "ved_ss_wiresimp " h:ident " [" ls:Lean.Parser.Tactic.simpLemma,* "]" : tac
   if hVs.size > 0 then
     let hids : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
       (hVs.reverse.map mkIdent).mapM fun i => `(Lean.Parser.Tactic.simpLemma| $i:ident)
-    try evalTactic (← `(tactic| simp (config := { maxSteps := 4000000 }) only [$hids,*] at $h:ident)) catch _ => pure ()
+    tryCatchRuntimeEx (evalTactic (← `(tactic| simp (config := { maxSteps := 4000000 }) only [$hids,*] at $h:ident)))
+      fun e => do logF s!"VED WIRES atoms simp failed: {(← e.toMessageData.toString).take 200}"
   let t4 ← IO.monoMsNow
-  -- (5) the context as the unchanged stage leaves it
+  -- (5) the loops put back (`ved_ss_wit` looks for `Signal.loop F` in the value), the context as the unchanged stage leaves it
+  for fv in st.loops do
+    let gcur ← getMainGoal
+    let dd ← gcur.withContext do getLocalDeclFromUserName h.getId
+    let some (_, v) := (← gcur.withContext fv.getDecl).value?.map (fun v => (0, v)) | continue
+    let ty' := (← instantiateMVars dd.type).replaceFVar (mkFVar fv) v
+    replaceMainGoal [← gcur.replaceLocalDeclDefEq dd.fvarId ty']
   for nm in hVs.reverse do
     let gcur ← getMainGoal
     let some dd := (← gcur.withContext getLCtx).findFromUserName? nm | continue

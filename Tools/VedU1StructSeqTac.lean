@@ -5,6 +5,7 @@ import Tools.VedU1LemmasExt1
 import Tools.VedU1Loop
 import Tools.VedU1ScriptSeqGen
 import Tools.VedU1MultiSeqLemmas
+import Tools.VedU1StructSlice
 
 /-!
 # Tactics of the structure-with-registers script (`Tools/VedU1StructSeq.lean`)
@@ -256,6 +257,20 @@ elab "ved_ss_xor_ones" : tactic => withMainContext do
       done := true
     unless done do skip := skip.push t
 
+/-- Default off: the stage simp sets use `Tools.VedU1StructSlice.ved_mux_val_cond` (`Signal.mux` through `cond`, `Bool.cond_eq_ite` afterwards)
+instead of `Tools.VedU1Lemmas.mux_val` (see the lemma: `simp` loops on `mux (ule p s) (s - p) s`). -/
+register_option ved.sseq.muxCond : Bool := {
+  defValue := false
+  descr := "ved.sseq.muxCond: stage simp sets use the cond form of Signal.mux (default off)"
+}
+
+/-- every occurrence of the identifier `old` in `stx` replaced by `new` -/
+partial def swapIdent (old new : Name) (stx : Lean.Syntax) : Lean.Syntax :=
+  match stx with
+  | .ident info _ n _ => if n.eraseMacroScopes == old then Lean.mkIdentFrom stx new else stx
+  | .node info k args => .node info k (args.map (swapIdent old new))
+  | _ => stx
+
 /-- `ved_ss_core_simp_big [lemmas] (at loc)?`: `ved_core_simp` with the simp step budget raised
 (`maxSteps`): a packed result with registers unfolds the whole body of every register and every
 projection in one `simp`. -/
@@ -271,12 +286,17 @@ elab "ved_ss_core_simp_big " "[" ex:Lean.Parser.Tactic.simpLemma,* "]" loc:(Lean
       ``Tools.VedU1MultiSeqLemmas.shr_val_scI, ``Tools.VedU1MultiSeqLemmas.shr_val_csI,
       ``Tools.VedU1MultiSeqLemmas.append_val_scI, ``Tools.VedU1MultiSeqLemmas.append_val_csI].mapM
       fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
+  let muxC := ved.sseq.muxCond.get (← getOptions)
+  let more ← if muxC then do
+      pure (more ++ #[← `(Lean.Parser.Tactic.simpLemma| Bool.cond_eq_ite)])
+    else pure more
   let all : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
     Syntax.TSepArray.ofElems (ex.getElems ++ more)
   let base ← match loc with
     | some l => `(tactic| ved_ss_core_simp [$all,*] $l:location)
     | none => `(tactic| ved_ss_core_simp [$all,*])
   let stx ← liftMacroM (expandMacros base)
+  let stx := if muxC then swapIdent ``Tools.VedU1Lemmas.mux_val ``Tools.VedU1StructSlice.ved_mux_val_cond stx else stx
   let tmpl ← `(tactic| simp (config := { maxSteps := 2000000 }) [Nat.add_zero])
   -- the `simp` node's second argument is its (empty) `optConfig`: put the raised one there
   let stx' := stx.setArg 1 (tmpl.raw.getArg 1)

@@ -1,4 +1,5 @@
 import Lean
+import Tools.VedU1Lemmas
 
 /-!
 # Slices of the packed register file (`ved.sseq.slice`, sparkle-ved-multiout unit 11)
@@ -24,6 +25,17 @@ once per register by `omega`/`simp` over the whole pack.
 -/
 
 namespace Tools.VedU1StructSlice
+
+open Sparkle.Core.Signal in
+/-- `Signal.mux` through `cond` (`ved.sseq.muxCond`, sparkle-ved-multiout unit 12).  The stage simp set's `Tools.VedU1Lemmas.mux_val`
+(`(mux c a b).val s = if c.val s then ..`) turns `mux (ule p s) (s - p) s` (`s` a `have` of the same definition: the field
+reduction `fsubMod` / `faddMod` of `pointOpHW`) into an `ite` whose condition is then rewritten under its `Decidable` instance, and
+`simp` stops with "maximum recursion depth" on a term of tree size 700 (measured, independent of the width: 16, 64, 130, 257 bits, and of
+`maxRecDepth`: 100000).  With the `cond` form the condition is an ordinary argument; `Bool.cond_eq_ite` turns it into the `ite` afterwards. -/
+theorem ved_mux_val_cond {dom : Sparkle.Core.Domain.DomainConfig} {α : Type}
+    (c : Signal dom Bool) (a b : Signal dom α) (s : Nat) :
+    (Signal.mux c a b).val s = cond (c.val s) (a.val s) (b.val s) := by
+  rw [Tools.VedU1Lemmas.mux_val]; cases c.val s <;> rfl
 
 theorem ved_slice_div (A B m₁ m₂ : Nat) (h : 0 < m₂) : (A % m₁ * m₂ + B % m₂) / m₂ = A % m₁ := by
   have hb : B % m₂ < m₂ := Nat.mod_lt _ h
