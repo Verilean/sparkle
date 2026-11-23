@@ -48,41 +48,55 @@ def allLeafB (d : Design) : Bool := d.modules.all (fun x => leafBody x.body)
 def instOkR (c : Module) (cs : List (String × Expr)) : Bool :=
   !c.isPrimitive && cs.all (fun p => (c.inputs ++ c.outputs).any (·.name == p.1))
 
+/-- The instance evaluator of the recursive semantics: the instance `iname` resolved to `c` is run
+by the recursive function `comb` on ITS state slice `fun p => st (iname :: p)` (the seed reads the
+child's register outputs from `st [iname]`), and its output ports are written into the enclosing
+environment. -/
+def instEvalF (d : Design) (arr : Module → List Stmt)
+    (comb : Module → HSt → Env → Option Env) (st : HSt) (we : WEnv) : InstEval :=
+  fun mn iname conns env =>
+    match findMod d mn with
+    | none => none
+    | some c =>
+      if instOkR c conns = true then do
+        let seed ← childSeedS c conns we env (regOuts (arr c)) (st [iname])
+        let envC ← comb c (fun p => st (iname :: p)) seed
+        outWrites c conns envC
+      else none
+
+/-- The register updates of ONE instance (of the enclosing module's body): the child's own updates
+and its descendants', with the instance name prefixed to every path.  Computed from the enclosing
+module's FINAL environment `envF` and the PRE-update state. -/
+def childUpsF (d : Design) (arr : Module → List Stmt)
+    (comb : Module → HSt → Env → Option Env) (ups : Module → HSt → Env → Option Ups)
+    (we : WEnv) (st : HSt) (envF : Env) (x : String × String × List (String × Expr)) :
+    Option Ups :=
+  match findMod d x.1 with
+  | none => none
+  | some c =>
+    if instOkR c x.2.2 = true then do
+      let seed ← childSeedS c x.2.2 we envF (regOuts (arr c)) (st [x.2.1])
+      let envC ← comb c (fun p => st (x.2.1 :: p)) seed
+      let us ← ups c (fun p => st (x.2.1 :: p)) envC
+      some (us.map (fun u => (x.2.1 :: u.1, u.2)))
+    else none
+
 /-- The combinational environment of module `m` for one cycle on its own state slice `st`
 (path `[]` = `m`'s registers, `i :: p` = the instance `i`'s slice), instances evaluated by the
 recursive call on the instance's slice. -/
 def combR (d : Design) (arr : Module → List Stmt) : Nat → Module → HSt → Env → Option Env
   | 0, _, _, _ => none
   | k + 1, m, st, env0 =>
-    evalAssignsI (declWidth m)
-      (fun mn iname conns env =>
-        match findMod d mn with
-        | none => none
-        | some c =>
-          if instOkR c conns = true then do
-            let seed ← childSeedS c conns (declWidth m) env (regOuts (arr c)) (st [iname])
-            let envC ← combR d arr k c (fun p => st (iname :: p)) seed
-            outWrites c conns envC
-          else none)
-      (arr m) env0
+    evalAssignsI (declWidth m) (instEvalF d arr (combR d arr k) st (declWidth m)) (arr m) env0
 
 /-- The register updates of module `m` for one cycle, from its FINAL environment `envF` and the
-PRE-update state `st`: its own registers (path `[]`) and every descendant's (the instance name
-prefixed to the child's paths). -/
+PRE-update state `st`: its own registers (path `[]`) and every descendant's. -/
 def upsR (d : Design) (arr : Module → List Stmt) : Nat → Module → HSt → Env → Option Ups
   | 0, _, _, _ => none
   | k + 1, m, st, envF => do
     let nextsP ← regNexts (declWidth m) (fun _ _ => 0) (arr m) envF
-    let nextsI ← (instDecls (arr m)).mapM (fun x =>
-      match findMod d x.1 with
-      | none => none
-      | some c =>
-        if instOkR c x.2.2 = true then do
-          let seed ← childSeedS c x.2.2 (declWidth m) envF (regOuts (arr c)) (st [x.2.1])
-          let envC ← combR d arr k c (fun p => st (x.2.1 :: p)) seed
-          let ups ← upsR d arr k c (fun p => st (x.2.1 :: p)) envC
-          some (ups.map (fun u => (x.2.1 :: u.1, u.2)))
-        else none)
+    let nextsI ← (instDecls (arr m)).mapM
+      (childUpsF d arr (combR d arr k) (upsR d arr k) (declWidth m) st envF)
     some (([], nextsP) :: nextsI.flatten)
 
 /-- One cycle of a module on its state slice: final environment and all updates. -/
@@ -376,7 +390,7 @@ theorem combR_eq {d : Design} {arr : Module → List Stmt} (hl : allLeafB d = tr
   show evalAssignsI _ _ _ _ = _
   congr 1
   funext mn iname conns env
-  unfold instEvalS
+  unfold instEvalS instEvalF
   cases hf : findMod d mn with
   | none => rfl
   | some c =>
@@ -416,7 +430,7 @@ theorem upsR_eq {d : Design} {arr : Module → List Stmt} (hl : allLeafB d = tru
     apply mapM_flat_bind
     intro x _
     obtain ⟨mn, iname, conns⟩ := x
-    simp only [childNexts]
+    simp only [childNexts, childUpsF]
     cases hf : findMod d mn with
     | none => rfl
     | some c =>

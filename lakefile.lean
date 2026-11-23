@@ -1840,3 +1840,6 @@ lean_lib «Tools.VedU2HierMultiOutH» where
 
 lean_lib «Tools.VedU2HierRec» where
   roots := #[`Tools.VedU2HierRec]
+
+lean_lib «Tools.VedU2HierRecLem» where
+  roots := #[`Tools.VedU2HierRecLem]
