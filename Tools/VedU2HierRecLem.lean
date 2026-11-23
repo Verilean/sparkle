@@ -386,4 +386,135 @@ theorem upsR_slice {d : Design} {arr : Module → List Stmt} {k : Nat} {m : Modu
           (by simpa using hnd) (mn, i, cs) hin rfl us hfx,
         hus', sliceUps_prefix_same]
 
+/-! ## L3 (lookup): a sub-design of the parent's real design, and the initial state path -/
+
+theorem findMod_name {d : Design} {n : String} {c : Module} (h : findMod d n = some c) :
+    c.name = n := by
+  unfold findMod at h
+  have := List.find?_some h
+  simpa using this
+
+theorem findMod_of_mem {d : Design} (hnd : (d.modules.map (·.name)).Nodup) {c : Module}
+    (hc : c ∈ d.modules) : findMod d c.name = some c := by
+  unfold findMod
+  generalize d.modules = l at hnd hc
+  induction l with
+  | nil => cases hc
+  | cons x rest ih =>
+    rw [List.map_cons, List.nodup_cons] at hnd
+    rcases List.mem_cons.mp hc with rfl | hm
+    · simp [List.find?_cons]
+    · have hne : x.name ≠ c.name := fun e => hnd.1 (List.mem_map.mpr ⟨c, hm, e.symm⟩)
+      simp [List.find?_cons, hne, ih hnd.2 hm]
+
+/-- A module list contained in the parent's (names distinct) resolves names exactly as the parent. -/
+theorem subDesign_of_subset {dC d : Design} (hnd : (d.modules.map (·.name)).Nodup)
+    (hsub : ∀ x ∈ dC.modules, x ∈ d.modules) : SubDesign dC d := by
+  intro n c h
+  have hc := findMod_mem h
+  have hn := findMod_name h
+  subst hn
+  exact findMod_of_mem hnd (hsub c hc)
+
+theorem length_le_of_nodup_subset {α : Type} [DecidableEq α] :
+    ∀ (l1 l2 : List α), l1.Nodup → (∀ x ∈ l1, x ∈ l2) → l1.length ≤ l2.length := by
+  intro l1
+  induction l1 with
+  | nil => intro l2 _ _; exact Nat.zero_le _
+  | cons a t ih =>
+    intro l2 hnd hsub
+    have hat : a ∉ t := (List.nodup_cons.mp hnd).1
+    have hnt : t.Nodup := (List.nodup_cons.mp hnd).2
+    have ha2 : a ∈ l2 := hsub a (List.mem_cons_self ..)
+    have h2 : ∀ x ∈ t, x ∈ l2.erase a := by
+      intro x hx
+      have hne : x ≠ a := fun e => hat (e ▸ hx)
+      exact (List.mem_erase_of_ne hne).mpr (hsub x (List.mem_cons_of_mem _ hx))
+    have := ih (l2.erase a) hnt h2
+    rw [List.length_erase_of_mem ha2] at this
+    have hpos : 0 < l2.length := List.length_pos_of_mem ha2
+    simp only [List.length_cons]
+    omega
+
+/-- The sub-design is strictly smaller than the parent's design when the child itself is a module of
+the parent that is not in the sub-design: the child's fuel `fuelR dC` fits under the parent's. -/
+theorem fuel_le_of_sub {dC d : Design} (hndC : (dC.modules.map (·.name)).Nodup)
+    (hsub : ∀ x ∈ dC.modules, x ∈ d.modules) {c : Module} (hc : c ∈ d.modules)
+    (hcn : c ∉ dC.modules) : fuelR dC ≤ d.modules.length + 1 := by
+  have hnd' : dC.modules.Nodup :=
+    (List.pairwise_map.mp hndC).imp (fun {a b} h e => h (congrArg (·.name) e))
+  have h1 : (c :: dC.modules).Nodup := List.nodup_cons.mpr ⟨hcn, hnd'⟩
+  have h2 : ∀ x ∈ c :: dC.modules, x ∈ d.modules := by
+    intro x hx
+    rcases List.mem_cons.mp hx with rfl | hx
+    · exact hc
+    · exact hsub x hx
+  have := length_le_of_nodup_subset _ _ h1 h2
+  simp only [List.length_cons] at this
+  unfold fuelR
+  omega
+
+theorem st0Path_cons {d : Design} {m : Module} {mn i : String} {cs : List (String × Expr)}
+    {c : Module} (hnd : (instNames m.body).Nodup) (hin : Stmt.inst mn i cs ∈ m.body)
+    (hf : findMod d mn = some c) (p : Path) : st0Path d m (i :: p) = st0Path d c p := by
+  have hmem : (mn, i, cs) ∈ instDecls m.body := (mem_instDecls_iff _ _).mpr hin
+  have hfind : (instDecls m.body).find? (fun x => x.2.1 == i) = some (mn, i, cs) := by
+    rw [instNames_eq] at hnd
+    exact find_inst_decls _ hnd (mn, i, cs) hmem
+  simp only [st0Path, hfind, hf]
+
+/-- Every instance of the body resolves in `d`. -/
+def ResolvedIn (d : Design) (c : Module) : Prop :=
+  ∀ mn i cs, Stmt.inst mn i cs ∈ c.body → ∃ c', findMod d mn = some c'
+
+theorem st0Path_agree {dC d : Design} (hs : SubDesign dC d)
+    (hall : ∀ x ∈ dC.modules, ResolvedIn dC x) :
+    ∀ (p : Path) (c0 : Module), ResolvedIn dC c0 → st0Path dC c0 p = st0Path d c0 p := by
+  intro p
+  induction p with
+  | nil => intro c0 _; rfl
+  | cons i p ih =>
+    intro c0 hr
+    simp only [st0Path]
+    cases hx : (instDecls c0.body).find? (fun x => x.2.1 == i) with
+    | none => rfl
+    | some x =>
+      obtain ⟨mn, i', cs⟩ := x
+      simp only []
+      have hmem : (mn, i', cs) ∈ instDecls c0.body := List.mem_of_find?_eq_some hx
+      obtain ⟨c', hf⟩ := hr mn i' cs ((mem_instDecls_iff _ _).mp hmem)
+      rw [hf, hs mn c' hf]
+      exact ih c' (hall c' (findMod_mem hf))
+
+theorem connsOkR_find {d : Design} {m : Module} {mn : String} {cs : List (String × Expr)}
+    (h : connsOkR d m mn cs = true) : ∃ c, findMod d mn = some c := by
+  unfold connsOkR at h
+  cases hf : findMod d mn with
+  | none => simp [hf] at h
+  | some c => exact ⟨c, rfl⟩
+
+theorem leafBody_no_inst {b : List Stmt} (h : leafBody b = true) :
+    ∀ mn i cs, Stmt.inst mn i cs ∈ b → False := by
+  intro mn i cs hin
+  have := (mem_instDecls_iff b (mn, i, cs)).mpr hin
+  rw [instDecls_leaf b h] at this
+  cases this
+
+theorem HierShapeR_resolved {d : Design} {m : Module} (h : HierShapeR d m = true) :
+    ResolvedIn d m ∧ ∀ x ∈ d.modules, ResolvedIn d x := by
+  simp only [HierShapeR, Bool.and_eq_true] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, h5⟩, _⟩, _⟩, _⟩, hmods⟩ := h
+  refine ⟨?_, ?_⟩
+  · intro mn i cs hin
+    have := List.all_eq_true.mp h5 _ hin
+    exact connsOkR_find this
+  · intro x hx mn i cs hin
+    have hx' := List.all_eq_true.mp hmods x hx
+    cases hl : leafBody x.body with
+    | true => exact (leafBody_no_inst hl mn i cs hin).elim
+    | false =>
+      simp only [hl, Bool.false_or, modShapeR, Bool.and_eq_true] at hx'
+      obtain ⟨⟨⟨⟨_, h2⟩, _⟩, _⟩, _⟩ := hx'
+      exact connsOkR_find (List.all_eq_true.mp h2 _ hin)
+
 end Tools.VedU2HierRec
