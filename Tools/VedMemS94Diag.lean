@@ -595,6 +595,24 @@ initialize progSteps : IO.Ref Nat ← IO.mkRef 0
 initialize progLastMs : IO.Ref Nat ← IO.mkRef 0
 initialize progHead : IO.Ref String ← IO.mkRef "-"
 initialize progRecent : IO.Ref (Array String) ← IO.mkRef #[]
+/-- a node of a DAG listing: shared nodes (`ids`) are named `nK` unless `top`; instance and type arguments are left out -/
+partial def s94DagStr (ids : Std.HashMap Lean.Expr Nat) (x : Lean.Expr) (top : Bool) : String :=
+  match (if top then none else ids[x]?) with
+  | some n => s!"n{n}"
+  | none => match x with
+    | .app .. =>
+      let args := x.getAppArgs.filter fun a =>
+        !(match a.getAppFn with
+          | .const n _ => n == ``Nat || n == ``Bool || n == ``Int || n == ``BitVec || (n.components.getLast?.map (·.toString.startsWith "inst")).getD false
+          | .sort .. => true | _ => false)
+      s!"({s94Head x} {" ".intercalate (args.map (s94DagStr ids · false)).toList})"
+    | .lam .. => "(fun …)"
+    | .mdata _ b => s94DagStr ids b false
+    | .fvar f => s!"{f.name}"
+    | .lit (.natVal v) => s!"{v}"
+    | .const n _ => n.toString
+    | _ => s94Head x
+
 /-- a depth-limited rendering (heads only; the raw `toString` of a stalled term can be exponentially large) -/
 partial def progShallow (d : Nat) (e : Lean.Expr) : String :=
   if d == 0 then "…" else
@@ -1477,6 +1495,74 @@ elab "#ved_s95_replay " d:str : command => do
             pure "ok"
           catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 400}"
         dbgLog s!"S95 tail {name}: {res} ms={(← IO.monoMsNow) - t0} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}; {← shape cur}; {← resid cur}"
+        -- `VED_S95_CLASSIFY=step`: after that tail step, one line per goal (tree, DAG nodes, nodes only in this goal, free variables, shallow head), the DAG nodes
+        -- shared by all goals, and the process leaves the tail (diagnosis: which register / memory word the goal states and how large its cone is)
+        if name == (← IO.getEnv "VED_S95_CLASSIFY").getD "" then
+          let cnt ← IO.mkRef (({} : Std.HashMap Expr Nat))
+          let per ← IO.mkRef (#[] : Array (Array Expr))
+          for gq in cur do
+            let e ← instantiateMVars (← gq.getType)
+            let ns := Tools.VedU1WireShare.collectDag (fun _ => true) e
+            per.modify (·.push ns)
+            for x in ns do cnt.modify fun m => m.insert x (m.getD x 0 + 1)
+          let m ← cnt.get
+          let n := cur.length
+          dbgLog s!"S95 cls: goals={n} union DAG nodes={m.size} nodes in all goals={(m.toList.filter (·.2 == n)).length}"
+          let mut i := 0
+          for gq in cur do
+            let e ← instantiateMVars (← gq.getType)
+            let ns := (← per.get)[i]!
+            let uniq := (ns.filter fun x => m.getD x 0 == 1).size
+            let fvs := (ns.filter (·.isFVar)).map fun x => (x.fvarId!).name.toString
+            dbgLog s!"S95 cls {i}: tree={Tools.VedU1Loop.treeSizeVal e} dag={ns.size} uniq={uniq} nfv={fvs.size} fv={(" ".intercalate fvs.toList).take 300} head={(progShallow 5 e).take 500}"
+            i := i + 1
+          -- `VED_S95_DAGDUMP=i,j,..` (+ `VED_S95_DAGOUT=FILE`): the goals as DAGs (a line per node with at least two parents, the root, children named `nK` when shared)
+          if let (some ds, some fo) := ((← IO.getEnv "VED_S95_DAGDUMP"), (← IO.getEnv "VED_S95_DAGOUT")) then
+            let mut out := ""
+            for ds1 in ds.splitOn "," do
+              let some gi := ds1.toNat? | continue
+              let some gq := cur[gi]? | continue
+              let e ← instantiateMVars (← gq.getType)
+              let ns := Tools.VedU1WireShare.collectDag (fun _ => true) e
+              let mut par : Std.HashMap Expr Nat := {}
+              for x in ns do
+                let kids : Array Expr := match x with
+                  | .app f a => #[f, a] | .lam _ t b _ => #[t, b] | .forallE _ t b _ => #[t, b] | .mdata _ b => #[b] | .proj _ _ b => #[b] | _ => #[]
+                for kd in kids do par := par.insert kd (par.getD kd 0 + 1)
+              -- the shared non-trivial nodes, children first: the order of `collectDag` is parents first, so reversed
+              let isTriv (x : Expr) : Bool := match x with | .const .. | .fvar .. | .lit .. | .sort .. | .bvar .. => true | _ => false
+              let sh := (ns.filter fun x => !isTriv x && (par.getD x 0 ≥ 2 || x == e)).reverse
+              let mut ids : Std.HashMap Expr Nat := {}
+              let mut kk := 0
+              for x in sh do ids := ids.insert x kk; kk := kk + 1
+              out := out ++ s!"## goal {gi} nodes={sh.size}\n"
+              for x in sh do
+                out := out ++ s!"n{ids[x]!} := {(s94DagStr ids x true).take 400}\n"
+            IO.FS.writeFile fo out
+          -- `VED_S95_T3OUT=DIR`: every goal as an axiom `ved_t3_g<i> : ∀ context, target` (+ the file `t3.txt`), for replays that start here
+          if let some outD := (← IO.getEnv "VED_S95_T3OUT") then
+            let mut ti : Nat := 0
+            for gq in cur do
+              let ty ← gq.withContext do
+                let tgt ← instantiateMVars (← gq.getType)
+                let fvs : Array Expr := (← getLCtx).foldl (fun a d => if d.isImplementationDetail then a else a.push d.toExpr) #[]
+                instantiateMVars (← mkForallFVars fvs tgt (usedLetOnly := false))
+              if ty.hasFVar || ty.hasMVar || ty.hasLevelParam || ty.hasLevelMVar then throwError "T3OUT: goal {ti} still has fvars/mvars/level parameters"
+              withTheReader Core.Context (fun c => { c with options := c.options.setBool `debug.skipKernelTC true }) do
+                addDecl (.axiomDecl { name := Name.mkSimple s!"ved_t3_g{ti}", levelParams := [], type := ty, isUnsafe := false })
+              ti := ti + 1
+            IO.FS.createDirAll outD
+            IO.FS.writeFile (outD ++ "/t3.txt") s!"n\t{ti}\n"
+            let md ← Lean.mkModuleData (← getEnv)
+            let realized (n : Name) : Bool :=
+              match n with
+              | .str _ s => s == "splitter" || s == "eq_def" || s == "sunfold" || (s.startsWith "eq_" && (s.drop 3).all Char.isDigit)
+              | _ => false
+            let keep := md.constants.filter (fun c => !realized c.name)
+            let md' := { md with constNames := keep.map (·.name), constants := keep }
+            Lean.saveModuleData (outD ++ "/VedT3.olean") (← getEnv).mainModule md'
+            dbgLog s!"S95 t3 written to {outD}: {ti} goals, {md.constants.size} constants"
+          break
         if !res.startsWith "ok" then
           for gq in cur.take 1 do
             dbgLog s!"S95 tail failing goal (truncated): {((← gq.withContext do ppExpr (← instantiateMVars (← gq.getType))).pretty.replace "\n" " ").take 600}"
