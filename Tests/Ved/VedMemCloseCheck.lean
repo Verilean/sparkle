@@ -2381,4 +2381,46 @@ run_cmd liftTermElabM do
   if ← tryClose (← `(∀ a b : Nat, (a % 16 * 16 + b % 16) / 8 % 16 = a % 16)) then throwError "off-boundary extraction accepted"
   logInfo m!"wrong-cone controls: high field closes, other field refused, off-boundary refused"
 
+-- (L6) s94q pieces, controls on small packed states `P = a % 32 * 16 + b % 16` (a: offset 4 width 5, b: offset 0 width 4):
+-- slice of a field (narrow hit at the field start, slice inside the field), the unmasked read below `% 2^m`, each closes for the right register and is refused for the
+-- other register / a wrong value / a read that straddles two fields.
+/-- info: s94q extraction controls: narrow hit, in-field slice, unmasked read close; wrong register, wrong value, straddling read refused -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryClose (stmt : Term) (tac : TSyntax `tactic) : TermElabM Bool := do
+    let ty ← elabTerm stmt none
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      pure gs.isEmpty
+    catch _ => pure false
+  let ext ← `(tactic| (intro a b; ved_local_close))
+  unless ← tryClose (← `(∀ a b : Nat, (a % 32 * 16 + b % 16) / 16 % 4 = a % 4)) ext do throwError "narrow hit not closed"
+  if ← tryClose (← `(∀ a b : Nat, (a % 32 * 16 + b % 16) / 16 % 4 = b % 4)) ext then throwError "narrow hit: wrong register accepted"
+  unless ← tryClose (← `(∀ a b : Nat, (a % 32 * 16 + b % 16) / 32 % 8 = a / 2 % 8)) ext do throwError "in-field slice not closed"
+  if ← tryClose (← `(∀ a b : Nat, (a % 32 * 16 + b % 16) / 32 % 8 = a % 8)) ext then throwError "in-field slice: wrong value accepted"
+  unless ← tryClose (← `(∀ a b : Nat, (a % 32 * 16 + b % 16) % 512 / 16 = a % 32)) ext do throwError "unmasked read not closed"
+  if ← tryClose (← `(∀ a b : Nat, (a % 32 * 16 + b % 16) % 512 / 16 = b % 32)) ext then throwError "unmasked read: wrong register accepted"
+  if ← tryClose (← `(∀ a b : Nat, (a % 32 * 16 + b % 16) / 8 % 4 = a % 4)) ext then throwError "straddling read accepted"
+  logInfo m!"s94q extraction controls: narrow hit, in-field slice, unmasked read close; wrong register, wrong value, straddling read refused"
+
+-- (L7) the case-hypothesis flag lemma and the register-update mux: the right chain closes, a chain with a wrong register value (constant 4 instead of 3) is refused.
+/-- info: s94q mux controls: flag hypothesis and ite chain close, wrong register value refused -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryClose (stmt : Term) (tac : TSyntax `tactic) : TermElabM Bool := do
+    let ty ← elabTerm stmt none
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      pure gs.isEmpty
+    catch _ => pure false
+  let flag ← `(tactic| (intro x h; simp only [Tools.VedMemS94Local.ite10_mod2] at h; omega))
+  unless ← tryClose (← `(∀ x : Nat, ((if x = 2 then 1 else 0 : Nat) % 2 = 1) → x = 2)) flag do throwError "flag hypothesis not closed"
+  if ← tryClose (← `(∀ x : Nat, ((if x = 2 then 1 else 0 : Nat) % 2 = 1) → x = 3)) flag then throwError "flag: wrong conclusion accepted"
+  let mux ← `(tactic| (intro x hx; ved_mux))
+  unless ← tryClose (← `(∀ x : Nat, x < 3 → (if x = 0 then 5 else if x = 1 then 6 else 7) % 4 = if x % 4 = 0 then 1 else if x = 1 then 2 else 3)) mux do throwError "mux not closed"
+  if ← tryClose (← `(∀ x : Nat, x < 3 → (if x = 0 then 5 else if x = 1 then 6 else 8) % 4 = if x % 4 = 0 then 1 else if x = 1 then 2 else 3)) mux then throwError "mux: wrong register value accepted"
+  logInfo m!"s94q mux controls: flag hypothesis and ite chain close, wrong register value refused"
+
 end Tests.Ved.VedMemCloseCheck

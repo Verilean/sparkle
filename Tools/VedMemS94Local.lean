@@ -140,7 +140,7 @@ def isArithHyp (t : Expr) : Bool :=
 /-- the cone of the main goal: the free variables of its target, the context entries whose type mentions one of them (without the wire-environment
 facts) and everything those entries depend on (types and values, to the fixpoint); the goal is replaced by one with the local context cut to the cone
 (one pass, no `clear` per entry: that re-scans the context for every entry).  Returns (goal, entries kept, entries cleared) -/
-def coneClear (g : MVarId) : MetaM (MVarId × Nat × Nat) := g.withContext do
+def coneClear (g : MVarId) (arithOnly : Bool := true) : MetaM (MVarId × Nat × Nat) := g.withContext do
   let lctx ← getLCtx
   let tgt ← instantiateMVars (← g.getType)
   let mut keep : Std.HashSet FVarId := {}
@@ -152,7 +152,7 @@ def coneClear (g : MVarId) : MetaM (MVarId × Nat × Nat) := g.withContext do
   for d in lctx do
     if d.isImplementationDetail || keep.contains d.fvarId then continue
     let t ← instantiateMVars d.type
-    if !isEnvFact t && (fvarsOfDag t).any (tfv.contains ·) && (!(← isProp t) || isArithHyp t) then
+    if !isEnvFact t && (fvarsOfDag t).any (tfv.contains ·) && (!arithOnly || !(← isProp t) || isArithHyp t) then
       keep := keep.insert d.fvarId
       todo := todo.push d.fvarId
   while let some f := todo.back? do
@@ -175,6 +175,11 @@ def coneClear (g : MVarId) : MetaM (MVarId × Nat × Nat) := g.withContext do
   let newM ← mkFreshExprMVarAt lctx' insts tgt MetavarKind.syntheticOpaque (← g.getTag)
   g.assign newM
   return (newM.mvarId!, keep.size, cleared)
+
+elab "ved_cone_clear_full" : tactic => do
+  let g ← getMainGoal
+  let (g', _, _) ← coneClear g false
+  replaceMainGoal [g']
 
 elab "ved_cone_clear" : tactic => do
   let g ← getMainGoal
@@ -405,9 +410,10 @@ side is a chain), the leaves by `ved_split_omega`; no `split` on the chain itsel
 syntax "ved_mux" : tactic
 macro_rules
   | `(tactic| ved_mux) => `(tactic| first
+      | with_reducible rfl
       | (rw [mux_mod]; ved_mux)
       | (refine mux_cong _ _ _ _ _ _ ?hc ?ha ?hb
-         case hc => ved_split_omega
+         case hc => first | exact Iff.rfl | ved_split_omega
          case ha => intro _; ved_mux
          case hb => intro _; ved_mux)
       | (refine mux_l _ _ _ _ ?ha ?hb
