@@ -60,18 +60,23 @@ def kidOfCall (kids : Array Kid) (x : Lean.Expr) : Option Nat :=
   | _ => none
 
 /-- Replace every saturated child call in `e` (under binders, identical subterms once) by
-`f occurrence kidIndex callFunction domainArgs dataArgs`. -/
-def replaceCalls (kids : Array Kid) (e : Lean.Expr)
-    (f : Nat → Nat → Lean.Expr → Array Lean.Expr → Array Lean.Expr → MetaM Lean.Expr) : MetaM Lean.Expr := do
+`f occurrence kidIndex callFunction domainArgs dataArgs`.  With `nested` (VED compose connect, chained instances) the data
+arguments of a call are processed first (a call inside a call's argument is replaced too, innermost first) and `f` receives
+the processed arguments. -/
+partial def replaceCalls (kids : Array Kid) (e : Lean.Expr)
+    (f : Nat → Nat → Lean.Expr → Array Lean.Expr → Array Lean.Expr → MetaM Lean.Expr) (nested : Bool := false) : MetaM Lean.Expr := do
   let cnt ← IO.mkRef 0
-  Meta.transform e (pre := fun x => do
-    if x.isApp then
-      if let some ki := kidOfCall kids x then
-        let k := kids[ki]!
-        let idx ← cnt.modifyGet fun n => (n, n + 1)
-        let as := x.getAppArgs
-        return .done (← f idx ki x.getAppFn (as.extract 0 k.nDom) (as.extract k.nDom as.size))
-    return .continue)
+  let rec go (e : Lean.Expr) : MetaM Lean.Expr :=
+    Meta.transform e (pre := fun x => do
+      if x.isApp then
+        if let some ki := kidOfCall kids x then
+          let k := kids[ki]!
+          let as := x.getAppArgs
+          let das ← if nested then (as.extract k.nDom as.size).mapM go else pure (as.extract k.nDom as.size)
+          let idx ← cnt.modifyGet fun n => (n, n + 1)
+          return .done (← f idx ki x.getAppFn (as.extract 0 k.nDom) das)
+      return .continue)
+  go e
 
 /-- Applications `Gs_k args` of the marker variables in `e`. -/
 partial def collectMarks (ids : Array FVarId) (e : Lean.Expr) (acc : Array (Nat × Array Lean.Expr)) :
@@ -89,6 +94,18 @@ partial def collectMarks (ids : Array FVarId) (e : Lean.Expr) (acc : Array (Nat 
   | .letE _ t v b _ => collectMarks ids b (collectMarks ids v (collectMarks ids t acc))
   | .mdata _ b | .proj _ _ b => collectMarks ids b acc
   | _ => acc
+
+/-- The marker applications `Gs_k as` in `e` replaced by the real calls `fns[k] as` (innermost arguments too). -/
+partial def substMarks (ids : Array FVarId) (fns : Array Lean.Expr) (e : Lean.Expr) : Lean.Expr :=
+  e.replace fun x =>
+    if x.isApp then
+      match x.getAppFn with
+      | .fvar v =>
+        match ids.findIdx? (· == v) with
+        | some k => some (mkAppN fns[k]! (x.getAppArgs.map (substMarks ids fns)))
+        | none => none
+      | _ => none
+    else none
 
 def mkTuple (es : Array Lean.Expr) : MetaM Lean.Expr := do
   let mut r := Lean.mkConst ``PUnit.unit [levelOne]
@@ -214,7 +231,7 @@ def mkPointwise (gName pwName : Name) (fn fnTy : Lean.Expr) : TermElabM Bool := 
 /-- The analysis and the generated constants.  `pw` (option `ved.compose.step`): the proof of `hOs` uses the children's
 pointwise lemmas (`mkPointwise`) instead of unfolding them; the produced definitions are the same. -/
 def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable) (kids : Array Kid)
-    (base : Name) (openSuf : String) (pw : Bool := false) : TermElabM OpenInfo := do
+    (base : Name) (openSuf : String) (pw : Bool := false) (chain : Bool := false) : TermElabM OpenInfo := do
   let openName := base ++ Name.mkSimple openSuf
   Tools.VedU2HierDbg.openTick "genOpenMulti begin"
   let ty ← inferType stmt
@@ -242,7 +259,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
     let siteKid ← IO.mkRef (#[] : Array Nat)
     let siteFn ← IO.mkRef (#[] : Array Lean.Expr)
     let siteTy ← IO.mkRef (#[] : Array Lean.Expr)
-    discard <| replaceCalls kids body fun _ ki fn dargs _ => do
+    discard <| replaceCalls (nested := chain) kids body fun _ ki fn dargs _ => do
       siteKid.modify (·.push ki)
       siteFn.modify (·.push (mkAppN fn dargs))
       siteTy.modify (·.push (← inferType (mkAppN fn dargs)))
@@ -253,7 +270,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
     let liveTy := (← inferType (← mkAppOptM ``Sparkle.Core.packRegister #[some dom, some αs, some inits])).bindingBody!
     let natTy := Lean.mkConst ``Nat
     withFVars (siteKid.mapIdx fun i _ => Name.mkSimple s!"ved_G{i}") siteTy fun gs => do
-      let bodyM ← replaceCalls kids body fun idx _ _ _ das => pure (mkAppN gs[idx]! das)
+      let bodyM ← replaceCalls (nested := chain) kids body fun idx _ _ _ das => pure (mkAppN gs[idx]! das)
       Tools.VedU2HierDbg.openTickE "replaceCalls #2 (marker variables) end" bodyM
       withLocalDeclD `live liveTy fun live => do
         let idRead ← withLocalDeclD `s liveTy fun s => mkLambdaFVars #[s] s
@@ -267,6 +284,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
         let r ← unfoldUser kids r0
         Tools.VedU2HierDbg.openTickE "unfoldUser end" r
         let marks := collectMarks (gs.map (·.fvarId!)) r #[]
+        let realCalls : Lean.Expr → Lean.Expr := if chain then substMarks (gs.map (·.fvarId!)) siteFn else id
         Tools.VedU2HierDbg.openTick s!"collectMarks end, marks={marks.size}"
         -- distinct calls: (child, arguments over `live`)
         let mut orcKey : Array (Nat × Array Lean.Expr) := #[]
@@ -292,10 +310,10 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
         Tools.VedU2HierDbg.openTick s!"oracle dedup end, distinct calls={n}"
         let mut orcTys : Array Lean.Expr := #[]
         for (key, k) in orcKey.zip orcSite do
-          orcTys := orcTys.push (← inferType (mkAppN siteFn[k]! key.2))
+          orcTys := orcTys.push (← inferType (mkAppN siteFn[k]! (key.2.map realCalls)))
         let osTy ← tupleTy orcTys
         withFVars (orcTys.mapIdx fun i _ => Name.mkSimple s!"ved_o{i}") orcTys fun os => do
-          let bodyO ← replaceCalls kids body fun idx _ _ _ _ => pure os[(kToJ[idx]!).get!]!
+          let bodyO ← replaceCalls (nested := chain) kids body fun idx _ _ _ _ => pure os[(kToJ[idx]!).get!]!
           if (bodyO.find? fun x => kids.any (fun k => x.isConstOf k.decl)).isSome then
             refuse decl "open" m!"a call of a child remains in the open parent's body (a call nested in another call's argument?)"
           -- the open parent: the struct result (the declaration's field is the port)
@@ -311,7 +329,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
           -- F xs o x = packRegister inits (the reduced writes over the state x and the oracle tuple o)
           let some wtup := (if r.isAppOfArity ``Prod.mk 4 then some r.appArg! else none)
             | refuse decl "open" m!"the reduced loop body is not a pair (output, writes): {r}"
-          let f2Name := base ++ Name.mkSimple (openSuf ++ "_F2")
+          let f2Name := base ++ Name.mkSimple (openSuf ++ (if chain then "_FL" else "_F2"))  -- chain: `_F{j}` of the third call would clash with `_F2`
           let wO := wtup.replace fun e =>
             if e.isApp then
               match e.getAppFn with
@@ -329,7 +347,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
             addDefnRegular f2Name (← inferType f2Val) f2Val
             Tools.VedU2HierDbg.openTickE "F2 definition added" f2Val
           -- Os xs live = the oracle values the real children give
-          let osComps : Array Lean.Expr := (orcKey.zip orcSite).map fun (key, k) => mkAppN siteFn[k]! key.2
+          let osComps : Array Lean.Expr := (orcKey.zip orcSite).map fun (key, k) => mkAppN siteFn[k]! (key.2.map realCalls)
           let osName := base ++ Name.mkSimple (openSuf ++ "_Os")
           let osVal ← mkLambdaFVars (xs ++ #[live]) (← mkTuple osComps)
           addDefnRegular osName (← inferType osVal) osVal
@@ -476,7 +494,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
                 mkAppN (Lean.mkConst ``PTy.sig) #[toExpr pt, insFv, toExpr ("_gen_" ++ bn)]
               let mut ds : List Name := []
               for (a, kk) in key.2.toList.zipIdx do
-                let v := (a.replaceFVar live Qx).replaceFVars xs sigsF
+                let v := ((realCalls a).replaceFVar live Qx).replaceFVars xs sigsF
                 let lam ← mkLambdaFVars #[insFv] v
                 let nmA := base ++ Name.mkSimple (openSuf ++ s!"_arg{j}_{kk}")
                 addDefnRegular nmA (← inferType lam) lam

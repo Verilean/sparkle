@@ -1368,6 +1368,26 @@ register_option sparkle.deepPorts : String := {
   descr := "#verify_elab_deep: only these ports of a struct-valued circuit (comma-separated)"
 }
 
+/-- Connect14: export the loop state theorem also for a port whose output is a bare input of the deep circuit (a child's output
+in an open parent: its cone reads no register).  There the capstone's `congr 1` closes the goal by `rfl`, and, were it split, the
+big `simp only [outFOf, ..]` of the capstone removes the loop from the goal, so `topProof`'s `generalize` finds no loop and no
+`_deep_state` is exported.  With the option the capstone goal is split by `congrArg` (no `rfl` attempt) and, when the loop is gone after
+that `simp`, the state theorem is proved and exported BEFORE it (`ved_have_export` of the same top loop), the rest being the
+output side.  Statements are unchanged; a port whose goal keeps the loop takes the ordinary path.  Default off. -/
+register_option sparkle.deepExportState : Bool := {
+  defValue := false
+  descr := "#verify_elab_deep: a port that is a bare input of the deep circuit still proves the loop state (and exports it)"
+}
+
+/-- Connect14: `ved_has_loop` fails unless the main goal still contains a `Signal.loop`. -/
+syntax (name := vedHasLoop) "ved_has_loop" : tactic
+
+open Lean Elab Tactic in
+@[tactic vedHasLoop] def evalVedHasLoop : Tactic := fun _ => do
+  let t ← instantiateMVars (← getMainTarget)
+  unless (t.find? fun e => e.isAppOf ``Sparkle.Core.Signal.Signal.loop).isSome do
+    throwError "ved_has_loop: no Signal.loop in the goal"
+
 /-- `signal_lets tv [extra,*]` — the DSL half of the linear (cone-sharing)
 trace recipe, generically.
 
@@ -4650,7 +4670,8 @@ elab "#verify_elab_deep" id:ident : command =>
       let tickOn := (← IO.getEnv "SPARKLE_DEEP_TACTIC_TICK").isSome
       let tk (lbl : String) : CommandElabM (Array (Lean.TSyntax `tactic)) :=
         if tickOn then do pure #[← `(tactic| deep_tick $(Lean.quote lbl))] else pure #[]
-      let mkTopProof (b : Array Nat) : CommandElabM (Lean.TSyntax `tactic) := do
+      -- the proof of the top loop's state (exported) and the output side, separately (connect14: `sparkle.deepExportState` runs the first part before the output simp)
+      let mkTopParts (b : Array Nat) : CommandElabM (Lean.TSyntax `tactic × Lean.TSyntax `tactic) := do
         let packS ← packOf topNode b (← `($sId))
         let packU ← packOf topNode b (← `($uId))
         let packI ← packOf topNode b (← `($iId))
@@ -4697,7 +4718,7 @@ elab "#verify_elab_deep" id:ident : command =>
         let tO3 ← tk "out: dupSimp"
         let tO4 ← tk "out: genLines (gen_occ)"
         let tO5 ← tk "out: closers"
-        `(tactic| (
+        let exportTac ← `(tactic| (
           generalize $hLId : Signal.loop (loopFOf
             (dom := Sparkle.Core.Domain.defaultDomain)
             (αs := [$topTys,*]) (ρ := $retTyStx) _ _) = $LId
@@ -4736,9 +4757,10 @@ elab "#verify_elab_deep" id:ident : command =>
               ($[$tS6:tactic]*)
               $closers:tactic
               ($[$tS7:tactic]*)) $hLId => $stateThId
-          ($[$tX:tactic]*)
-          -- the output side: outSig against the packed projection, via
-          -- the shallow output equation
+          ($[$tX:tactic]*)))
+        -- the output side: outSig against the packed projection, via
+        -- the shallow output equation
+        let tailTac ← `(tactic| (
           rw [$outSId:ident]
           all_goals (try simp only [$hLtId:ident])
           ($[$tO1:tactic]*)
@@ -4750,6 +4772,10 @@ elab "#verify_elab_deep" id:ident : command =>
           ($[$tO4:tactic]*)
           $closers:tactic
           ($[$tO5:tactic]*)))
+        return (exportTac, tailTac)
+      let mkTopProof (b : Array Nat) : CommandElabM (Lean.TSyntax `tactic) := do
+        let (ex, tl) ← mkTopParts b
+        `(tactic| ($ex:tactic; $tl:tactic))
       let topProof : Lean.TSyntax `tactic ← do
         let alts ← topBlocks.toArray.mapM mkTopProof
         let mut alt : Lean.TSyntax `tactic := alts.back!
@@ -4809,6 +4835,42 @@ elab "#verify_elab_deep" id:ident : command =>
       let tkE ← tk "capstone: simp only [outFOf, sigval_*, outUnfold] done"
       let tkF ← tk "capstone: appendFix done"
       let tkG2 ← tk "capstone: topProof done (end of tactic block)"
+      let exportOn := sparkle.deepExportState.get (← getOptions)
+      let congrTac : Lean.TSyntax `tactic ←
+        if exportOn then `(tactic| first | refine congrArg BitVec.toNat ?_ | congr 1) else `(tactic| congr 1)
+      let bigSimp : Lean.TSyntax `tactic ← `(tactic| simp only [outFOf, mkHolds, Signal.map, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
+          $[$outUnfoldIds:ident],*])
+      -- connect14: the second route (the loop is gone after `bigSimp`): export the state first, then the output side
+      let routeB : Lean.TSyntax `tactic ← do
+        let alts ← topBlocks.toArray.mapM fun b => do
+          let (ex, tl) ← mkTopParts b
+          `(tactic| ($ex:tactic; $bigSimp:tactic; $appendFix:tactic; $tl:tactic))
+        let mut alt : Lean.TSyntax `tactic := alts.back!
+        for a in alts.pop.reverse do
+          alt ← `(tactic| first | $a:tactic | $alt:tactic)
+        pure alt
+      let mainTac : Lean.TSyntax `tactic ←
+        if exportOn then
+          `(tactic| all_goals (
+            $idUnfold:tactic
+            ($[$chainUnfold:tactic]*)
+            $projRw:tactic
+            ($[$tkD:tactic]*)
+            first
+              | ($bigSimp:tactic; ved_has_loop; ($[$tkE:tactic]*); $appendFix:tactic; ($[$tkF:tactic]*); $topProof:tactic; ($[$tkG2:tactic]*))
+              | $routeB:tactic))
+        else
+          `(tactic| all_goals (
+            $idUnfold:tactic
+            ($[$chainUnfold:tactic]*)
+            $projRw:tactic
+            ($[$tkD:tactic]*)
+            $bigSimp:tactic
+            ($[$tkE:tactic]*)
+            $appendFix:tactic
+            ($[$tkF:tactic]*)
+            $topProof:tactic
+            ($[$tkG2:tactic]*)))
       let thmCmd ← `(set_option maxRecDepth 65536 in
         set_option maxHeartbeats 1600000 in
         theorem $thId $paramBinders* (t : Nat) :
@@ -4819,7 +4881,7 @@ elab "#verify_elab_deep" id:ident : command =>
               (CExpr.compile $nmId $outT)).getD 0 := by
         $elabGenRw:tactic
         ($[$tkB:tactic]*)
-        congr 1
+        $congrTac:tactic
         ($[$tkC:tactic]*)
         -- the Signal-side bridge: f's runCircuitH loop against the deep
         -- spec recurrence, both through loop_trace.  For a struct
@@ -4829,18 +4891,7 @@ elab "#verify_elab_deep" id:ident : command =>
         -- same outFOf shape a single Signal output produces.
         -- an output that is a bare input (a port that does not read the circuit's state) is closed by
         -- `congr 1` already: the rest then has nothing to do (and exports no state theorem)
-        all_goals (
-        $idUnfold:tactic
-        ($[$chainUnfold:tactic]*)
-        $projRw:tactic
-        ($[$tkD:tactic]*)
-        simp only [outFOf, mkHolds, Signal.map, sigval_add, sigval_sub, sigval_mul, sigval_and, sigval_or, sigval_xor, sigval_shl, sigval_shr, sigval_append, sigval_add_c, sigval_sub_c, sigval_mul_c, sigval_and_c, sigval_or_c, sigval_xor_c, sigval_shl_c, sigval_shr_c, sigval_append_c, sigval_c_add, sigval_c_sub, sigval_c_mul, sigval_c_and, sigval_c_or, sigval_c_xor, sigval_c_shl, sigval_c_shr, sigval_c_append, sigval_and_b, sigval_or_b, sigval_xor_b, sigval_not, sigval_not_b, sigval_neg, sigval_mux, sigval_beq, sigval_pure,
-          $[$outUnfoldIds:ident],*]
-        ($[$tkE:tactic]*)
-        $appendFix:tactic
-        ($[$tkF:tactic]*)
-        $topProof:tactic
-        ($[$tkG2:tactic]*)))
+        $mainTac:tactic)
       if (← IO.getEnv "SPARKLE_DEEP_DEBUG").isSome then
         logInfo m!"{thmCmd}"
       if (← IO.getEnv "SPARKLE_DEEP_NOTHM").isSome then
