@@ -1849,3 +1849,6 @@ lean_lib «Tools.VedU2HierRecKid» where
 
 lean_lib «Tests.Ved.U2HierRecCheck» where
   roots := #[`Tests.Ved.U2HierRecCheck]
+
+lean_lib «Tools.VedU2HierRecRun» where
+  roots := #[`Tools.VedU2HierRecRun]
