@@ -361,6 +361,9 @@ lean_lib «Tools.VedComposeConnectGen» where
 lean_lib «Tools.VedComposeMultiLoop» where
   roots := #[`Tools.VedComposeMultiLoop]
 
+lean_lib «Tools.VedComposeMultiCircuit» where
+  roots := #[`Tools.VedComposeMultiCircuit]
+
 lean_lib «Tools.VedU2HierXorAttr» where
   roots := #[`Tools.VedU2HierXorAttr]
 
