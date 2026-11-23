@@ -107,6 +107,14 @@ def isEnvFact (t : Expr) : Bool :=
   | some (_, .app (.fvar _) (.lit (.strVal _)), _) => true
   | _ => false
 
+/-- a hypothesis the local closer can use: an (in)equation / connective of arithmetic facts, not a `forall` (the memory facts `∀ a, env "m" (a % 16) = ..`) or an
+invariant predicate (`MemInv ..`): `omega` ignores those, and `simp .. at *` pays for each of their (up to 4e5-node) terms -/
+def isArithHyp (t : Expr) : Bool :=
+  if t.isForall then false else
+  match t.getAppFn with
+  | .const n _ => n == ``Eq || n == ``Ne || n == ``LT.lt || n == ``LE.le || n == ``GT.gt || n == ``GE.ge || n == ``Not || n == ``And || n == ``Or || n == ``Iff
+  | _ => false
+
 /-- the cone of the main goal: the free variables of its target, the context entries whose type mentions one of them (without the wire-environment
 facts) and everything those entries depend on (types and values, to the fixpoint); the goal is replaced by one with the local context cut to the cone
 (one pass, no `clear` per entry: that re-scans the context for every entry).  Returns (goal, entries kept, entries cleared) -/
@@ -122,7 +130,7 @@ def coneClear (g : MVarId) : MetaM (MVarId × Nat × Nat) := g.withContext do
   for d in lctx do
     if d.isImplementationDetail || keep.contains d.fvarId then continue
     let t ← instantiateMVars d.type
-    if !isEnvFact t && (fvarsOfDag t).any (tfv.contains ·) then
+    if !isEnvFact t && (fvarsOfDag t).any (tfv.contains ·) && (!(← isProp t) || isArithHyp t) then
       keep := keep.insert d.fvarId
       todo := todo.push d.fvarId
   while let some f := todo.back? do
