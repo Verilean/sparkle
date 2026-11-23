@@ -476,4 +476,168 @@ theorem WOH_agree {d1 d2 : Design} : ∀ b : List Stmt,
       exact hwr n hn
     · rw [← wrH_agree s hs]; exact hnd
 
+/-! ## L5: the instance step of a NON-LEAF child, from the child's own stored theorem -/
+
+theorem hierR_names {d : Design} {m : Module} (h : HierShapeR d m = true) :
+    (d.modules.map (·.name)).Nodup ∧ ∀ x ∈ d.modules, x ≠ m := by
+  simp only [HierShapeR, Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, hn⟩, hC⟩, _⟩, _⟩, _⟩, _⟩, _⟩, _⟩ := h
+  refine ⟨hn, ?_⟩
+  intro x hx hxm
+  subst hxm
+  have h2 : (d.modules.map (·.name)).contains x.name = false := hC
+  have h3 : x.name ∈ d.modules.map (·.name) := List.mem_map.mpr ⟨x, hx, rfl⟩
+  simp [List.contains_eq_mem, h3] at h2
+
+/-- L5. For the instance `inst mn i cs` of the NON-LEAF child `c` (resolved in the parent's real design
+`d`), whose own stored theorem `hU : U2HRStmtR ck c dC g` is stated on a sub-design `dC` (its modules are
+modules of `d`), every output wire of the instance at cycle `t0` is the child's declared output on the
+stream the child's ports read, provided the stream `F` agrees with the parent's wires at the cycles
+`≤ t0` (`kid_seq_multi` for a non-leaf child).  The child is NOT unfolded: only `hU`, the projection
+`runIn_proj` (L2), the prefix and seed causality (L4) and the transfer `runHSR_runIn` (L3) are used. -/
+theorem kid_seq_R (d : Design) (arr : Module → List Stmt) (m : Module)
+    (hS : HierShapeR d m = true) (hA : AdmArrR d m arr)
+    (hwr : ∀ n ∈ wrsH d (arr m), n ∉ inNames m)
+    (cc : Contract) (htie : cc.clkRst = designClkRst d m)
+    (ins : Nat → String → Nat) (hok : InputsOk cc m ins) (K : Nat) (envs : List Env)
+    (sts : List HSt)
+    (hrun : runHSRTrace d arr m (seedFwd m K ins) K (st0HR d m) = some (envs, sts))
+    (mn i : String) (cs : List (String × Expr)) (hin : Stmt.inst mn i cs ∈ m.body)
+    (c : Module) (hf : findMod d mn = some c)
+    (hnl : leafBody c.body = false) (hordc : OrderHS d c)
+    (dC : Design) (hsub : ∀ x ∈ dC.modules, x ∈ d.modules)
+    (ck : Contract) (g : ck.table.Ty) (hU : U2HRStmtR ck c dC g)
+    (hclkc : ck.clkRst = regClkRst c.body)
+    (hconn : ∀ p ∈ c.inputs, ∃ x, cs.lookup p.name = some (Expr.ref x) ∧
+      (ck.dataInputs.any (·.name == p.name) = true ∨ x ∈ inNames m))
+    (hrstnd : ∀ kr, ck.clkRst = some kr → ck.dataInputs.any (·.name == kr.2) = false)
+    (F : Nat → String → Nat)
+    (hrange : ∀ t, ∀ p ∈ ck.dataInputs, F t p.name < 2 ^ declWidth c p.name)
+    (t0 : Nat) (ht0 : t0 < K)
+    (hrunF : ∀ s, s ≤ t0 → ∀ E, envs[s]? = some E → ∀ p ∈ ck.dataInputs,
+      ∃ x, cs.lookup p.name = some (Expr.ref x) ∧ E x = F s p.name) :
+    ∀ E, envs[t0]? = some E → ∀ q ∈ c.outputs,
+      ∃ x, cs.lookup q.name = some (Expr.ref x) ∧
+        E x = srcOf ck g (netIn ck cs ins F) q.name t0 := by
+  obtain ⟨_, hcore, _, hShC, _, _, _, _, hout⟩ := hU
+  have hcmem : c ∈ d.modules := findMod_mem hf
+  have hndD := (hierR_names hS).1
+  have hSub : SubDesign dC d := subDesign_of_subset hndD hsub
+  obtain ⟨hresTop, hresMods⟩ := HierShapeR_resolved hShC
+  obtain ⟨hndC, hneC⟩ := hierR_names hShC
+  have hfuel : fuelR dC ≤ d.modules.length + 1 :=
+    fuel_le_of_sub hndC hsub hcmem (fun h => hneC c h rfl)
+  have hperm := (hA.2.2 c hcmem).1
+  have hwoc : WOH d (arr c) := (hA.2.2 c hcmem).2.2 hnl
+  have hwrc : ∀ n ∈ wrsH d (arr c), n ∉ inNames c := by
+    obtain ⟨b0, hb0⟩ := hordc
+    exact orderOkHS_hwr hb0 hperm
+  -- the parent's arrangement is admissible for the child's own design
+  have hAdmC : AdmArrR dC c arr := by
+    refine ⟨hperm, ?_, ?_⟩
+    · refine WOH_agree _ ?_ hwoc
+      intro mn' i' cs' hmem
+      have hb : Stmt.inst mn' i' cs' ∈ c.body := hperm.mem_iff.mp hmem
+      obtain ⟨c', hf'⟩ := hresTop mn' i' cs' hb
+      rw [hf', hSub _ _ hf']
+    · intro x hx
+      obtain ⟨hp, hwo, hwoh⟩ := hA.2.2 x (hsub x hx)
+      refine ⟨hp, hwo, fun hl => ?_⟩
+      refine WOH_agree _ ?_ (hwoh hl)
+      intro mn' i' cs' hmem
+      have hb : Stmt.inst mn' i' cs' ∈ x.body := hp.mem_iff.mp hmem
+      obtain ⟨c', hf'⟩ := hresMods x hx mn' i' cs' hb
+      rw [hf', hSub _ _ hf']
+  -- the initial state of the slice is the child's own initial state
+  have hslice0 : (fun p => st0HR d m (i :: p)) = st0HR dC c := by
+    funext p
+    show st0Path d m (i :: p) = st0Path dC c p
+    rw [st0Path_cons (hierR_inst_unique hS) hin hf p]
+    exact (st0Path_agree hSub hresMods p c hresTop).symm
+  obtain ⟨cenvs, hrunC, hcorr⟩ := runIn_proj d arr m hS hA mn i cs hin c hf hwoc hwrc K _ _ envs sts hrun
+  rw [hslice0] at hrunC
+  -- the child stream is in range
+  have hok' : InputsOk ck c (netIn ck cs ins F) := by
+    refine ⟨?_, ?_⟩
+    · intro t p hp
+      have hd : ck.dataInputs.any (·.name == p.name) = true :=
+        List.any_eq_true.mpr ⟨p, hp, by simp⟩
+      have h1 : netIn ck cs ins F t p.name = F t p.name := by simp [netIn, hd]
+      rw [h1]
+      exact hrange t p hp
+    · intro t kr hkr
+      rw [hclkc] at hkr
+      have hreg : regsOf c.body ≠ [] := by
+        intro h0; simp [regClkRst, h0] at hkr
+      obtain ⟨x, y, kc, kr', hrc, h1, h2, hcl, hx, hy, hne, hkc, hkr2⟩ :=
+        instPair_tie d m (hierR_clk hS) mn i cs c hin hf hreg cc htie
+      have hkk : (kc, kr') = kr := Option.some.inj (hrc.symm.trans hkr)
+      subst hkk
+      have hnd := hrstnd (kc, kr') (hclkc.trans hrc)
+      have : netIn ck cs ins F t kr' = ins t y := by simp [netIn, hnd, insCIn, h2]
+      show netIn ck cs ins F t kr' = 0
+      rw [this]
+      exact hok.2 t (x, y) hcl
+  -- the seeds agree at every cycle `s ≤ t0`
+  have hpre : ∀ s, s ≤ t0 → ∀ E, envs[s]? = some E → ∀ n ∈ inNames c,
+      netIn ck cs ins F s n = insCOf (declWidth m) cs envs s n := by
+    intro s hs E hE n hn
+    obtain ⟨p, hp, rfl⟩ := List.mem_map.mp hn
+    obtain ⟨x, hl, hx⟩ := hconn p hp
+    by_cases hd : ck.dataInputs.any (·.name == p.name) = true
+    · obtain ⟨p', hp', hpn⟩ := List.any_eq_true.mp hd
+      have hpn' : p'.name = p.name := by simpa using hpn
+      obtain ⟨x', hl', hEx'⟩ := hrunF s hs E hE p' hp'
+      rw [hpn'] at hl' hEx'
+      have hxx : x' = x := by
+        rw [hl] at hl'; exact (Expr.ref.inj (Option.some.inj hl')).symm
+      subst hxx
+      have h1 : netIn ck cs ins F s p.name = F s p.name := by simp [netIn, hd]
+      rw [h1, ← hEx']
+      simp [insCOf, hl, hE, evalExpr]
+    · have hxin : x ∈ inNames m := hx.resolve_left hd
+      have hEx := runHSR_inputs d arr m hA.2.1 hwr ins K K (Nat.le_refl K) _ envs sts hrun s (by omega)
+        E hE x hxin
+      have hd' : ck.dataInputs.any (·.name == p.name) = false := by simpa using hd
+      simp [netIn, hd', insCIn, insCOf, hl, hE, evalExpr, hEx]
+  have hseed : ∀ j, j < t0 + 1 → seedFwd c (t0 + 1) (insCOf (declWidth m) cs envs) j =
+      seedFwd c (t0 + 1) (netIn ck cs ins F) j := by
+    intro j hj
+    funext st n
+    simp only [seedFwd]
+    by_cases hn : (c.inputs.map (·.name)).contains n = true
+    · rw [if_pos hn, if_pos hn]
+      obtain ⟨E, Ec, S, hE, _⟩ := hcorr (t0 + 1 - 1 - j) (by omega)
+      exact (hpre _ (by omega) E hE n (List.contains_iff_mem.mp hn)).symm
+    · rw [if_neg hn, if_neg hn]
+  -- the child's run, cut at `t0 + 1` cycles
+  obtain ⟨L', hL', hLe⟩ := runIn_prefix d arr c
+    (seedFwd c K (insCOf (declWidth m) cs envs)) (t0 + 1) (K - (t0 + 1)) (st0HR dC c) cenvs
+    (by rw [show t0 + 1 + (K - (t0 + 1)) = K by omega]; exact hrunC)
+  have hshift : ∀ j, j < t0 + 1 →
+      (fun j => seedFwd c K (insCOf (declWidth m) cs envs) (j + (K - (t0 + 1)))) j =
+        seedFwd c (t0 + 1) (insCOf (declWidth m) cs envs) j := by
+    intro j hj
+    funext st n
+    simp only [seedFwd]
+    have : K - 1 - (j + (K - (t0 + 1))) = t0 + 1 - 1 - j := by omega
+    rw [this]
+  rw [runIn_congr_seed d arr c _ _ (t0 + 1) _ hshift, runIn_congr_seed d arr c _ _ (t0 + 1) _ hseed]
+    at hL'
+  obtain ⟨envs', hrun', hall⟩ := hout arr hAdmC (netIn ck cs ins F) hok' (t0 + 1)
+  have hrunIn := runHSR_runIn hSub arr hfuel c _ _ _ _ hrun'
+  have hce : envs' = L' := Option.some.inj (hrunIn.symm.trans hL')
+  intro E hE q hq
+  obtain ⟨E0, Ec, S, hE0, hEc, _, hproj⟩ := hcorr t0 ht0
+  have hEE : E = E0 := Option.some.inj (hE.symm.trans hE0)
+  subst hEE
+  obtain ⟨x, hl, hxv⟩ := hproj.2 q hq
+  refine ⟨x, hl, ?_⟩
+  have hqk : q ∈ ck.outputs := by rw [← hcore.2.2.2.2.2.1]; exact hq
+  obtain ⟨env, he, hv⟩ := hall t0 (by omega) q hqk
+  rw [hce, hLe, List.getElem?_take_of_lt (by omega), hEc] at he
+  have hee : env = Ec := (Option.some.inj he).symm
+  subst hee
+  rw [hxv]; exact hv
+
 end Tools.VedU2HierRec
