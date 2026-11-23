@@ -103,7 +103,7 @@ instance {dom : DomainConfig} : Sparkle.Core.HasDomain (P10 dom) dom := ⟨⟩
     let r ← Signal.reg 0#4
     let c := leafs x
     r <~ r + c + y
-    return ({ s0 := r, s1 := c, s2 := r + c, s3 := r - y, s4 := c + y, s5 := r + y, s6 := c - y, s7 := r + c + y, s8 := r - c, s9 := y - r } : P10 defaultDomain)
+    return ({ s0 := r, s1 := c, s2 := r + c, s3 := r - y, s4 := c + y, s5 := r + y, s6 := c - y, s7 := r + c + y, s8 := r - c, s9 := r + y + c } : P10 defaultDomain)
 def top10 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
   circuit do
     let acc ← Signal.reg 0#4
