@@ -253,8 +253,9 @@ elab "ved_local_small" : tactic => withMainContext do
 
 /-- `ved_local_close`: the goal from its own cone: cone clear, field extraction, bounds, then `omega` (with `split` for the `if`s) -/
 macro "ved_local_close" : tactic =>
-  `(tactic| (ved_cone_clear; ved_pack_extract; ved_local_small; (try dsimp only at *); ved_bv_bounds
-             first | omega | (split <;> omega) | (split <;> split <;> omega)))
+  `(tactic| (ved_cone_clear; ved_pack_extract; ved_local_small; (try dsimp only at *)
+             all_goals (ved_bv_bounds
+                        first | omega | (split <;> omega) | (split <;> split <;> omega))))
 
 /-- the heartbeat limit of one local attempt (thousands; lower than any whole-goal step: a successful attempt needs at most about 4M) -/
 def localCapK : Nat := 8000
@@ -269,7 +270,7 @@ elab "ved_local_goal" : tactic => do
   let r ← tryCatchRuntimeEx
     (do
       withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then localCapK * 1000 else min c.maxHeartbeats (localCapK * 1000)), initHeartbeats := hb0 }) do
-        evalTactic (← `(tactic| ved_local_close))
+        withoutRecover (evalTactic (← `(tactic| ved_local_close)))
       if ← localFailLate.get then throwError "ved_local_goal: failed after its work (test seam)"
       pure true)
     (fun _ => pure false)

@@ -1643,7 +1643,7 @@ elab "#ved_t3_replay " d:str : command => do
         let (gsO, r) : Option (List MVarId) × String ← tryCatchRuntimeEx
           (do
             let gs ← withTheReader Core.Context (fun c => { c with maxHeartbeats := cap * 1000, initHeartbeats := hb1 }) do
-              Tactic.run cur.head! (do Tactic.setGoals cur; Tactic.evalTactic tac)
+              Tactic.run cur.head! (do Tactic.setGoals cur; Tactic.withoutRecover (Tactic.evalTactic tac))
             pure (some gs, s!"ok out={gs.length}"))
           (fun ex => do pure (none, s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 200}"))
         if let some gs := gsO then cur := gs

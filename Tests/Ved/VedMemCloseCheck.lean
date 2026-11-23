@@ -5,6 +5,7 @@ import Tools.VedMemLoop
 import Tools.VedMemS94Fix
 import Tools.VedMemS94Peel
 import Tools.VedMemS94Gen
+import Tools.VedMemS94Local
 import Tools.VedMemPack
 
 /-!
@@ -2264,5 +2265,120 @@ run_cmd genOnceCheck false false false
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.genOnceF -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedOk ``genOnceF
+
+/-! ## `ved.mem.s94Local` (sparkle-ved-mem-s94, sixteenth unit)
+
+Each tail goal is first tried from its own cone (`ved_local_goal`: the context cut to the target's variables and the entries that mention them, the field
+extractions from the packed state by the once-proved lemmas `mod_div_mod` / `pack_skip` / `pack_hit` / `atom_div`, the `BitVec` bounds, `omega`); a goal it does not
+close is left as it was for the old tail steps. -/
+
+def localA {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+def localB {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+def localC {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+def localD {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+
+/-- (attempted, closed one) must be as given: the local route ran on a goal / closed a goal -/
+def localCheck (tried : Bool) (hit : Bool) : CommandElabM Unit := do
+  let t ← Tools.VedMemS94Local.localTried.get
+  let h ← Tools.VedMemS94Local.localHits.get
+  unless (t ≥ 1) == tried && (h ≥ 1) == hit do throwError "s94Local counters: tried {t} hits {h}"
+  logInfo m!"s94Local counters ok: tried={tried} hit={hit}"
+  Tools.VedMemS94Local.localTried.set 0
+  Tools.VedMemS94Local.localHits.set 0
+
+run_cmd Tools.VedMemS94Local.localTried.set 0
+run_cmd Tools.VedMemS94Local.localHits.set 0
+
+-- (L1) ON: accepted, stored type exact, std3, the route ran on goals (counter >= 1) and closed some
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+set_option ved.mem.s94GenOnce true in
+set_option ved.mem.s94Local true in
+#ved_u1_mem localA
+
+/-- info: s94Local counters ok: tried=true hit=true -/
+#guard_msgs in
+run_cmd localCheck true true
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.localA -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``localA
+
+-- (L2) OFF: accepted, counters 0
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+set_option ved.mem.s94GenOnce true in
+#ved_u1_mem localB
+
+/-- info: s94Local counters ok: tried=false hit=false -/
+#guard_msgs in
+run_cmd localCheck false false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.localB -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``localB
+
+-- (L3) ON, the route refuses (test seam): every goal goes to the old tail, accepted, no attempt counted
+run_cmd Tools.VedMemS94Local.localRefuse.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+set_option ved.mem.s94GenOnce true in
+set_option ved.mem.s94Local true in
+#ved_u1_mem localC
+run_cmd Tools.VedMemS94Local.localRefuse.set false
+
+/-- info: s94Local counters ok: tried=false hit=false -/
+#guard_msgs in
+run_cmd localCheck false false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.localC -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``localC
+
+-- (L4) ON, the route fails after its work (test seam): state restored per goal, old tail, accepted; attempts counted, no goal closed by it
+run_cmd Tools.VedMemS94Local.localFailLate.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+set_option ved.mem.s94GenOnce true in
+set_option ved.mem.s94Local true in
+#ved_u1_mem localD
+run_cmd Tools.VedMemS94Local.localFailLate.set false
+
+/-- info: s94Local counters ok: tried=true hit=false -/
+#guard_msgs in
+run_cmd localCheck true false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.localD -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``localD
+
+-- (L5) the lemma for a field applied to another field is refused: the field is taken by the position (offset, width) of the extraction, never by name.
+-- The high field of `a % 16 * 16 + b % 16` is `a % 16` (closes), `= b % 16` is refused; an extraction that starts inside a field (offset 3) is not a field and is refused.
+/-- info: wrong-cone controls: high field closes, other field refused, off-boundary refused -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryClose (stmt : Term) : TermElabM Bool := do
+    let ty ← elabTerm stmt none
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic (← `(tactic| (intro a b; ved_local_close)))))
+      pure gs.isEmpty
+    catch _ => pure false
+  unless ← tryClose (← `(∀ a b : Nat, (a % 16 * 16 + b % 16) / 16 % 16 = a % 16)) do throwError "high field not closed"
+  if ← tryClose (← `(∀ a b : Nat, (a % 16 * 16 + b % 16) / 16 % 16 = b % 16)) then throwError "wrong field accepted"
+  if ← tryClose (← `(∀ a b : Nat, (a % 16 * 16 + b % 16) / 8 % 16 = a % 16)) then throwError "off-boundary extraction accepted"
+  logInfo m!"wrong-cone controls: high field closes, other field refused, off-boundary refused"
 
 end Tests.Ved.VedMemCloseCheck
