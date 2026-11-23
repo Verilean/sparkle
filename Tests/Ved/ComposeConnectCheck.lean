@@ -629,8 +629,8 @@ run_cmd do
   logInfo m!"compose connect chain controls: 4 refused"
 
 /-! ### A chain closer to R230's shape: a consumer with two data ports (a register-derived net and the producer's output) and a
-third port reading a register directly, a struct output of three fields; the declaration's own port reads the loop (a port that is
-directly a child's output exports no loop state: `Tools/DeepElab.lean`, refused at `[deep]` also for ONE instance). -/
+third port reading a register directly, a struct output of three fields; the declaration's own port reads the loop.  (A port that is
+directly a child's output exports no loop state unless `sparkle.deepExportState` is on: the next section.) -/
 
 @[hardware_module]
 def mkS (x c n : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
@@ -669,5 +669,96 @@ def chainMixTx (inp : Signal defaultDomain (BitVec 4)) (go : Signal defaultDomai
 set_option ved.compose.step true in
 set_option ved.compose.connect true in
 run_cmd checkChain ``chainMixTx [`Tests.Ved.ComposeConnectCheck.chainMixTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1, `Tests.Ved.ComposeConnectCheck.chainMixTx.ved_child.Tests.Ved.ComposeConnectCheck.mkS.ved_u1] 2
+
+/-! ### The declaration's own port is DIRECTLY a child's output (connect14, option `sparkle.deepExportState`)
+
+The open parent's port reads no register, so `Tools/DeepElab.lean` closes its capstone goal early and, without the option, exports no
+loop state (`[deep]` refusal "did not export its loop state", also for ONE instance).  With `sparkle.deepExportState` the state is
+proved and exported before the output simp.  `direct1Tx`: port = the output of ONE instance; `direct2Tx`: port = the output of the
+second instance of a chain.  Checked as above (type `==`, same artifact, std3, kernel, the children's theorems occur, no per-cone
+fallback).  CONTROLS (on a copy): the option off (the old `[deep]` text), wrong child output wiring on the direct port, wrong width. -/
+
+def direct1Circ (inp : Signal defaultDomain (BitVec 4)) (go : Signal defaultDomain Bool) : PT3 defaultDomain :=
+  circuit do
+    let cnt ← Signal.reg 0#4
+    let held ← Signal.reg 0#4
+    let cs := (cnt : Signal defaultDomain (BitVec 4))
+    let hd := (held : Signal defaultDomain (BitVec 4))
+    let p0 := (Signal.pure 0#4 : Signal defaultDomain (BitVec 4))
+    let p1 := (Signal.pure 1#4 : Signal defaultDomain (BitVec 4))
+    let isIdle := cs === p0
+    let isLast := cs === (Signal.pure 9#4 : Signal defaultDomain (BitVec 4))
+    let isEm := ~~~isIdle
+    let now := Signal.mux go inp hd
+    let k1 := mkA now
+    cnt <~ Signal.mux go p1 (Signal.mux isLast p0 (Signal.mux isEm (cs + p1 : Signal defaultDomain (BitVec 4)) cs))
+    held <~ now
+    return ({ b := k1, v := isEm, l := isLast } : PT3 defaultDomain)
+
+def direct1Tx (inp : Signal defaultDomain (BitVec 4)) (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (direct1Circ inp go).b
+
+def direct2Circ (inp : Signal defaultDomain (BitVec 4)) (go : Signal defaultDomain Bool) : PT3 defaultDomain :=
+  circuit do
+    let cnt ← Signal.reg 0#4
+    let held ← Signal.reg 0#4
+    let cs := (cnt : Signal defaultDomain (BitVec 4))
+    let hd := (held : Signal defaultDomain (BitVec 4))
+    let p0 := (Signal.pure 0#4 : Signal defaultDomain (BitVec 4))
+    let p1 := (Signal.pure 1#4 : Signal defaultDomain (BitVec 4))
+    let isIdle := cs === p0
+    let isLast := cs === (Signal.pure 9#4 : Signal defaultDomain (BitVec 4))
+    let isEm := ~~~isIdle
+    let now := Signal.mux go inp hd
+    let k1 := mkA now
+    let k2 := mkS now k1 cs
+    cnt <~ Signal.mux go p1 (Signal.mux isLast p0 (Signal.mux isEm (cs + p1 : Signal defaultDomain (BitVec 4)) cs))
+    held <~ now
+    return ({ b := k2, v := isEm, l := isLast } : PT3 defaultDomain)
+
+def direct2Tx (inp : Signal defaultDomain (BitVec 4)) (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (direct2Circ inp go).b
+
+/-- A copy for the controls (never accepted itself). -/
+def direct2Ref (inp : Signal defaultDomain (BitVec 4)) (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (direct2Circ inp go).b
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option sparkle.deepExportState true in
+run_cmd checkChain ``direct1Tx [`Tests.Ved.ComposeConnectCheck.direct1Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 2
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 2 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option sparkle.deepExportState true in
+run_cmd checkChain ``direct2Tx [`Tests.Ved.ComposeConnectCheck.direct2Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1, `Tests.Ved.ComposeConnectCheck.direct2Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkS.ved_u1] 2
+
+/- Names in the synthesised `direct2Ref`: `assign out = _gen_out`; `_gen_out` is the output of the second instance (`mkS`), `_tmp_arg1_23`
+the output of the first (`mkA`) -/
+
+def directControls : CommandElabM Unit := do
+  let (m, d) ← synthOf ``direct2Ref
+  let noT : Phase1 → CommandElabM Phase1 := fun p => pure p
+  -- the option OFF (step and connect on): the old `[deep]` text
+  withScope (fun sc => { sc with opts := (sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true }) do
+    expectRefusedT ``direct2Ref "deep" "did not export its loop state" m d noT
+  withScope (fun sc => { sc with opts := ((sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true).setBool `sparkle.deepExportState true }) do
+    -- WRONG CHILD OUTPUT WIRING on the direct port: the port is the other instance's output
+    expectRefusedT ``direct2Ref "proof" "proved that the proposition" { m with body := m.body.map fun s => match s with
+      | .assign "out" _ => .assign "out" (.ref "_tmp_arg1_23")
+      | s => s } d noT
+    -- WRONG WIDTH on the direct port: the declared width of the child's output wire
+    expectRefusedT ``direct2Ref "hier-shape" "width mismatch" { m with wires := m.wires.map fun w =>
+      if w.name == "_gen_out" then { w with ty := .bitVector 5 } else w } d noT
+
+/-- info: compose connect direct-port controls: 3 refused -/
+#guard_msgs in
+run_cmd do
+  directControls
+  logInfo m!"compose connect direct-port controls: 3 refused"
 
 end Tests.Ved.ComposeConnectCheck
