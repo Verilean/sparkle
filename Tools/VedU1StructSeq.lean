@@ -2,6 +2,7 @@ import Lean
 import Tools.VedU1Contract
 import Tools.VedU1Loop
 import Tools.VedU1StructSeqTac
+import Tools.VedU1StructWires
 import Tools.VedU1OrderFast
 import Tools.VedMemWidth
 import Tools.VedU1WireShare
@@ -138,6 +139,15 @@ register_option ved.sseq.dwLemma : Bool := {
   descr := "ved.sseq.dwLemma: input widths of the module by a kernel check, not by simp at hin/hrst (default off)"
 }
 
+/-- Default off: the loop is NAMED once (`Tools/VedU1StructWires.lean`): the invariant states register `k` as the `k`-th component of
+the named state `L` (`∃ L, IsLoop F L ∧ …`), the per-cycle value lemma `hU : ∀ t, L.val (t+1) = (F L).val (t+1)` is proved once, the
+source value is read through `vsrc` (`srcOf` unfolded, `applyIns … f` generalised) and every later goal mentions `L.val s`, not the loop
+term.  One `Signal.loop` only. -/
+register_option ved.sseq.wires : Bool := {
+  defValue := false
+  descr := "ved.sseq.wires: struct script names the loop once (opaque L, value lemma), default off"
+}
+
 /-- The generated (untrusted) script for `U1Stmt C M f` where `f` is the statement TERM (the bundled
 lambda `fun xs => bundle2 (D xs).f₁ (bundle2 …)` of a structure / product result, or any term of the
 table's type) and `C`'s module has the registers `regs` (name, width) of `Signal.loop`s.  Every output
@@ -199,15 +209,33 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
   else
     tacs := tacs.push (← wrap (← `(tactic| simp (config := { maxSteps := 2000000 }) [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident)))
   tacs := tacs.push (← wrap (← `(tactic| simp only [$O:ident, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq])))
-  tacs := tacs.push (← wrap (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = (applyIns ($C).table.ins ($C).inNames $insI $f).val $sI := ⟨_, rfl⟩)))
-  tacs := tacs.push (← wrap (← `(tactic| ved_ss_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, Signal.fst, Signal.snd, $exHelp,*] at $hv:ident)))
-  tacs := tacs.push (← wrap (← `(tactic| ved_ss_R $insI [$rNames,*] $rWidths,*)))
-  tacs := tacs.push (← wrap (← `(tactic| clear $hv)))
-  -- ONE register: the invariant is the equation itself (no conjunction to take apart)
-  if hs.size == 1 then
-    tacs := tacs ++ #[← wrap (← `(tactic| have $(hs[0]!):ident := $hR)), ← wrap (← `(tactic| clear $hR))]
+  let wires := ved.sseq.wires.get (← getOptions)
+  let LI := mkIdent `L
+  let hLI := mkIdent `hL
+  let hUI := mkIdent `hU
+  if wires then
+    -- the goal reads the source value through `vsrc` (the one `applyIns … f` value), not through its own unfolding
+    tacs := tacs.push (← wrap (← `(tactic| simp only [srcOf])))
+    tacs := tacs.push (← wrap (← `(tactic| ved_ss_vsrc $vI $hv)))
   else
-    tacs := tacs.push (← wrap (← `(tactic| obtain $hPat := $hR)))
+    tacs := tacs.push (← wrap (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = (applyIns ($C).table.ins ($C).inNames $insI $f).val $sI := ⟨_, rfl⟩)))
+  tacs := tacs.push (← wrap (← `(tactic| ved_ss_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, Signal.fst, Signal.snd, $exHelp,*] at $hv:ident)))
+  if wires then
+    let rPats ← (hs.toList).mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)
+    let wPat : TSyntax `rcasesPat ← `(rcasesPat| ⟨$LI:ident, $hLI:ident, $[$(rPats.toArray)],*⟩)
+    tacs := tacs.push (← wrap (← `(tactic| ved_ss_R2 $insI [$rNames,*] $rWidths,*)))
+    tacs := tacs.push (← wrap (← `(tactic| obtain $wPat := $hR)))
+    tacs := tacs.push (← wrap (← `(tactic| ved_ss_wit $LI $hLI $hv [$exHelp,*])))
+    tacs := tacs.push (← wrap (← `(tactic| simp only [Tools.VedU1StructWires.isLoop_exists $hLI])))
+    tacs := tacs.push (← wrap (← `(tactic| clear $hLI)))
+  else
+    tacs := tacs.push (← wrap (← `(tactic| ved_ss_R $insI [$rNames,*] $rWidths,*)))
+    tacs := tacs.push (← wrap (← `(tactic| clear $hv)))
+    -- ONE register: the invariant is the equation itself (no conjunction to take apart)
+    if hs.size == 1 then
+      tacs := tacs ++ #[← wrap (← `(tactic| have $(hs[0]!):ident := $hR)), ← wrap (← `(tactic| clear $hR))]
+    else
+      tacs := tacs.push (← wrap (← `(tactic| obtain $hPat := $hR)))
   let closing ← if ved.sseq.dbg.get (← getOptions) == 96
     then `(tactic| all_goals (ved_ss_leafwise <;> (first | ved_ss_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | fail "leaf failed here")))
     else if ved.sseq.dbg.get (← getOptions) == 98
@@ -244,6 +272,16 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
     -- a goal comparing a narrow state value with several literals is split on the state value
     #[← `(tactic| all_goals (try ved_ss_state_split))],
     #[closing]]
+  let ex1w : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
+    Syntax.TSepArray.ofElems (hsA ++ hsAll.push (← `(Lean.Parser.Tactic.simpLemma| $hv:ident)))
+  -- the named loop: `hU` once instead of the unfolded loop in every equation / output wire; `vsrc` is replaced by its value
+  -- (over `L.val s`) in the first simp
+  let wStages : Array (Array (TSyntax `tactic)) := #[
+    #[← `(tactic| ved_ss_succ $LI $sI [$exHelp,*])],
+    #[← `(tactic| ved_ss_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, Signal.fst, Signal.snd, $ex1w,*]),
+      ← `(tactic| clear $hv)],
+    #[← `(tactic| ved_ss_gen2 $LI $sI)]]
+  let stages := if wires then wStages ++ stages.extract 3 stages.size else stages
   let dbg := ved.sseq.dbg.get (← getOptions)
   if dbg == 50 then
     tacs := tacs.push (← `(tactic| ved_ss_unfold1 [$exHelp,*] ($sI + 1)))
@@ -256,8 +294,9 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
           for t in stages[k]! do tacs := tacs.push (← `(tactic| ved_ss_timed $t))
         else tacs := tacs ++ stages[k]!
       if dbg == k + 2 then tacs := tacs.push stop
-  let h0tacs : Array (TSyntax `tactic) := #[
-    ← `(tactic| intro $insI hok),
+  let h0wit : Array (TSyntax `tactic) ←
+    if wires then pure #[← `(tactic| refine ⟨_, rfl, ?_⟩)] else pure #[]
+  let h0tacs : Array (TSyntax `tactic) := #[← `(tactic| intro $insI hok)] ++ h0wit ++ #[
     ← `(tactic| ved_ss_unfold [$exHelp,*] 0),
     ← `(tactic| ved_ss_core_simp_big [st0, $C:ident, contractOf, regsOf, $M:ident, encodeInit, mask, declWidth, Signal.fst, Signal.snd, $exHelp,*]),
     ← `(tactic| all_goals decide +kernel)]

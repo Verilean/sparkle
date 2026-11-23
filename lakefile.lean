@@ -484,6 +484,9 @@ lean_lib «Tools.VedU1MerkleWhnf» where
 lean_lib «Tools.VedU1StructSeqTac» where
   roots := #[`Tools.VedU1StructSeqTac]
 
+lean_lib «Tools.VedU1StructWires» where
+  roots := #[`Tools.VedU1StructWires]
+
 lean_lib «Tools.VedU1StructSeq» where
   roots := #[`Tools.VedU1StructSeq]
 
@@ -576,6 +579,9 @@ lean_lib «Tests.Ved.U1StructShareCheck» where
 
 lean_lib «Tests.Ved.U1StructWireCheck» where
   roots := #[`Tests.Ved.U1StructWireCheck]
+
+lean_lib «Tests.Ved.U1StructNamedCheck» where
+  roots := #[`Tests.Ved.U1StructNamedCheck]
 
 lean_lib «Tests.Ved.VedMemWidthCheck» where
   roots := #[`Tests.Ved.VedMemWidthCheck]
