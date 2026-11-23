@@ -32,8 +32,56 @@ initialize genOnceFailLate : IO.Ref Bool ← IO.mkRef false
 initialize genResidClean : IO.Ref Nat ← IO.mkRef 0
 initialize genResidLeft : IO.Ref Nat ← IO.mkRef 0
 
+/-- the occurrences of the loop value of `v` (`Signal.val` of the same loop at the same cycle, the type argument may be spelled differently) -/
+def isLoopVal (v : Expr) (e : Expr) : Bool :=
+  e == v || (e.isAppOfArity ``Signal.val 4 && e.getArg! 2 == v.getArg! 2 && e.getArg! 3 == v.getArg! 3)
+
+/-- the goal with `v` generalised to a new variable `X` KEEPING the equation `hX : v = X` (the hypotheses that mention `v` are put back into the goal and
+introduced again with their names, as `generalizeDag` does); returns the new main goal -/
+def generalizeKeep (g : MVarId) (v : Expr) (X hX : Name) : MetaM MVarId := g.withContext do
+  let mut rev : Array FVarId := #[]
+  for d in ← getLCtx do
+    unless d.isImplementationDetail do
+      if (← instantiateMVars d.type).find? (isLoopVal v) |>.isSome then rev := rev.push d.fvarId
+  let (fvs, g1) ← g.revert rev (preserveOrder := true)
+  g1.withContext do
+    let tgt ← instantiateMVars (← g1.getType)
+    let ty ← inferType v
+    let newTy ← withLocalDeclD X ty fun xv => do
+      let eqT ← mkEq v xv
+      withLocalDeclD hX eqT fun hv =>
+        mkForallFVars #[xv, hv] (tgt.replace fun e => if isLoopVal v e then some xv else none)
+    let g2 ← mkFreshExprMVar newTy
+    g1.assign (mkApp2 g2 v (← mkEqRefl v))
+    let (_, g3) ← g2.mvarId!.intro X
+    let (_, g4) ← g3.intro hX
+    let (_, g5) ← g4.introNP fvs.size
+    return g5
+
+/-- in `g`, every occurrence of `v` (target and the hypotheses other than `keep`) is replaced by `r` with the proof `h : v = r` (`congrArg` over the target; the hypotheses
+that mention `v` are reverted and introduced again).  `has` is the (memoised) test for a type -/
+def replaceByEq (g : MVarId) (v r h : Expr) (keep : Array FVarId) (has : Expr → MetaM Bool) : MetaM MVarId := g.withContext do
+  let mut rev : Array FVarId := #[]
+  for d in ← getLCtx do
+    unless d.isImplementationDetail || keep.contains d.fvarId do
+      if ← has d.type then rev := rev.push d.fvarId
+  let (fvs, g1) ← g.revert rev (preserveOrder := true)
+  g1.withContext do
+    let tgt ← instantiateMVars (← g1.getType)
+    unless ← has tgt do
+      let (_, g2) ← g1.introNP fvs.size
+      return g2
+    let newTgt := tgt.replace fun e => if isLoopVal v e then some r else none
+    let xTy ← inferType v
+    let motive ← withLocalDeclD `ved_y xTy fun y => mkLambdaFVars #[y] (tgt.replace fun e => if isLoopVal v e then some y else none)
+    let pf ← mkCongrArg motive h
+    let g2 ← g1.replaceTargetEq newTgt pf
+    let (_, g3) ← g2.introNP fvs.size
+    return g3
+
 /-- `ved_loop_gen_once s`: see the module comment.  Fails (the caller's `first` restores the state) unless there is exactly one goal and
-at least one loop value is generalised. -/
+at least one loop value is generalised.  Every generalisation keeps its equation `ved_hX<j> : (loop).val s = (tuple)`, which `ved_loop_gen_resid` uses for the
+loop values that appear later (the stage-99 simp). -/
 elab "ved_loop_gen_once " s:ident : tactic => withMainContext do
   let gs ← getGoals
   unless gs.length == 1 do throwError "ved_loop_gen_once: {gs.length} goals"
@@ -51,7 +99,8 @@ elab "ved_loop_gen_once " s:ident : tactic => withMainContext do
     let xs := (List.range (if bare then 1 else n + 1)).toArray.map fun i => mkIdent (Name.mkSimple s!"ved_x{j}_{i}")
     let pats ← xs.mapM fun x => `(Lean.Parser.Tactic.rcasesPatLo| $x:ident)
     let v ← g.withContext <| mkAppM ``Sparkle.Core.Signal.Signal.val #[loops[j]!, sE]
-    generalizeDag v (if bare then Name.mkSimple s!"ved_x{j}_0" else X.getId)
+    let g' ← generalizeKeep g v (if bare then Name.mkSimple s!"ved_x{j}_0" else X.getId) (Name.mkSimple s!"ved_hX{j}")
+    replaceMainGoal [g']
     unless bare do evalTactic (← `(tactic| rcases $X:ident with ⟨$pats,*⟩))
     done := done + 1
   if done == 0 then throwError "ved_loop_gen_once: no loop value to generalise"
@@ -59,31 +108,65 @@ elab "ved_loop_gen_once " s:ident : tactic => withMainContext do
   genOnceHits.modify (· + 1)
   dbgLog s!"gen_once: {done} of {loops.size} loops generalised"
 
-/-- `ved_loop_gen_resid s`: `ved_loop_gen_mem s` unless no goal has a loop value `(loop).val s` left (one scan, each distinct type once) -/
+/-- `ved_loop_gen_resid s`: the loop values `(loop).val s` that appeared after `ved_loop_gen_once` (the stage-99 simp) are replaced, in each goal that has one, by the tuple of the
+equation `ved_hX<j>` of that loop (no `rcases`, no `Bool` split, no scan of absent loops: one memoised scan per distinct type).  A loop value without such an
+equation: the old `ved_loop_gen_mem s` for the rest (the fallback). -/
 elab "ved_loop_gen_resid " s:ident : tactic => withMainContext do
   let sE ← elabTerm s.raw none
   let isV := fun (e : Expr) => e.isAppOfArity ``Signal.val 4 && (e.getArg! 2).isAppOfArity ``Signal.loop 4 && e.getArg! 3 == sE
-  let seen ← IO.mkRef (({} : Std.HashSet Expr))
-  let scan (e : Expr) : MetaM Bool := do
+  -- the equations of the first goal's context (shared by all goals): (v, tuple, proof, fvarId)
+  let some g0 := (← getGoals).head? | return
+  let eqs : Array (Expr × Expr × Expr × FVarId) ← g0.withContext do
+    let mut acc : Array (Expr × Expr × Expr × FVarId) := #[]
+    for d in ← getLCtx do
+      unless d.isImplementationDetail do
+        if d.userName.toString.startsWith "ved_hX" then
+          if let some (_, l, r) := (← instantiateMVars d.type).eq? then
+            if isV l then acc := acc.push (l, r, d.toExpr, d.fvarId)
+    pure acc
+  let memo ← IO.mkRef (({} : Std.HashMap (Expr × Expr) Bool))
+  let hasV (v : Expr) (e : Expr) : MetaM Bool := do
     let e ← instantiateMVars e
-    if (← seen.get).contains e then return false
-    seen.modify (·.insert e)
-    return !(collectDag isV e).isEmpty
-  let mut left := false
+    if let some r := (← memo.get)[(v, e)]? then return r
+    let r := !(collectDag (isLoopVal v) e).isEmpty
+    memo.modify (·.insert (v, e) r)
+    return r
+  let keep := eqs.map (·.2.2.2)
+  let mut out : List MVarId := []
+  let mut other := false
+  let mut replaced := 0
   for g in ← getGoals do
-    if left then break
-    left ← g.withContext do
-      if (← scan (← g.getType)) then return true
+    let mut cur := g
+    for (v, r, h, _) in eqs do
+      let tgt ← cur.withContext do instantiateMVars (← cur.getType)
+      let any ← cur.withContext do
+        if ← hasV v tgt then pure true else
+        let mut f := false
+        for d in ← getLCtx do
+          unless d.isImplementationDetail || keep.contains d.fvarId do
+            if !f && (← hasV v d.type) then f := true
+        pure f
+      if any then
+        cur ← replaceByEq cur v r h keep (hasV v)
+        replaced := replaced + 1
+    -- a loop value of a loop without an equation
+    let left ← cur.withContext do
+      let mut f := false
+      let t ← instantiateMVars (← cur.getType)
+      if !(collectDag isV t).isEmpty then f := true
       for d in ← getLCtx do
-        unless d.isImplementationDetail do
-          if (← scan d.type) then return true
-      return false
-  if left then
+        unless f || d.isImplementationDetail || keep.contains d.fvarId do
+          if !(collectDag isV (← instantiateMVars d.type)).isEmpty then f := true
+      pure f
+    if left then other := true
+    out := out ++ [cur]
+  setGoals out
+  if other then
     genResidLeft.modify (· + 1)
-    dbgLog "gen_resid: loop values left, ved_loop_gen_mem"
+    dbgLog s!"gen_resid: {replaced} replacements; loop values without an equation left, ved_loop_gen_mem"
     evalTactic (← `(tactic| ved_loop_gen_mem $s))
   else
     genResidClean.modify (· + 1)
-    dbgLog "gen_resid: no loop value left"
+    dbgLog s!"gen_resid: {replaced} replacements, no loop value left"
 
 end Tools.VedMemS94Gen

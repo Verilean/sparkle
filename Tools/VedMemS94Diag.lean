@@ -1243,9 +1243,13 @@ elab "#ved_s95_replay " d:str : command => do
   let mode := (← IO.getEnv "VED_S95_MODE").getD "old"
   let upto := ((← IO.getEnv "VED_S95_UPTO").bind String.toNat?).getD 100
   liftTermElabM do
+    dbgLog "S95 replay: start"
     let ci ← getConstInfo `ved_ckpt95_goal0
+    dbgLog "S95 replay: constant found"
     let seen ← IO.mkRef (({} : Std.HashSet Name))
-    for c in (Tools.VedU1WireShare.collectDag (fun x => x.isConst) ci.type).map (·.constName!) do ckptRealize seen c 6
+    let cs95 := (Tools.VedU1WireShare.collectDag (fun x => x.isConst) ci.type).map (·.constName!)
+    dbgLog s!"S95 replay: {cs95.size} constants in the goal type"
+    for c in cs95 do ckptRealize seen c 6
     dbgLog s!"S95 replay: {(← seen.get).size} constants visited for matcher equations"
     let mut g := (← mkFreshExprMVar ci.type).mvarId!
     let mut k := 0
@@ -1254,7 +1258,14 @@ elab "#ved_s95_replay " d:str : command => do
       let (_, g') ← g.intro (Name.mkSimple s!"ck{k}")
       g := g'; k := k + 1
     let sId := mkIdent (Name.mkSimple s!"ck{sp}")
-    let hs : Array (TSyntax `ident) := hms.toArray.map fun i => mkIdent (Name.mkSimple s!"ck{i}")
+    -- the memory invariants: the hypotheses of type `MemInv ..`, in context order (the stored positions of `hM<i>` are not reliable here)
+    let hs : Array (TSyntax `ident) ← g.withContext do
+      let mut a : Array (TSyntax `ident) := #[]
+      for d in ← getLCtx do
+        unless d.isImplementationDetail do
+          if (← instantiateMVars d.type).isAppOf ``Tools.VedMem.MemInv then a := a.push (mkIdent d.userName)
+      pure a
+    dbgLog s!"S95 replay: {hs.size} MemInv hypotheses (stored hm positions {hms.length})"
     Tools.VedMemLoop.declWidthTab.set tab
     let sE ← g.withContext do elabTerm sId none
     let isV := fun (e : Expr) => e.isAppOfArity ``Sparkle.Core.Signal.Signal.val 4 && (e.getArg! 2).isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 && e.getArg! 3 == sE
@@ -1300,8 +1311,10 @@ elab "#ved_s95_replay " d:str : command => do
     for c in peels.toList.drop 1 do peelAlt ← `(tactic| first | ($peelAlt:tactic) | ($c:tactic))
     if Tools.VedMemS94Peel.ved.mem.s94PeelDag.get opts then
       peelAlt ← `(tactic| first | (ved_mem_peel_dag $[$hs]*) | ($peelAlt:tactic))
-    let once := mode == "once"
-    let genOnceT ← if once then `(tactic| first | ved_loop_gen_once $sId | skip) else `(tactic| skip)
+    let once := mode == "once" || mode == "once2"
+    -- `once2`: the stage-99 simp (`memoryComboRead_val`, which creates new loop values) runs on the shared goal before the generalisation
+    let genOnceT ← if mode == "once2" then `(tactic| first | ((try (ved_loop_simp [$r99,*])); ved_loop_gen_once $sId) | skip)
+      else if once then `(tactic| first | ved_loop_gen_once $sId | skip) else `(tactic| skip)
     let genLastT ← if once then `(tactic| ved_loop_gen_resid $sId) else `(tactic| ved_loop_gen_mem $sId)
     let steps : List (Nat × String × TSyntax `tactic) := [
       (95, "gen_once", genOnceT),
@@ -1320,6 +1333,36 @@ elab "#ved_s95_replay " d:str : command => do
       if stepNo no > upto then break
       let t0 ← IO.monoMsNow
       let hb0 ← IO.getNumHeartbeats
+      -- `VED_S95_PEELDBG`: the DAG peel alone on each MemInv goal (error text, ms, heartbeats), the first goals only; the goals stay as they are
+      if no == 97 && (← IO.getEnv "VED_S95_PEELDBG").isSome then
+        let mut shown := 0
+        for gq in cur do
+          let tg ← instantiateMVars (← gq.getType)
+          unless tg.isAppOf ``Tools.VedMem.MemInv do continue
+          if shown ≥ 4 then break
+          shown := shown + 1
+          let t1 ← IO.monoMsNow
+          let hb1 ← IO.getNumHeartbeats
+          let r ← try
+              withTheReader Core.Context (fun c => { c with maxHeartbeats := 300000000, initHeartbeats := hb1 }) do
+                let gs ← Tactic.run gq (Tactic.evalTactic (← `(tactic| ved_mem_peel_dag $[$hs]*)))
+                pure s!"ok goals={gs.length}"
+            catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 500}"
+          if shown ≤ 2 then
+            gq.withContext do
+              for h in hs do
+                let some d := (← getLCtx).findFromUserName? h.getId | continue
+                let ht ← instantiateMVars d.type
+                let n := min ht.getAppNumArgs tg.getAppNumArgs
+                let mut diff : List String := []
+                for i in [0:n] do
+                  let a1 := ht.getArg! i
+                  let a2 := tg.getArg! i
+                  unless a1 == a2 do
+                    diff := diff ++ [s!"#{i}: hyp tree={Tools.VedU1Loop.treeSizeVal a1} goal tree={Tools.VedU1Loop.treeSizeVal a2} heads {s94Head a1}/{s94Head a2} {(progShallow 3 a1).take 160} || {(progShallow 3 a2).take 160}"]
+                dbgLog s!"S95 peeldbg hyp {h.getId}: head {s94Head ht} nargs={ht.getAppNumArgs}/{tg.getAppNumArgs} differing args: {diff}"
+          dbgLog s!"S95 peeldbg MemInv goal: {r} ms={(← IO.monoMsNow) - t1} hb(k)={((← IO.getNumHeartbeats) - hb1) / 1000} args trees={(tg.getAppArgs.map Tools.VedU1Loop.treeSizeVal).toList}"
+        break
       let res ← try
           let gs ← Tactic.run cur.head! (do Tactic.setGoals cur; Tactic.evalTactic tac)
           cur := gs
