@@ -27,6 +27,12 @@ theorem U2HStmtK_of_U2HStmt (c : Contract) (m : Module) (d : Design) (f : c.tabl
   obtain ⟨a, b, c', d', e, f', g, h, i, j⟩ := h
   exact ⟨a, b, c', HierShapeK_of_S d', e, f', g, h, i, j⟩
 
+/-- `U2HStmtK` is `U2HRStmtK` plus the register-free clause (the only difference of the two statements). -/
+theorem U2HStmtK_of_R {c : Contract} {m : Module} {d : Design} {f : c.table.Ty}
+    (h : U2HRStmtK c m d f) (hn : regsOf m.body = []) : U2HStmtK c m d f := by
+  obtain ⟨a, b, c', d', e, f', g, h, i⟩ := h
+  exact ⟨a, b, c', d', hn, e, f', g, h, i⟩
+
 /-- COINCIDENCE: when every module of the design has exactly one output, `U2HStmtK` is `U2HStmt`. -/
 theorem U2HStmtK_iff (c : Contract) (m : Module) (d : Design) (f : c.table.Ty)
     (h1 : ∀ x ∈ d.modules, x.outputs.length = 1) : U2HStmtK c m d f ↔ U2HStmt c m d f := by

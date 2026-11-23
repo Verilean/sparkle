@@ -124,3 +124,36 @@ set_option ved.compose.multiOut true in
 #print axioms Tests.Ved.MultiOutProbe.probeTopSeq.ved_u1
 
 end Tests.Ved.MultiOutProbe
+
+/-! ## Unit 4: a REGISTER-FREE parent over the 2-output child, statement `U2HStmtK` (NOT yet accepted)
+
+The standard entry `vedU2HierEntryR` with the option on routes a register-free parent with a k-output child through
+`phase1`/`phase2` (statement `U2HStmtK`).  The shape (`HierShapeK`) and the child theorem pass; the open parent is the first
+unsupplied piece: `genOpenMulti` (Tools/VedU2HierMultiGen.lean:271) needs the parent's value to reduce to a `circuit do`
+(`runCircuitH`), a register-free parent such as `probeA` has none.  Pinned as the refusal `[open] ... runCircuitH` (and nothing
+left behind), so this Check goes red the day that proposition is supplied and the acceptance assertion must be added. -/
+
+namespace Tests.Ved.MultiOutProbe
+
+open Lean Elab Command Term Meta
+open Sparkle.Core.Domain Sparkle.Core.Signal Sparkle.Core
+
+def probeA (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  let c := kid2 a b
+  c.p - c.q
+
+#eval show CommandElabM Unit from do
+  let before := (← getEnv).constants.map₂.toList.map (·.1)
+  let r ← withScope (fun sc => { sc with opts := sc.opts.setBool `ved.compose.multiOut true }) do
+    try
+      discard <| Tools.VedU2HierRegEntry.vedU2HierEntryR `Tests.Ved.MultiOutProbe.probeA
+      pure none
+    catch e => pure (some (← liftTermElabM (e.toMessageData.toString)))
+  let some msg := r | throwError "probeA: expected the pinned [open] refusal, the entry ACCEPTED (add the U2HStmtK assertion)"
+  unless msg.startsWith "VED U1 REFUSED Tests.Ved.MultiOutProbe.probeA [open]" && (msg.splitOn "runCircuitH").length > 1 do
+    throwError "probeA: unexpected refusal: {msg.take 400}"
+  let added := (← getEnv).constants.map₂.toList.map (·.1) |>.filter (!before.contains ·)
+  unless added.isEmpty do throwError "probeA: constants left after the refusal: {added}"
+  logInfo m!"PROBE A PINNED: register-free parent refused at [open] (runCircuitH): {msg.take 200}"
+
+end Tests.Ved.MultiOutProbe

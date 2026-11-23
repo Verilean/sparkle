@@ -3,6 +3,7 @@ import Tools.VedH3ChildEntry
 import Tools.VedU2HierClose
 import Tools.VedU2HierEntry
 import Tools.VedU2HierMultiOut
+import Tools.VedU2HierMultiOutH
 import Tools.VedU1StructOut
 import Tools.VedU2HierReg
 import Tools.VedU2HierNet
@@ -1486,12 +1487,21 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
           s!"if n = {sq ("_gen_" ++ bn)} then Tools.VedU1Contract.PTy.obs {ptyTxt pt} (({toString (userName ad)} ins).val t) else {acc}") "0"
         addTermDef (fDefName opn j) (← parseTerm s!"fun (ins : Nat → String → Nat) (t : Nat) (n : String) => {body}")
   catch e => refuse decl "deep" m!"auxiliary definitions: {e.toMessageData}"
-  let expected := mkAppN (Lean.mkConst (if ved.compose.multiOut.get (← getOptions) then ``U2HRStmtK else ``U2HRStmt))
+  -- option `ved.compose.multiOut`, a register-free parent: the statement is `U2HStmtK` (= `U2HRStmtK` + `regsOf m.body = []`)
+  let moOn := ved.compose.multiOut.get (← getOptions)
+  let noRegK := moOn && (regsOf m.body).isEmpty
+  let expected := mkAppN (Lean.mkConst (if noRegK then ``U2HStmtK else if moOn then ``U2HRStmtK else ``U2HRStmt))
     #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst nm.design, stmt]
   try check expected catch e => refuse decl "type" e.toMessageData
   unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
   let tGen0 ← IO.monoMsNow
-  let text := "by\n" ++ scriptTextR nm stmt.getAppFn.constName! stmt.getAppNumArgs tbl opn kids p1.insts di ((← IO.getEnv "VED_HIER_TRACE").isSome)
+  let text0 := scriptTextR nm stmt.getAppFn.constName! stmt.getAppNumArgs tbl opn kids p1.insts di ((← IO.getEnv "VED_HIER_TRACE").isSome)
+  let text := if noRegK then
+      let P := nm.user
+      s!"by\n  have hR : Tools.VedU2Hier.U2HRStmtK {P.contract} {P.mod} {P.design} {declTerm stmt.getAppFn.constName! stmt.getAppNumArgs} := by\n" ++
+        "\n".intercalate ((text0.splitOn "\n").map fun l => "  " ++ l) ++
+        s!"\n  exact Tools.VedU2Hier.U2HStmtK_of_R hR (by decide)"
+    else "by\n" ++ text0
   let tGen := (← IO.monoMsNow) - tGen0 + (if text.length > 0 then 0 else 1)
   Tools.VedU2HierDbg.phaseLog s!"script generated ({text.length} chars, {tGen} ms)"
   -- measurement only: the size of the generated script, facts and generation time
@@ -1715,7 +1725,8 @@ def vedU2HierEntryR (declName : Name) :
     catch e => refuse declName "synthesis" e.toMessageData
   let t1 ← IO.monoMsNow
   Tools.VedU2HierDbg.phaseLog "synthesis end"
-  if (regsOf m.body).isEmpty then
+  -- option `ved.compose.multiOut`: a register-free parent with a k-output child is proved by `checkU2HR`'s machinery (statement `U2HStmtK`)
+  if (regsOf m.body).isEmpty && !(ved.compose.multiOut.get (← getOptions) && d.modules.any (·.outputs.length > 1)) then
     let (thm, childMs, proofMs) ← liftTermElabM (checkU2H declName stmt nDom m d)
     return (m, d, thm, nDom, { synthMs := t1 - t0, childMs, proofMs, peakKb := ← peakKb })
   else
