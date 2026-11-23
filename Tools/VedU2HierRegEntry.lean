@@ -358,6 +358,9 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let hsN := if mo then "HierShapeK" else "HierShapeS"
   let sfx := if mo then "_multi" else ""
   let isMultiK (k : Kid) : Bool := mo && k.c.outputs.length > 1
+  -- option `ved.compose.multiOut`: a multi-output child WITH registers (sequential): its instance fact is asked through `kid_seq_multi`
+  -- (`hrunF` at every cycle `s ≤ t`, from the history of the invariant), not `kid_step_multi` (combinational children only)
+  let isSeqK (k : Kid) : Bool := isMultiK k && !(regsOf k.c.body).isEmpty
   let GS (k : Kid) : String :=
     if isMultiK k then toString (userName (k.nm.mod.getPrefix ++ `ved_bundle)) else declTerm k.decl k.nDom
   -- the (port, wire) pairs of an instance's outputs, in the order of its connections (`instOuts`)
@@ -486,13 +489,13 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let st := insts.any (·.stateArg)
   if st then
     -- H2c-state: the instance fact is asked at cycle t under the invariant (goals: h0, hkid, hstep)
-    L := L.push s!"  refine {T2}.outputsOnHS_of_stepRK{sfx} {P.contract} {P.mod} {P.design} arr {FT} hS hadm hsupp hsch {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.1 hb0.2.2.1 (fun ins y t => {owBody}) {rTerm} ?_ ?_ ?_"
+    L := L.push s!"  refine {T2}.outputsOnHS_of_stepRK{if insts.any (fun ii => isSeqK kidA[ii.kid]!) then "H" else ""}{sfx} {P.contract} {P.mod} {P.design} arr {FT} hS hadm hsupp hsch {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.1 hb0.2.2.1 (fun ins y t => {owBody}) {rTerm} ?_ ?_ ?_"
   else
     L := L.push s!"  refine {T2}.outputsOnHS_of_stepR{sfx} {P.contract} {P.mod} {P.design} arr {FT} hS hadm hsupp hsch {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 hb0.2.2.2.1 hb0.2.2.1 (fun ins y t => {owBody}) ?_ {rTerm} ?_ ?_"
   let hkStart := L.size
   -- hkid (as in H2a)
   if st then
-    L := L.push s!"  · intro ins hok K envs sts hrun t ht S E hS' hE hR mn i cs hin y hy"
+    L := L.push s!"  · intro ins hok K envs sts hrun t ht S E hS' hE hR {if insts.any (fun ii => isSeqK kidA[ii.kid]!) then "hh " else ""}mn i cs hin y hy"
   else
     L := L.push s!"  · intro ins hok K envs sts hrun mn i cs hin t ht E hE y hy"
   L := L.push s!"    have hin0 := hin"
@@ -612,13 +615,19 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           | .bit =>
             X := X.push s!"    have h : Bool.toNat {A} < 2 ^ 1 := by cases {A} <;> simp"
             X := X.push s!"    simpa [{Fj}, Tools.VedU1Contract.PTy.obs] using h"
-        if ii.stateArg then
+        let seqI := ii.stateArg && isSeqK k
+        if seqI then
+          -- sequential child: the port facts are proved at a GENERAL cycle (`hrunF0`, the names of the block shadow the cycle `t`'s),
+          -- and `hrunF` asks them at every `s ≤ t` from the history `hh` of the invariant
+          X := X.push s!"have hrunF0 : ∀ t, t < K → ∀ S E, sts[t]? = some S → envs[t]? = some E → {rTerm} ins t (S []) → ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E x = {Fj} ins t p.name := by"
+          X := X.push s!"  intro t ht S E hS' hE hR p hp"
+        else if ii.stateArg then
           X := X.push s!"have hrunF : ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E x = {Fj} ins t p.name := by"
           X := X.push s!"  intro p hp"
         else
           X := X.push s!"have hrunF : ∀ t, t < K → ∀ E, envs[t]? = some E → ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E x = {Fj} ins t p.name := by"
           X := X.push s!"  intro t ht E hE p hp"
-        let hoisted := hoist && ii.stateArg
+        let hoisted := hoist && ii.stateArg && !seqI
         unless hoisted do
           X := X.push s!"  have hasgF := {T2}.closed_run_asgOf {P.design} arr {P.mod} hadm {P.body} (hadm.1.trans hb0.1.symm) hb0.2.1 (Tools.VedU1Contract.seedFwd {P.mod} K ins) K ({T2}.st0H {P.design} {P.mod}) envs sts hrun t ht E hE"
           X := X.push s!"  have hEin : ∀ x ∈ {T2}.inNames {P.mod}, E x = ins t x := fun x hx => by"
@@ -722,7 +731,13 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           -- VED compose connect: the producer's call is stated over its argument definition, the consumer's input over the
           -- loop terms: the two are definitionally the same signal
           if !prodFacts.isEmpty then X := X.push s!"    all_goals (try rfl)"
-        if ii.stateArg then
+        if seqI then
+          X := X.push s!"have hrunF : ∀ s, s ≤ t → ∀ E', envs[s]? = some E' → ∀ p ∈ {K.contract}.dataInputs, ∃ x, ({connsLit ii.cs}).lookup p.name = some (Sparkle.IR.AST.Expr.ref x) ∧ E' x = {Fj} ins s p.name := by"
+          X := X.push s!"  intro s hs E' hE' p hp"
+          X := X.push s!"  obtain ⟨_, S', _, hS2, _⟩ := {T2}.runHSTrace_cycle {P.design} arr {P.mod} (Tools.VedU1Contract.seedFwd {P.mod} K ins) K ({T2}.st0H {P.design} {P.mod}) envs sts hrun s (by omega)"
+          X := X.push s!"  exact hrunF0 s (by omega) S' E' hS2 hE' (hh s hs S' E' hS2 hE') p hp"
+          X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_seq_multi {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange t ht hrunF E hE _ hq"
+        else if ii.stateArg then
           X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_step{sfx} {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange t ht E hE hrunF _ hq"
         else
           X := X.push s!"obtain ⟨x, hx, hv⟩ := {T2}.kid_inst_net{sfx} {P.design} arr {P.mod} hS hadm hwr {P.contract} htie ins hok K envs sts hrun {sq ii.mn} {sq ii.iname} {connsLit ii.cs} hin0 {K.mod} (by decide) {K.contract} {G} {K.thm} (by decide) ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).1 ({T2}.connsNet_sound (m := {P.mod}) (c := {K.mod}) (ck := {K.contract}) (cs := {connsLit ii.cs}) (by decide)).2 ({Fj} ins) hrange hrunF t ht E hE _ hq"
@@ -1148,7 +1163,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       unless connsIn m cm cs && dataIn c m ck cm cs do
         -- H2c: a data port may read a net computed from the parent data inputs only; H2c-state: for a
         -- COMBINATIONAL child (no registers) also from the parent's register outputs
-        if let some msg := connDiagNet d c m b0 ck cm iname cs (allowRegs := (regsOf cm.body).isEmpty)
+        if let some msg := connDiagNet d c m b0 ck cm iname cs (allowRegs := (regsOf cm.body).isEmpty || (ved.compose.multiOut.get (← getOptions) && cm.outputs.length > 1))
             (allowInstOut := Tools.VedComposeConnect.ved.compose.connect.get (← getOptions)) then
           refuse decl "conns" m!"{msg}"
     | _ => pure ()
