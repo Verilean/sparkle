@@ -674,6 +674,10 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
     let ck97T : TSyntax `tactic ← if isNew && (← Tools.VedMemS94Diag.s94Gate) && (← IO.getEnv "VED_S94_CKPT").isSome && ckAt == "97" then
         `(tactic| ved_s94_ckpt97 [$[$hM],*])
       else `(tactic| skip)
+    -- diagnosis only: the stage-100 checkpoint (`VED_S94_CKPT=DIR` and `VED_S94_CKPT_AT=100`), written right after stamp 100
+    let ck100T : TSyntax `tactic ← if isNew && (← Tools.VedMemS94Diag.s94Gate) && (← IO.getEnv "VED_S94_CKPT").isSome && ckAt == "100" then
+        `(tactic| ved_s94_ckpt100 $sI [$[$hM],*])
+      else `(tactic| skip)
     let ex95 : TSyntax `tactic ← if exitAt && (← IO.getEnv "VED_EXIT_AT") == some "95" then `(tactic| ved_s94_exit 95) else `(tactic| skip)
     `(tactic| (
           $nh
@@ -706,6 +710,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           ved_stamp 99
           ved_dsimp_goals
           ved_stamp 100
+          $ck100T
           ved_loop_gen_mem $sI
           $d6
           $tl*))

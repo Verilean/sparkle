@@ -452,6 +452,55 @@ elab "ved_s94_ckpt97 " "[" hs:ident,* "]" : tactic => do
   dbgLog s!"S94 ckpt97 written to {dir}: {gs.length} goals, {md.constants.size} constants ({md.constants.size - keep.size} realized equation constants left out)"
   IO.Process.exit 0
 
+/-! ### Stage-100 checkpoint (`VED_S94_CKPT=DIR` and `VED_S94_CKPT_AT=100`, with the gate; never in a default script)
+
+`ved_s94_ckpt100 s [hM0, ..]` (emitted by the entry right after `ved_stamp 100`, i.e. just before `ved_loop_gen_mem s`) writes every open goal as the axiom
+`ved_ckpt100.goal<j> : ∀ (context), target` into `DIR/VedCkpt.olean` and `DIR/ckpt100.txt` (`n<TAB>goals`, then per goal `hm<TAB>j<TAB>positions of the
+hM_i` and `sp<TAB>j<TAB>position of s`), then the process ends.  `#ved_s94_ckpt100_replay "DIR"` re-creates the goals (hypotheses `ck0, ck1, ..`) and
+runs `ved_loop_gen_mem ck<s>` (see there). -/
+
+open Lean Meta Elab Tactic in
+elab "ved_s94_ckpt100 " s:ident " [" hs:ident,* "]" : tactic => do
+  unless (← s94Gate) do return
+  let some dir := (← IO.getEnv "VED_S94_CKPT") | return
+  let gs ← getGoals
+  dbgLog s!"S94 ckpt100: start, {gs.length} goals"
+  let mut lines : Array String := #[s!"n\t{gs.length}"]
+  let mut j : Nat := 0
+  for g in gs do
+    let (ty, hmLine, spLine, ksLine) ← g.withContext do
+      let tgt ← instantiateMVars (← g.getType)
+      let fvs : Array Expr := (← getLCtx).foldl (fun a d => if d.isImplementationDetail then a else a.push d.toExpr) #[]
+      let ids := fvs.map (·.fvarId!)
+      let mut pos : Array String := #[]
+      for h in hs.getElems do
+        let some d := (← getLCtx).findFromUserName? h.getId | throwError "ved_s94_ckpt100: no hypothesis {h.getId}"
+        let some i := ids.findIdx? (· == d.fvarId) | throwError "ved_s94_ckpt100: hypothesis not in the context"
+        pos := pos.push (toString i)
+      let some sd := (← getLCtx).findFromUserName? s.getId | throwError "ved_s94_ckpt100: no variable {s.getId}"
+      let some si := ids.findIdx? (· == sd.fvarId) | throwError "ved_s94_ckpt100: variable not in the context"
+      pure ((← instantiateMVars (← mkForallFVars fvs tgt (usedLetOnly := false))), s!"hm\t{j}\t" ++ "\t".intercalate pos.toList, s!"sp\t{j}\t{si}",
+        s!"ks\t{j}\t" ++ "\t".intercalate (ids.toList.map (·.name.toString)))
+    lines := ((lines.push hmLine).push spLine).push ksLine
+    if ty.hasFVar || ty.hasMVar || ty.hasLevelParam || ty.hasLevelMVar then
+      throwError "ved_s94_ckpt100: goal {j} still has fvars/mvars/level parameters"
+    withTheReader Core.Context (fun c => { c with options := c.options.setBool `debug.skipKernelTC true }) do
+      addDecl (.axiomDecl { name := Name.mkSimple s!"ved_ckpt100_goal{j}", levelParams := [], type := ty, isUnsafe := false })
+    j := j + 1
+  dbgLog "S94 ckpt100: axioms added"
+  IO.FS.createDirAll dir
+  IO.FS.writeFile (dir ++ "/ckpt100.txt") ("\n".intercalate lines.toList ++ "\n")
+  let md ← Lean.mkModuleData (← getEnv)
+  let realized (n : Name) : Bool :=
+    match n with
+    | .str _ s => s == "splitter" || s == "eq_def" || s == "sunfold" || (s.startsWith "eq_" && (s.drop 3).all Char.isDigit)
+    | _ => false
+  let keep := md.constants.filter (fun c => !realized c.name)
+  let md' := { md with constNames := keep.map (·.name), constants := keep }
+  Lean.saveModuleData (dir ++ "/VedCkpt.olean") (← getEnv).mainModule md'
+  dbgLog s!"S94 ckpt100 written to {dir}: {gs.length} goals, {md.constants.size} constants ({md.constants.size - keep.size} realized equation constants left out)"
+  IO.Process.exit 0
+
 /-! ### Stage-94 checkpoint (`VED_S94_CKPT=DIR`, with the gate; never in a default script)
 
 `ved_s94_ckpt [lemmas]` (emitted by the entry right after `ved_stamp 94`, i.e. with the goal the stage-94 simp starts from, only when the gate and
@@ -979,5 +1028,101 @@ elab "#ved_s94_ckpt97_replay " d:str : command => do
         | some n => withTheReader Core.Context (fun c => { c with maxHeartbeats := n * 1000, initHeartbeats := hb0 }) (tryCatchRuntimeEx run fun ex => do pure s!"EXN {((← ex.toMessageData.toString).replace "\n" " ").take 200}")
         | none => run
       dbgLog s!"S97 replay goal {j}: {res} ms={(← IO.monoMsNow) - t0} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}"
+
+open Lean Meta Elab Command Term in
+/-- replay of the stage-100 checkpoint: `ved_loop_gen_mem ck<s>` (the step of the script after stamp 100).  `VED_S100_GOALS` (default all; `a-b` or a comma list
+of numbers and ranges), `VED_S100_HB` (thousand heartbeats per goal / per run; default the ambient budget), `VED_S100_MODE=single` (default: every chosen goal alone,
+one line each with ms and heartbeats) or `all` (the chosen goals together, as the script does: one `ved_loop_gen_mem`).  Each line ends with the shape
+of the result (goals, tree total / max, as `ved_stamp`) so that it can be compared with the in-line run's next stamp. -/
+elab "#ved_s94_ckpt100_replay " d:str : command => do
+  let dir := d.getString
+  let rows := ((← IO.FS.readFile (dir ++ "/ckpt100.txt")).splitOn "\n").filter (· ≠ "") |>.map (·.splitOn "\t")
+  let mut nG := 0
+  let mut sps : Std.HashMap Nat Nat := {}
+  let mut kss : Std.HashMap Nat (List String) := {}
+  for r in rows do
+    match r with
+    | ["n", k] => nG := k.toNat!
+    | ["sp", j, i] => sps := sps.insert j.toNat! i.toNat!
+    | "ks" :: j :: ks => kss := kss.insert j.toNat! ks
+    | _ => pure ()
+  let mut chosen : Array Nat := #[]
+  match (← IO.getEnv "VED_S100_GOALS") with
+  | none => chosen := (List.range nG).toArray
+  | some str =>
+    for w in str.splitOn "," do
+      match w.splitOn "-" with
+      | [a, b] => for i in [a.toNat!:b.toNat!+1] do chosen := chosen.push i
+      | [a] => if a != "" then chosen := chosen.push a.toNat!
+      | _ => pure ()
+  let hbN? := (← IO.getEnv "VED_S100_HB").bind String.toNat?
+  let single := (← IO.getEnv "VED_S100_MODE") != some "all"
+  liftTermElabM do
+    let seen ← IO.mkRef (({} : Std.HashSet Name))
+    let sharedFv ← IO.mkRef (({} : Std.HashMap String (FVarId × Expr × Option Expr)))
+    let mut mvs : Array (Nat × MVarId × Name) := #[]
+    for j in chosen do
+      let ci ← getConstInfo (Name.mkSimple s!"ved_ckpt100_goal{j}")
+      if mvs.isEmpty then
+        for c in (Tools.VedU1WireShare.collectDag (fun x => x.isConst) ci.type).map (·.constName!) do ckptRealize seen c 6
+        dbgLog s!"S100 replay: {(← seen.get).size} constants visited for matcher equations"
+      -- the goal's context is built from SHARED fvars (the original fvarId names: goals of one run share their common prefix, as the loops they
+      -- contain do), so that `ved_loop_gen_mem` sees the same loops as in the script; the user name of a hypothesis is `ck<original fvarId>`
+      let keys := (kss.getD j []).toArray
+      let mut lctx : LocalContext := {}
+      let mut ty := ci.type
+      let mut k := 0
+      let mut sName : Name := .anonymous
+      repeat
+        let (dom, val?, body) ← match ty with
+          | .forallE _ d b _ => pure (d, (none : Option Expr), b)
+          | .letE _ d v b _ => pure (d, some v, b)
+          | _ => pure (ty, none, ty)
+        unless ty.isForall || ty.isLet do break
+        let key := keys[k]!
+        let nm := Name.mkSimple s!"ck{key}"
+        if k == sps.getD j 0 then sName := nm
+        let fv ← match (← sharedFv.get).get? key with
+          | some (id, _, _) => pure id
+          | none =>
+            let id ← mkFreshFVarId
+            sharedFv.modify (·.insert key (id, dom, val?))
+            pure id
+        let (_, dom0, val0) := ((← sharedFv.get).get! key)
+        lctx := match val? with
+          | none => lctx.mkLocalDecl fv nm dom0
+          | some _ => lctx.mkLetDecl fv nm dom0 (val0.getD dom0)
+        ty := body.instantiate1 (.fvar fv)
+        k := k + 1
+      let g := (← mkFreshExprMVarAt lctx #[] ty).mvarId!
+      mvs := mvs.push (j, g, sName)
+    let shape (gs : List MVarId) : MetaM String := do
+      let mut szs : Array Nat := #[]
+      for g in gs do
+        szs := szs.push (← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType)))
+      pure s!"goals={gs.length} tree: total={szs.foldl (· + ·) 0} max={szs.foldl max 0}"
+    let runOn (label : String) (items : Array (Nat × MVarId × Name)) : TermElabM Unit := do
+      let some (_, g0, s0) := items[0]? | return
+      let t0 ← IO.monoMsNow
+      let hb0 ← IO.getNumHeartbeats
+      let run : TermElabM String := do
+        try
+          let gs ← Tactic.run g0 (do
+            -- all chosen goals open at once (mode `all`), the first one's `s`
+            Tactic.setGoals (items.toList.map (·.2.1))
+            Tactic.evalTactic (← `(tactic| ved_loop_gen_mem $(mkIdent s0))))
+          pure s!"ok {← shape gs}"
+        catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 300}"
+      let res ← match hbN? with
+        | some n => withTheReader Core.Context (fun c => { c with maxHeartbeats := n * 1000, initHeartbeats := hb0 }) (tryCatchRuntimeEx run fun ex => do pure s!"EXN {((← ex.toMessageData.toString).replace "\n" " ").take 200}")
+        | none => run
+      dbgLog s!"S100 replay {label}: {res} ms={(← IO.monoMsNow) - t0} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}"
+    if single then
+      for it in mvs do
+        let tgt ← instantiateMVars (← it.2.1.getType)
+        dbgLog s!"S100 goal {it.1}: tree={Tools.VedU1Loop.treeSizeVal tgt} dag={(Tools.VedU1WireShare.collectDag (fun _ => true) tgt).size}"
+        runOn s!"goal {it.1}" #[it]
+    else
+      runOn s!"all {mvs.size} goals" mvs
 
 end Tools.VedMemS94Diag
