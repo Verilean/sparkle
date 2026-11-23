@@ -1775,14 +1775,14 @@ partial def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle
     (checkU2HRCore decl stmt nDom m d clkRstOverride tamper (structP := structP)
       -- option `ved.compose.nested`: the entry on a middle module (its own module value and sub-design)
       (fun cdecl cm dC => do
-        let (stmt', nDom', sp') ← liftTermElabM <| Tools.VedU2HierRecEntry.readDeclStmt cdecl
+        let (stmt', nDom', sp') ← liftTermElabM <| try Tools.VedU2HierRecEntry.readDeclStmt cdecl catch e => refuse cdecl "table" e.toMessageData
         let (thm, _, _) ← checkU2HR cdecl stmt' nDom' cm dC (structP := sp')
         return thm))
 
 /-- Option `ved.compose.nested` (Tools/VedU2HierRecEntry.lean): the entry on a MIDDLE module, run first on its own
 declaration (its own synthesis, the H2b checker `checkU2HR`). -/
 def midEntryN (declName : Name) (cm : Sparkle.IR.AST.Module) (dC : Design) : CommandElabM Name := do
-  let (stmt, nDom, sp) ← liftTermElabM <| Tools.VedU2HierRecEntry.readDeclStmt declName
+  let (stmt, nDom, sp) ← liftTermElabM <| try Tools.VedU2HierRecEntry.readDeclStmt declName catch e => refuse declName "table" e.toMessageData
   let (thm, _, _) ← checkU2HR declName stmt nDom cm dC (structP := sp)
   return thm
 
@@ -1801,9 +1801,8 @@ def vedU2HierEntryR (declName : Name) :
         let r ← liftTermElabM <| (try pure (Except.ok (← Tools.VedU1StructOut.stmtOfStruct declName)) catch e => pure (Except.error e))
         match r with
         | .ok (b, nd, names) => pure (b, nd, some (stmt0, names))
-        | .error e =>
-          if ← liftTermElabM (isRefusal e0) then throw e0 else throw e
-      else throw e0
+        | .error _ => liftTermElabM <| refuse declName "table" e0.toMessageData
+      else liftTermElabM <| refuse declName "table" e0.toMessageData
   let tbl ← liftTermElabM <| try readTableOfType declName (← inferType stmt) catch e => refuse declName "table" e.toMessageData
   unless tbl.out.flat.length == (structP.map (·.2.length)).getD 1 do
     liftTermElabM <| refuse declName "multi-output"

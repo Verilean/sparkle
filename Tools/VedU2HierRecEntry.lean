@@ -52,7 +52,7 @@ theorem bundle2_val {dom : Sparkle.Core.Domain.DomainConfig} {α β : Type u} (a
 `ved.compose.multiOut` a STRUCTURE result read through `Tools.VedU1StructOut.stmtOfStruct` (the bundle lambda over the ORIGINAL
 declaration, ports = field names; the third component is `(the declaration's own function, the port names)`). -/
 def readDeclStmt (declName : Name) : TermElabM (Lean.Expr × Nat × Option (Lean.Expr × List String)) := do
-  let (stmt0, nDom0) ← try specialiseDomain declName catch e => refuse declName "table" e.toMessageData
+  let (stmt0, nDom0) ← specialiseDomain declName
   match ← (try pure (Except.ok (← readTableOfType declName (← inferType stmt0))) catch e => pure (Except.error e)) with
   | .ok _ => pure (stmt0, nDom0, none)
   | .error e0 =>

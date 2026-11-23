@@ -1870,3 +1870,6 @@ lean_lib «Tools.VedU2HierRecReg» where
 
 lean_lib «Tools.VedU2HierRecCausal» where
   roots := #[`Tools.VedU2HierRecCausal]
+
+lean_lib «Tests.Ved.U2HierRecStructCheck» where
+  roots := #[`Tests.Ved.U2HierRecStructCheck]
