@@ -253,4 +253,59 @@ example (A B : Nat) : (A % 256 * 65536 + B % 65536) % 65536 = B % 65536 := Tools
 example (A B : Nat) : (A % 256 * 65536 + B % 65536) % 16777216 = A % 256 * 65536 + B % 65536 :=
   Tools.VedU1StructSlice.ved_slice_modM A B 256 65536 16777216 (by decide) (by decide)
 
+/-! ## Unit 12: `ved.sseq.wireEqs` (per-wire value lemmas of the source value), `ved.sseq.wireK`, `ved.sseq.muxCond`
+
+Positives: `chainN` (7 ports) and `chainW` (3 ports, widths 8/4/8) with the unit-11 options plus `wireEqs` (cut height 3, so that the small
+modules do cut wires and loops: the value lemmas `hV_i` and the restoration run) plus `muxCond`; a theorem with std3 axioms, no `sorryAx`.
+Controls: the wrong register update / the wrong output wire are still refused at `[proof]` with the options on (a wrong module cannot be
+proved through the cut wires), option off = the unit-11 checks above (unchanged).  Lemma level: `ved_mux_val_cond` is the `cond` form of
+`mux_val` (instantiated), and the swapped branches are not equal (refuted). -/
+
+def u12Opts : List (Name × Bool) :=
+  u11Opts ++ [(`ved.sseq.wireEqs, true), (`ved.sseq.muxCond, true)]
+
+def childRunV (child : Name) (n : Nat) (top : Name) (tag : String) (opts : List (Name × Bool)) :
+    CommandElabM (Option String × Option Name) := do
+  let (_, d) ← synthOf top
+  let some cm := d.modules.head? | throwError "no child module of {top}"
+  liftTermElabM do
+    withOptions (fun o => (opts.foldl (fun o p => o.setBool p.1 p.2) o).insert `ved.sseq.wireK (Lean.DataValue.ofNat 3)) do
+      let (b, _, names) ← Tools.VedU1StructOut.stmtOfStruct child
+      unless names.length == n do throwError "expected {n} output ports, got {names}"
+      try
+        let thm ← Tools.VedU1Entry.checkU1E child (child ++ Name.mkSimple tag) b cm .generated names
+        return (none, some thm)
+      catch e => return (some (← e.toMessageData.toString), none)
+
+def acceptedV (child : Name) (n : Nat) (top : Name) (tag : String) : CommandElabM Unit := do
+  let (msg, thm?) ← childRunV child n top tag u12Opts
+  let some thm := thm? | throwError "{child} (wireEqs+muxCond) refused: {msg.getD ""}"
+  liftTermElabM do
+    let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+    unless ti.type.getAppFn.isConstOf ``Tools.VedU1Contract.U1Stmt do throwError "{thm}: type is not U1Stmt"
+    let axs ← collectAxioms thm
+    unless axs.all (std3.contains ·) do throwError "{thm}: axioms outside std3: {axs}"
+    if axs.contains ``sorryAx then throwError "{thm}: sorryAx"
+    logInfo m!"CHILD THEOREM {child} (wireEqs K=3 + muxCond + slice+zeta+wires): {thm} U1Stmt, std3, no sorryAx"
+
+def refusedV (top : Name) (tag : String) (what : String) : CommandElabM Unit := do
+  let (msg?, thm?) ← childRunV ``chainN 7 top tag u12Opts
+  if thm?.isSome then throwError "control ({what}): the checker ACCEPTED a wrong module"
+  let some msg := msg? | throwError "control ({what}): neither refused nor accepted"
+  unless msg.startsWith s!"VED U1 REFUSED {``chainN} [proof]" do
+    throwError "control ({what}): unexpected refusal: {msg.take 300}"
+  logInfo m!"CONTROL {what} (wireEqs+muxCond on): refused at [proof], {msg.take 160}"
+
+#eval acceptedV ``chainN 7 ``topN "ved_u12a"
+#eval acceptedV ``chainW 3 ``topW "ved_u12w"
+#eval refusedV ``topNR "ved_u12R" "wrong register update"
+#eval refusedV ``topNO "ved_u12O" "wrong output wire"
+
+example {dom : Sparkle.Core.Domain.DomainConfig} (c : Sparkle.Core.Signal.Signal dom Bool) (a b : Sparkle.Core.Signal.Signal dom (BitVec 8)) (s : Nat) :
+    (Sparkle.Core.Signal.Signal.mux c a b).val s = cond (c.val s) (a.val s) (b.val s) :=
+  Tools.VedU1StructSlice.ved_mux_val_cond c a b s
+
+/-- the `cond` form is not symmetric in its branches: a lemma with the branches swapped is false -/
+example : ¬ (∀ (c a b : Bool), cond c a b = cond c b a) := by decide
+
 end Tests.Ved.U1StructNamedCheck
