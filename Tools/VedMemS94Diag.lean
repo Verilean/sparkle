@@ -614,6 +614,24 @@ partial def s94DagStr (ids : Std.HashMap Lean.Expr Nat) (x : Lean.Expr) (top : B
     | .const n _ => n.toString
     | _ => s94Head x
 
+/-- (s94t) like `progShallow`, with a `Signal.loop` application cut to `LOOP#hash` (the two loops of a port's enable are then told apart by their hash) and the
+instance / domain arguments dropped; the literals and the shape of the enable remain -/
+partial def progCut (d : Nat) (e : Lean.Expr) : String :=
+  if d == 0 then "…" else
+  match e with
+  | .app .. =>
+    if e.getAppFn.isConstOf ``Sparkle.Core.Signal.Signal.loop then s!"LOOP#{e.hash % 100000}" else
+    let h := s94Head e
+    let nm (a : Lean.Expr) : String := (a.getAppFn.constName?.map (·.toString)).getD ""
+    let args := e.getAppArgs.filter (fun a => !(nm a).startsWith "inst" && !(nm a).startsWith "Sparkle.Core.Domain" && !(a.isConstOf ``Nat) && !(a.isAppOf ``BitVec) && !(a.isConstOf ``Bool)) |>.map (progCut (d - 1))
+    s!"({h} {" ".intercalate args.toList})"
+  | .lam _ _ b _ => s!"(fun {progCut (d - 1) b})"
+  | .mdata _ b => progCut d b
+  | .fvar f => s!"{f.name}"
+  | .lit (.natVal n) => s!"{n}"
+  | .const n _ => n.toString
+  | _ => s94Head e
+
 /-- a depth-limited rendering (heads only; the raw `toString` of a stalled term can be exponentially large) -/
 partial def progShallow (d : Nat) (e : Lean.Expr) : String :=
   if d == 0 then "…" else
@@ -1499,10 +1517,17 @@ elab "#ved_s95_replay " d:str : command => do
             gq.withContext do
               let tg ← instantiateMVars (← gq.getType)
               dbgLog s!"S95 gdump goal {gi}: TARGET {(progShallow 8 tg).take 900}"
+              if (← IO.getEnv "VED_S95_PPNOT").isSome then
+                dbgLog s!"S95 gdump goal {gi}: CUTTARGET {(progCut 16 tg).take 2500}"
+                dbgLog s!"S95 gdump goal {gi}: PPTARGET {((← withOptions (fun o => ((o.setBool `pp.deepTerms false).insert `pp.deepTerms.threshold (3 : Nat)).insert `pp.maxSteps (400 : Nat)) (ppExpr tg)).pretty.replace "\n" " ").take 2500}"
               for d in ← getLCtx do
                 if d.isImplementationDetail then continue
                 let t ← instantiateMVars d.type
                 if (progShallow 2 t).startsWith "(Eq Nat (Tools.VedU1Contract.declWidth" then continue
+                -- `VED_S95_PPNOT=1` (s94t): the path hypotheses (`¬ ..`) of the goal pretty-printed, so the two write ports can be told apart
+                if (← IO.getEnv "VED_S95_PPNOT").isSome && (t.isAppOf ``Not) then
+                  dbgLog s!"S95 gdump goal {gi}: CUT {d.userName} : {(progCut 16 t).take 2500}"
+                  dbgLog s!"S95 gdump goal {gi}: PP {d.userName} : {((← withOptions (fun o => ((o.setBool `pp.deepTerms false).insert `pp.deepTerms.threshold (3 : Nat)).insert `pp.maxSteps (400 : Nat)) (ppExpr t)).pretty.replace "\n" " ").take 2500}"
                 dbgLog s!"S95 gdump goal {gi}: {d.userName} : {(progShallow 6 t).take 400}"
       if (← IO.getEnv "VED_S95_HYPHIST").isSome then dbgLog s!"S95 hist after {no} {name}: {← s94HypHist cur}"
       if let some nShow := (← IO.getEnv "VED_S95_HYPSHOW").bind String.toNat? then
@@ -1744,6 +1769,18 @@ elab "#ved_t3_replay " d:str : command => do
               if ((Tools.VedU1WireShare.collectDag (fun x => x.isFVar) t).any fun x => fvs.contains x.fvarId!) && c < nh then
                 c := c + 1
                 lg s!"T3 goal {i} hyp {d.userName} (tree {Tools.VedU1Loop.treeSizeVal t}): {((← ppExpr t).pretty.replace "\n" " ").take ((← IO.getEnv "VED_T3_HYPLEN").bind String.toNat? |>.getD 260)}"
+      -- `VED_T3_HYPVARS=131,133` (s94t): the hypotheses (tree <= `VED_T3_HYPMAXTREE`, default 300) that mention one of the context variables `ck131`, `ck133`, .. (not only the target's own)
+      if let some vs := (← IO.getEnv "VED_T3_HYPVARS") then
+        let names := (vs.splitOn ",").filterMap String.toNat? |>.map fun k => Name.mkSimple s!"ck{k}"
+        let maxT := ((← IO.getEnv "VED_T3_HYPMAXTREE").bind String.toNat?).getD 300
+        g.withContext do
+          for d in ← getLCtx do
+            unless d.isImplementationDetail do
+              let t ← instantiateMVars d.type
+              let mentions ← (Tools.VedU1WireShare.collectDag (fun x => x.isFVar) t).anyM fun x => do
+                return names.contains (← x.fvarId!.getDecl).userName
+              if mentions && Tools.VedU1Loop.treeSizeVal t ≤ maxT then
+                lg s!"T3 goal {i} hypvar {d.userName} (tree {Tools.VedU1Loop.treeSizeVal t}): {((← ppExpr t).pretty.replace "\n" " ").take 400}"
       if let some lim := (← IO.getEnv "VED_T3_PP").bind String.toNat? then
         g.withContext do
           lg s!"T3 goal {i} pp: {((← ppExpr tgt).pretty.replace "\n" " ").take lim}"

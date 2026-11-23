@@ -22,6 +22,17 @@ register_option ved.mem.s94Local : Bool := {
   descr := "ved memory tail: close each tail goal from its own cone (context cleared to the entries that mention the target's variables) before the whole-goal tail steps; the old tail is the fallback (default false)"
 }
 
+register_option ved.mem.s94Cone2 : Bool := {
+  defValue := false
+  descr := "ved_cone_clear keeps a second hop: the small arithmetic context entries that mention a variable of a kept arithmetic hypothesis (the premise `phase = 2` of a path hypothesis `¬(phase = 2 ∧ ..)`), default false"
+}
+
+/-- a second-hop entry is kept only when its tree is at most this (the premises of a path hypothesis are small) -/
+def cone2MaxTree : Nat := 400
+
+/-- number of entries the second hop kept (test counter) -/
+initialize cone2Kept : IO.Ref Nat ← IO.mkRef 0
+
 /-- test seams / counters (CloseCheck) -/
 initialize localHits : IO.Ref Nat ← IO.mkRef 0
 initialize localTried : IO.Ref Nat ← IO.mkRef 0
@@ -140,7 +151,7 @@ def isArithHyp (t : Expr) : Bool :=
 /-- the cone of the main goal: the free variables of its target, the context entries whose type mentions one of them (without the wire-environment
 facts) and everything those entries depend on (types and values, to the fixpoint); the goal is replaced by one with the local context cut to the cone
 (one pass, no `clear` per entry: that re-scans the context for every entry).  Returns (goal, entries kept, entries cleared) -/
-def coneClear (g : MVarId) (arithOnly : Bool := true) : MetaM (MVarId × Nat × Nat) := g.withContext do
+def coneClear (g : MVarId) (arithOnly : Bool := true) (hop2 : Bool := false) : MetaM (MVarId × Nat × Nat) := g.withContext do
   let lctx ← getLCtx
   let tgt ← instantiateMVars (← g.getType)
   let mut keep : Std.HashSet FVarId := {}
@@ -155,6 +166,23 @@ def coneClear (g : MVarId) (arithOnly : Bool := true) : MetaM (MVarId × Nat × 
     if !isEnvFact t && (fvarsOfDag t).any (tfv.contains ·) && (!arithOnly || !(← isProp t) || isArithHyp t) then
       keep := keep.insert d.fvarId
       todo := todo.push d.fvarId
+  -- option `ved.mem.s94Cone2`: one more hop.  The variables of the kept arithmetic hypotheses (not of their dependencies) that the target does not mention; the small
+  -- arithmetic entries over those variables are kept too (a path hypothesis `¬(phase = 2 ∧ w)` is useless without the premise `phase = 2` it was split under)
+  if hop2 then
+    let mut hv : Std.HashSet FVarId := {}
+    for d in lctx do
+      if keep.contains d.fvarId && !d.isImplementationDetail && !(d.isLet) then
+        let t ← instantiateMVars d.type
+        if (← isProp t) && isArithHyp t then
+          for x in fvarsOfDag t do
+            unless tfv.contains x do hv := hv.insert x
+    for d in lctx do
+      if d.isImplementationDetail || keep.contains d.fvarId then continue
+      let t ← instantiateMVars d.type
+      if !isEnvFact t && (← isProp t) && isArithHyp t && Tools.VedU1Loop.treeSizeVal t ≤ cone2MaxTree && (fvarsOfDag t).any (hv.contains ·) then
+        keep := keep.insert d.fvarId
+        todo := todo.push d.fvarId
+        cone2Kept.modify (· + 1)
   while let some f := todo.back? do
     todo := todo.pop
     let d ← f.getDecl
@@ -183,7 +211,7 @@ elab "ved_cone_clear_full" : tactic => do
 
 elab "ved_cone_clear" : tactic => do
   let g ← getMainGoal
-  let (g', _, _) ← coneClear g
+  let (g', _, _) ← coneClear g (hop2 := ved.mem.s94Cone2.get (← getOptions))
   replaceMainGoal [g']
 
 /-- diagnosis: the free variables of the target after the cone clear, their types and the number of context hypotheses that mention them -/
