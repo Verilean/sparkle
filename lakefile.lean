@@ -1819,3 +1819,6 @@ lean_lib «Tools.VedU2HierMultiOut» where
 
 lean_lib «Tests.Ved.MultiOutCheck» where
   roots := #[`Tests.Ved.MultiOutCheck]
+
+lean_lib «Tests.Ved.MultiOutProbe» where
+  roots := #[`Tests.Ved.MultiOutProbe]

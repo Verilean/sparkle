@@ -161,3 +161,110 @@ open Tools.VedU2Hier
 #print axioms outputsOnHS_of_stepR_multi
 #print axioms outputsOnHS_of_stepRK_multi
 #print axioms kid_inst_multi
+
+/-! ## Unit 2: the 2-output struct child accepted end to end (option `ved.compose.multiOut`)
+
+`top2` (child `child2`, outputs `s`, `d`, both read) and `top3` (3 outputs, two read) are accepted by the entry with the option on:
+the stored type is `==` `U2HRStmtK c m d decl` (original declaration), the module/design are the declaration's own synthesis, the
+axioms are within the standard three, no `sorryAx`, and the child theorem constant (from the struct entry's route) occurs in the proof.
+CONTROLS (a copy of `(m, d)` altered, or the option off): refused, nothing left behind.  The same-width swap and the wrong wiring are
+checked on `top2m` (the parent reads `s - d`, not commutative).  The same-width swap passes the SHAPE (`HierShapeK` true) and is refused
+by the PROOF. -/
+
+namespace Tests.Ved.MultiOutCheck
+
+open Lean Elab Command Term Meta
+open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics Sparkle.Core.Domain Sparkle.Core.Signal
+open Tools.VedU1Contract Tools.VedU1Hier Tools.VedU2Hier Tools.VedU2HierRegEntry Tests.Ved.ComposeCheckUtil
+
+def top2m (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := child2 accS inp
+    acc <~ (c.s - c.d : Signal defaultDomain (BitVec 4))
+    return accS
+
+/-- the same design as `top2m`, for the controls (the accepted `top2m` leaves its constants behind) -/
+def top2n (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := child2 accS inp
+    acc <~ (c.s - c.d : Signal defaultDomain (BitVec 4))
+    return accS
+
+def expectedK (decl : Name) (nDom : Nat) : Lean.Expr :=
+  let nm := Tools.VedU1HierEntry.HNames.ofBase decl
+  let stmt := (List.range nDom).foldl (fun e _ => mkApp e (Lean.mkConst ``defaultDomain)) (Lean.mkConst decl)
+  mkAppN (Lean.mkConst ``U2HRStmtK) #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst nm.design, stmt]
+
+def acceptK (decl kid : Name) : CommandElabM Unit := do
+  let (m, d) ← synthOf decl
+  let (stmt, nDom) ← liftTermElabM (specialiseDomain decl)
+  -- (`top2` was already accepted by the first `#eval` of this file, its constants are inspected as they are)
+  let thm := (Tools.VedU1HierEntry.HNames.ofBase decl).thm
+  unless (← getEnv).contains thm do discard <| checkU2HR decl stmt nDom m d none
+  let (m2, d2) ← synthOf decl
+  liftTermElabM do
+    let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+    unless ti.type == expectedK decl nDom do throwError "{thm}: type is not U2HRStmtK c m d decl"
+    unless decide (m = m2) && d.topModule == d2.topModule && decide (d.modules = d2.modules) do
+      throwError "{decl}: the returned module/design differ from the declaration's own synthesis"
+    let nm := Tools.VedU1HierEntry.HNames.ofBase decl
+    let some ci := (← getEnv).find? nm.mod | throwError "{nm.mod} missing"
+    unless ci.value! == toExpr m2 do throwError "{nm.mod} is not the declaration's own module"
+    let axs ← collectAxioms thm
+    unless axs.all (std3.contains ·) do throwError "{thm}: axioms outside std3: {axs}"
+    if axs.contains ``sorryAx then throwError "{thm}: sorryAx"
+    let kidThm := (decl ++ `ved_child ++ kid) ++ `ved_u1
+    unless ti.value.getUsedConstants.contains kidThm do throwError "{thm}: the child theorem {kidThm} does not occur"
+    discard <| Tools.VedStrictAudit.strictAudit thm
+    logInfo m!"ACCEPTED {decl}: U2HRStmtK type ==, same artifact, std3, kernel, child theorem {kidThm} occurs"
+
+def ctlK (what : String) (decl : Name) (stages : List String) (m : Sparkle.IR.AST.Module) (d : Design) :
+    CommandElabM Unit := do
+  let before ← localConsts
+  let (stmt, nDom) ← liftTermElabM (specialiseDomain decl)
+  let r ← try
+      discard <| checkU2HR decl stmt nDom m d none
+      pure none
+    catch e => pure (some (← liftTermElabM (e.toMessageData.toString)))
+  match r with
+  | none => throwError "{what}: expected a refusal, the checker ACCEPTED"
+  | some msg =>
+    unless stages.any (fun st => msg.startsWith s!"VED U1 REFUSED {decl} [{st}]") do
+      throwError "{what}: expected a refusal at one of {stages}, got: {msg.take 300}"
+    let added := (← localConsts).toList.filter (!before.contains ·)
+    unless added.isEmpty do throwError "{what}: constants left after the refusal: {added}"
+    logInfo m!"CONTROL {what}: {msg.take 200}"
+
+#eval show CommandElabM Unit from do
+  withScope (fun sc => { sc with opts := sc.opts.setBool `ved.compose.multiOut true }) do
+    acceptK ``top2 `Tests.Ved.MultiOutCheck.child2
+    acceptK ``top3 `Tests.Ved.MultiOutCheck.child3
+    acceptK ``top2m `Tests.Ved.MultiOutCheck.child2
+
+#eval show CommandElabM Unit from do
+  let (m, d) ← synthOf ``top2n
+  let outS := ((d.modules.map (·.outputs)).headD []).map (·.name)
+  let (o1, o2) := (outS[0]!, outS[1]!)
+  let (some w1, some w2) := (connOf m.body o1, connOf m.body o2) | throwError "no connections"
+  let kd := fun b => ({ m with body := b } : Sparkle.IR.AST.Module)
+  withScope (fun sc => { sc with opts := sc.opts.setBool `ved.compose.multiOut true }) do
+    -- (i) the two same-width outputs swapped in the parent's use: the shape passes, the proof refuses
+    let mSwap := kd (editConn 0 o1 (some w2) (editConn 0 o2 (some w1) m.body))
+    unless HierShapeK d mSwap == true do throwError "swap: HierShapeK should stay true"
+    ctlK "(i) swapped same-width outputs" ``top2n ["proof", "kernel", "open", "deep"] mSwap d
+    -- (ii) an output missing
+    ctlK "(ii) output d missing" ``top2n ["hier-shape"] (kd (editConn 0 o2 none m.body)) d
+    -- (iii) wrong wiring: the child's output s on the wire of the OTHER instance's s
+    ctlK "(iii) wrong wiring" ``top2n ["hier-shape", "order", "proof", "kernel", "conns", "open", "deep", "artifact"]
+      (kd (editConn 0 o1 (some (.ref "_tmp_c_s_9")) m.body)) d
+  -- (iv) the option off: the old text
+  let off ← refMsg ``top2n m d
+  expectMsg "(iv) option off" off ["[hier-shape]", "has 2 outputs (multi-output children: H3)"]
+
+end Tests.Ved.MultiOutCheck
+
+#print axioms Tests.Ved.MultiOutCheck.acceptK
