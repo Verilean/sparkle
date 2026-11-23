@@ -1902,6 +1902,8 @@ elab "ved_local_diag" : tactic => do
         ("rfl", ← `(tactic| all_goals with_reducible rfl)),
         ("omega", ← `(tactic| all_goals omega)),
         ("split_omega", ← `(tactic| all_goals ved_split_omega)),
+        ("omega_nobnd2", ← `(tactic| all_goals ((try (repeat clear ved_bnd2)); omega))),
+        ("omega_nobnd", ← `(tactic| all_goals ((try (repeat clear ved_bnd2)); (try (repeat clear ved_bnd)); omega))),
         ("mux", ← `(tactic| all_goals ved_mux))]
       for (an, at_) in alts do
         let stA ← saveState
