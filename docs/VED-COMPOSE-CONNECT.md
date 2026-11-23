@@ -226,3 +226,20 @@ Checks (`Tests/Ved/MultiOutCheck.lean`, `MultiOutProbe.lean`): `topr0` (child in
 Not claimed: a real row is not a fixed ledger row; nested (non-leaf) children and the register-free parent (`U2HStmtK`, unit 17 proposal) are still outside; the `ved.compose.step` fast path is off for a multi-output design.
 
 Real row R184 (`synth_p256SignCore`), case copy ONCE with `ved.compose.step`, `ved.compose.connect` and `ved.compose.multiOut` (observed, single run, not a ledger row, coverage not updated): refused at `[child]`: `child Sparkle.IP.Crypto.P256SignDemo.wMul: VED U1 REFUSED ... wMul [proof]: errors were logged while elaborating the proof; first: ved_ss_R: no invariant mvar ?R in the goal` (the CHILD theorem of the 5-register multiplier wrapper through the struct route `checkU1E ... .generated`; the parent's own steps of this unit were not reached). rc 1, wall 375 s, rss_guard TOTAL peak 10.0 GB (largest child maxrss not measured). Scratch toys of the same shape (a scaled and a full-width (258/256/9 bit) copy of `mulHW`, a wrapper over it, a parent over the wrapper with a 256-bit register) are accepted (child by `#ved_u1_struct`, parent by `checkU2HR` under the option), so the refusal is not the widths, the operators or the wrapper form; the first unsupplied proposition for R184/R126 is the struct-route child theorem (`U1Stmt`) of `wMul`, outside this unit's files (`Tools/VedU1StructSeq*.lean`).
+
+## Unit 19: the child theorems of R184, one by one (observed, single runs; not a ledger row; coverage not updated)
+
+Each child of `synth_p256SignCore` through the entry's own call (`stmtOfStruct` + `checkU1E ... .generated` on the design's child module), parent-free, guard 23068672 kB:
+
+| child | registers | outputs | result | wall | rss_guard total peak |
+|---|---|---|---|---|---|
+| wMul | 5 | 2 | accepted | 52 s | 4.0 GB |
+| wMulN | 5 | 2 | accepted | 53 s | 4.0 GB |
+| wInv | 6 | 5 | accepted | 57 s | 4.2 GB |
+| wSign | 13 | 15 | accepted | 344 s | 10.0 GB |
+| wScalarMul | 14 | 12 | refused `[proof]`: 8,000,000-thousand heartbeats exhausted in the closing stage | 543 s | 11.4 GB |
+| wPointOp | 26 | 7 | killed by the guard (23.1 GB) in the kernel `decide` of `OrderOk` (560 statements) | 85 s | > 23 GB |
+
+The refusal of `wMul` in the R184 parent run (`ved_ss_R: no invariant mvar ?R`) was NOT a property of `wMul` (accepted alone, and after `wSign` in a separate command) and not the heartbeat budget (0.54M of 8M used): the parent's child loop is one `TermElabM`, the struct sequential script names its holes `?R ?h0 ?hstep`, and `?x` of an already used user name denotes the existing (assigned) mvar, so the second struct child with registers found no `?R`. Under `ved.compose.multiOut` each child is now checked in a fresh metavariable context (restored afterwards; statement term instantiated first; no budget change, no `VedU1StructSeq*` change). Check: `Tests/Ved/MultiOutCheck.lean` toy `topq` (two different sequential struct children) is accepted; the control pins the old refusal when the two checks share one context.
+
+Still open for R126/R184: `wScalarMul` (closing stage over budget) and `wPointOp` (leaf `OrderOk` has no fast kernel check; `OrderOkFast` exists only for the parent's `OrderOkHS`). R184 was not re-run (not every child is accepted).
