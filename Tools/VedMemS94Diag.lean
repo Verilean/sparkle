@@ -2061,7 +2061,15 @@ and the number of `memState` atoms inside it (a read in an address) -/
 elab "ved_maddr_diag" : tactic => withMainContext do
   let tgt ← instantiateMVars (← getMainTarget)
   let dep := ((← IO.getEnv "VED_MADDR_DEPTH").bind String.toNat?).getD 12
-  let atoms := Tools.VedU1WireShare.collectDag Tools.VedMemS94Local.isMemAtom tgt
+  let mut atoms := Tools.VedU1WireShare.collectDag Tools.VedMemS94Local.isMemAtom tgt
+  -- `VED_MADDR_HYPS=1`: the atoms of the context propositions too (the memory reads of the path hypotheses)
+  if (← IO.getEnv "VED_MADDR_HYPS").isSome then
+    for dd in ← getLCtx do
+      if dd.isImplementationDetail || dd.isLet then continue
+      let t ← instantiateMVars dd.type
+      if (← isProp t) then
+        for a in Tools.VedU1WireShare.collectDag Tools.VedMemS94Local.isMemAtom t do
+          unless atoms.contains a do atoms := atoms.push a
   let keys := atoms.foldl (fun (acc : Array UInt64) a => let k := (mkAppN a.getAppFn (a.getAppArgs.extract 0 8)).hash; if acc.contains k then acc else acc.push k) #[]
   s94LdLog s!"MADDR atoms={atoms.size} keys={keys.size}"
   for a in atoms do

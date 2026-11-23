@@ -163,4 +163,62 @@ run_cmd liftTermElabM do
   if ok6 then throwError "opaque: a goal without atoms was accepted"
   logInfo m!"mem_opaque controls: atoms abstracted (counter +1, no memState left), different memories stay two variables, seam refuses, late failure restores, no atom refused"
 
+/-! ## ved_cone_clear second hop (`ved.mem.s94Cone2`) and `ved_cone_opaque` (`ved.mem.s94OpaqueH`) (s94t) -/
+
+set_option ved.mem.s94Cone2 true in
+/-- kernel-checked: with the second hop the premise `p = 2` of the path hypothesis survives the cone clear, `omega` closes the goal -/
+theorem cone2_ok (p s : Nat) (h2 : p = 2) (h1 : ¬(p = 2 ∧ s = 5)) : s ≠ 5 := by
+  revert p s
+  intro p s h2 h1
+  ved_cone_clear
+  omega
+
+set_option ved.mem.s94OpaqueH true in
+/-- kernel-checked: the memState key of a HYPOTHESIS is abstracted (the hypothesis re-introduced under its name), `omega` closes the goal, the original goal follows -/
+theorem opaqueH_ok {dom : DomainConfig} (init : BitVec 4 → BitVec 8) (wa : Signal dom (BitVec 4)) (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) (n : Nat) (a : BitVec 4)
+    (h : (Signal.memState init wa wd we n a).toNat = 5) : (Signal.memState init wa wd we n a).toNat + 1 = 6 := by
+  ved_cone_opaque
+  omega
+
+/-- info: cone2 / opaqueH controls: OFF clears the premise and keeps the atoms (counters unchanged), ON keeps the small premise (counter +1) and abstracts the hypothesis atom (counter +1), an unrelated entry is still cleared, a goal without atoms is left alone -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryT (stmt : Term) (tac : TSyntax `tactic) : TermElabM (Bool × Bool) := do
+    let ty ← elabTerm stmt none
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      pure (gs.isEmpty, true)
+    catch _ => pure (false, false)
+  let withOpt (o : Name) (v : Bool) (x : TermElabM (Bool × Bool)) : TermElabM (Bool × Bool) := withOptions (fun os => os.setBool o v) x
+  -- the premise is cleared without the option
+  let cone ← `(∀ (p s q : Nat), p = 2 → ¬(p = 2 ∧ s = 5) → q = 7 → s ≠ 5)
+  let tacC ← `(tactic| (intro p s q h2 h1 hq; ved_cone_clear; omega))
+  let k0 ← Tools.VedMemS94Local.cone2Kept.get
+  let (cOff, _) ← withOpt `ved.mem.s94Cone2 false (tryT cone tacC)
+  if cOff then throwError "cone2: OFF: the premise survived the one-hop cone"
+  unless (← Tools.VedMemS94Local.cone2Kept.get) == k0 do throwError "cone2: OFF: counter moved"
+  let (cOn, okOn) ← withOpt `ved.mem.s94Cone2 true (tryT cone tacC)
+  if !okOn || !cOn then throwError "cone2: ON: the premise did not survive"
+  unless (← Tools.VedMemS94Local.cone2Kept.get) == k0 + 1 do throwError "cone2: ON: counter"
+  -- an entry over a variable that no kept hypothesis mentions (here q, only in `hq`) is still cleared
+  let (cQ, okQ) ← withOpt `ved.mem.s94Cone2 true (tryT cone (← `(tactic| (intro p s q h2 h1 hq; ved_cone_clear; (fail_if_success (have := hq)); omega))))
+  if !okQ || !cQ then throwError "cone2: ON: the unrelated entry was kept (or the premise cleared)"
+  -- hypothesis atoms
+  let mem : TermElabM Term := `(Signal.memState (dom := defaultDomain) (fun _ => 0#8) ⟨fun t => BitVec.ofNat 4 t⟩ ⟨fun t => BitVec.ofNat 8 t⟩ ⟨fun t => decide (t % 2 = 0)⟩ 3 (BitVec.ofNat 4 r))
+  let stmt ← `(∀ (r : Nat), ($(← mem)).toNat = 5 → ($(← mem)).toNat + 1 = 6)
+  let tacH ← `(tactic| (intro r h; ved_cone_opaque; (fail_if_success (simp only [Signal.memState] at *)); omega))
+  let h0 ← Tools.VedMemS94Local.coneOpaqueHits.get
+  let (hOff, _) ← withOpt `ved.mem.s94OpaqueH false (tryT stmt tacH)
+  if hOff then throwError "opaqueH: OFF: the atom was abstracted"
+  unless (← Tools.VedMemS94Local.coneOpaqueHits.get) == h0 do throwError "opaqueH: OFF: counter moved"
+  let (hOn, okH) ← withOpt `ved.mem.s94OpaqueH true (tryT stmt tacH)
+  if !okH || !hOn then throwError "opaqueH: ON: the hypothesis atom was not abstracted"
+  unless (← Tools.VedMemS94Local.coneOpaqueHits.get) == h0 + 1 do throwError "opaqueH: ON: counter"
+  -- no atom anywhere: nothing happens, the goal is closed by omega as before
+  let (hN, okN) ← withOpt `ved.mem.s94OpaqueH true (tryT (← `(∀ (r : Nat), r = 5 → r + 1 = 6)) (← `(tactic| (intro r h; ved_cone_opaque; omega))))
+  if !okN || !hN then throwError "opaqueH: a goal without atoms was changed"
+  unless (← Tools.VedMemS94Local.coneOpaqueHits.get) == h0 + 1 do throwError "opaqueH: counter moved without an atom"
+  logInfo m!"cone2 / opaqueH controls: OFF clears the premise and keeps the atoms (counters unchanged), ON keeps the small premise (counter +1) and abstracts the hypothesis atom (counter +1), an unrelated entry is still cleared, a goal without atoms is left alone"
+
 end Tests.Ved.VedMemLocalCheck
