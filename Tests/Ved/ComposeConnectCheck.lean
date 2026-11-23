@@ -628,4 +628,46 @@ run_cmd do
   chainTxControls
   logInfo m!"compose connect chain controls: 4 refused"
 
+/-! ### A chain closer to R230's shape: a consumer with two data ports (a register-derived net and the producer's output) and a
+third port reading a register directly, a struct output of three fields; the declaration's own port reads the loop (a port that is
+directly a child's output exports no loop state: `Tools/DeepElab.lean`, refused at `[deep]` also for ONE instance). -/
+
+@[hardware_module]
+def mkS (x c n : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  Signal.mux (n === (Signal.pure 0#4 : Signal defaultDomain (BitVec 4))) x (c + n : Signal defaultDomain (BitVec 4))
+
+structure PT3 (dom : DomainConfig) where
+  b : Signal dom (BitVec 4)
+  v : Signal dom Bool
+  l : Signal dom Bool
+
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (PT3 dom) dom := ⟨⟩
+
+def chainMixCirc (inp : Signal defaultDomain (BitVec 4)) (go : Signal defaultDomain Bool) : PT3 defaultDomain :=
+  circuit do
+    let cnt ← Signal.reg 0#4
+    let held ← Signal.reg 0#4
+    let cs := (cnt : Signal defaultDomain (BitVec 4))
+    let hd := (held : Signal defaultDomain (BitVec 4))
+    let p0 := (Signal.pure 0#4 : Signal defaultDomain (BitVec 4))
+    let p1 := (Signal.pure 1#4 : Signal defaultDomain (BitVec 4))
+    let isIdle := cs === p0
+    let isLast := cs === (Signal.pure 9#4 : Signal defaultDomain (BitVec 4))
+    let isEm := ~~~isIdle
+    let now := Signal.mux go inp hd
+    let k1 := mkA now
+    let k2 := mkS now k1 cs
+    cnt <~ Signal.mux go p1 (Signal.mux isLast p0 (Signal.mux isEm (cs + p1 : Signal defaultDomain (BitVec 4)) cs))
+    held <~ now
+    return ({ b := Signal.mux go k2 hd, v := isEm, l := isLast } : PT3 defaultDomain)
+
+def chainMixTx (inp : Signal defaultDomain (BitVec 4)) (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (chainMixCirc inp go).b
+
+/-- info: compose connect chain OK: 2 registers by reg_connect, 1 port by out_connect, 2 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+run_cmd checkChain ``chainMixTx [`Tests.Ved.ComposeConnectCheck.chainMixTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1, `Tests.Ved.ComposeConnectCheck.chainMixTx.ved_child.Tests.Ved.ComposeConnectCheck.mkS.ved_u1] 2
+
 end Tests.Ved.ComposeConnectCheck
