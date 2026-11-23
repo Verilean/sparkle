@@ -1067,12 +1067,16 @@ structure Phase1 where
   childMs : Nat
   t1 : Nat
   b0 : List Stmt := []
+  /-- option `ved.compose.nested`: the middle modules (their recursive theorems) and the non-leaf modules of the design -/
+  nested : Option (List Tools.VedU2HierRecEntry.MidInfo × List Tools.VedU2HierRecEntry.NlInfo) := none
 
 /-- Everything up to and including the generation of the open parent, for a parent with registers.
 (The same stages and refusals as `checkU2H`, minus the register-free scope clause.) -/
 def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
-    (clkRstOverride : Option (Option (String × String))) : TermElabM Phase1 := do
+    (clkRstOverride : Option (Option (String × String)))
+    (nested : Option (List Tools.VedU2HierRecEntry.MidInfo × List Tools.VedU2HierRecEntry.NlInfo) := none) : TermElabM Phase1 := do
   let nm := HNames.ofBase decl
+  let nestedOn := nested.isSome
   -- option `ved.compose.multiOut`: the output port names of a child with several output projections are its module's own
   let mo := ved.compose.multiOut.get (← getOptions)
   let kON : DeclTable → Sparkle.IR.AST.Module → List String := fun tb cm =>
@@ -1093,7 +1097,10 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   addDefn nm.mod (Lean.mkConst ``Sparkle.IR.AST.Module) mE
   addDefn nm.design (Lean.mkConst ``Design) dE
   Tools.VedU2HierDbg.phaseLog "p1: artifact evals + defns"
-  if ved.compose.multiOut.get (← getOptions) then
+  if nestedOn then
+    -- option `ved.compose.nested`: the shape is `HierShapeR` (non-leaf children), the statement `U2HRStmtR`
+    unless decide (Tools.VedU2HierRec.HierShapeR d m = true) do refuse decl "hier-shape" m!"HierShapeR fails (nested route)"
+  else if ved.compose.multiOut.get (← getOptions) then
     -- option `ved.compose.multiOut`: the shape is `HierShapeK` (children with k >= 1 outputs), the statement `U2HRStmtK`
     if let some msg := hierDiagK d m then refuse decl "hier-shape" msg
     unless HierShapeK d m do refuse decl "hier-shape" m!"HierShapeK fails"
@@ -1176,7 +1183,9 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   if d.modules.isEmpty then
     refuse decl "scope" m!"the parent has no child instance (a parent without instances is `#ved_u1` / `#ved_u1_deep`)"
   let mut pre : List (Sparkle.IR.AST.Module × Name × Lean.Expr × Nat × DeclTable) := []
-  for cm in d.modules do
+  -- option `ved.compose.nested`: only the DIRECT children are read here (the grandchildren are the middle modules' own business)
+  let dmods := if nestedOn then d.modules.filter (fun x => ((instDecls m.body).map (·.1)).contains x.name) else d.modules
+  for cm in dmods do
     let cdecl := cm.name.toName
     unless (← getEnv).contains cdecl do
       refuse decl "child" m!"child module {cm.name}: no declaration of that name"
@@ -1217,7 +1226,10 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   Tools.VedU2HierDbg.phaseLog "p1: child shape checks done"
   let t0 ← IO.monoMsNow
   let mut kids : List Kid := []
-  for (cm, cdecl, cstmt, cdom, ctbl) in pre do
+  -- option `ved.compose.nested`: the kids are the middle modules (theorems from their own entry runs, in `checkU2HRCore`), in the order of `mids`
+  if let some (mids, _) := nested then
+    kids := mids.map (·.kid)
+  for (cm, cdecl, cstmt, cdom, ctbl) in (if nestedOn then [] else pre) do
     let base := (decl ++ `ved_child) ++ cdecl
     Tools.VedU2HierDbg.phaseLog s!"p1: child {cdecl} begin (registers={(regsOf cm.body).length}, body={cm.body.length})"
     -- option `ved.compose.multiOut`: each child theorem is elaborated in a FRESH metavariable context.  This loop is one
@@ -1389,7 +1401,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
         insts := insts ++ [{ mn, iname, cs, kid := ki, y, call := ci }]
     | _ => pure ()
   Tools.VedU2HierDbg.openTick s!"insts loop end, instances={insts.length}, netChainB+eraseDups total {chainMs} ms"
-  return { tbl, opn, kids, insts, childMs := t1 - t0, t1, b0 }
+  return { tbl, opn, kids, insts, childMs := t1 - t0, t1, b0, nested }
 
 /-- The second phase: the deep facts of the open parent exist; build the invariant's constants,
 the proof of `U2HRStmt`, and check it. -/
@@ -1493,12 +1505,16 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   -- option `ved.compose.multiOut`, a register-free parent: the statement is `U2HStmtK` (= `U2HRStmtK` + `regsOf m.body = []`)
   let moOn := ved.compose.multiOut.get (← getOptions)
   let noRegK := moOn && (regsOf m.body).isEmpty
-  let expected := mkAppN (Lean.mkConst (if noRegK then ``U2HStmtK else if moOn then ``U2HRStmtK else ``U2HRStmt))
+  let expected := mkAppN (Lean.mkConst (if p1.nested.isSome then ``Tools.VedU2HierRec.U2HRStmtR else if noRegK then ``U2HStmtK else if moOn then ``U2HRStmtK else ``U2HRStmt))
     #[Lean.mkConst nm.contract, Lean.mkConst nm.mod, Lean.mkConst nm.design, stmt]
   try check expected catch e => refuse decl "type" e.toMessageData
   unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
   let tGen0 ← IO.monoMsNow
-  let text0 := scriptTextR nm stmt.getAppFn.constName! stmt.getAppNumArgs tbl opn kids p1.insts di ((← IO.getEnv "VED_HIER_TRACE").isSome)
+  let text00 := scriptTextR nm stmt.getAppFn.constName! stmt.getAppNumArgs tbl opn kids p1.insts di ((← IO.getEnv "VED_HIER_TRACE").isSome)
+  -- option `ved.compose.nested`: the recursive shape/order/success/instance blocks (Tools/VedU2HierRecEntry.lean)
+  let text0 := match p1.nested with
+    | some (mids, nl) => Tools.VedU2HierRecEntry.transformN text00 nm kids mids nl p1.insts true
+    | none => text00
   let text := if noRegK then
       let P := nm.user
       s!"by\n  have hR : Tools.VedU2Hier.U2HRStmtK {P.contract} {P.mod} {P.design} {declTerm stmt.getAppFn.constName! stmt.getAppNumArgs} := by\n" ++
@@ -1646,12 +1662,20 @@ restored and a refusal thrown.  `tamper` (tests only) may change the `Phase1` or
 deep run; it is `pure` in the entry. -/
 def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
     (clkRstOverride : Option (Option (String × String)) := none)
-    (tamper : Phase1 → CommandElabM Phase1 := fun p => pure p) :
+    (tamper : Phase1 → CommandElabM Phase1 := fun p => pure p)
+    (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandElabM Name := fun _ _ _ => pure .anonymous) :
     CommandElabM (Name × Nat × Nat) := do
   let saved ← get
   try
+    -- option `ved.compose.nested` (default off): the entry on every middle module runs FIRST (cache checked)
+    let nested ← if Tools.VedU2HierRecEntry.ved.compose.nested.get (← getOptions) && d.modules.any (fun x => !leafBody x.body) then do
+        let nmP := HNames.ofBase decl
+        let mids ← Tools.VedU2HierRecEntry.ensureMids midEntry decl d m nmP
+        let nl ← Tools.VedU2HierRecEntry.defineNl decl d nmP
+        pure (some (mids, nl))
+      else pure none
     Tools.VedU2HierDbg.phaseLog "phase1 start (children)"
-    let p1 ← liftTermElabM (phase1 decl stmt nDom m d clkRstOverride)
+    let p1 ← liftTermElabM (phase1 decl stmt nDom m d clkRstOverride nested)
     Tools.VedU2HierDbg.phaseLog "phase1 end"
     -- measurement only (`VED_OPEN_STOP`): stop after the open-parent generation (the deep run and the proof do not run)
     if (← IO.getEnv "VED_OPEN_STOP").isSome then
@@ -1706,12 +1730,17 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
 nested circuit exceed the default 200000 heartbeats in `whnf`) to the floors `ved.u2.hierRecDepth` /
 `ved.u2.hierHeartbeats` (H2e: options, defaults 100000 / 8000000, 0 = the caller's limit as it is; they were fixed
 constants that also overrode a larger caller limit). -/
-def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
+partial def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
     (clkRstOverride : Option (Option (String × String)) := none)
     (tamper : Phase1 → CommandElabM Phase1 := fun p => pure p) :
     CommandElabM (Name × Nat × Nat) :=
   withScope (fun sc => { sc with opts := Tools.VedU2HierBudget.floorOpts sc.opts Tools.VedU2HierBudget.ved.u2.hierRecDepth Tools.VedU2HierBudget.ved.u2.hierHeartbeats })
-    (checkU2HRCore decl stmt nDom m d clkRstOverride tamper)
+    (checkU2HRCore decl stmt nDom m d clkRstOverride tamper
+      -- option `ved.compose.nested`: the entry on a middle module (its own module value and sub-design)
+      (fun cdecl cm dC => do
+        let (stmt', nDom') ← liftTermElabM <| try specialiseDomain cdecl catch e => refuse cdecl "table" e.toMessageData
+        let (thm, _, _) ← checkU2HR cdecl stmt' nDom' cm dC
+        return thm))
 
 /-- Option `ved.compose.nested` (Tools/VedU2HierRecEntry.lean): the entry on a MIDDLE module, run first on its own
 declaration (its own synthesis, the H2b checker `checkU2HR`). -/
@@ -1736,7 +1765,7 @@ def vedU2HierEntryR (declName : Name) :
   let t1 ← IO.monoMsNow
   Tools.VedU2HierDbg.phaseLog "synthesis end"
   -- option `ved.compose.nested` (default off): a design with a NON-LEAF module is proved by the nested route (statement `U2HRStmtR`)
-  if Tools.VedU2HierRecEntry.ved.compose.nested.get (← getOptions) && d.modules.any (fun x => !leafBody x.body) then
+  if Tools.VedU2HierRecEntry.ved.compose.nested.get (← getOptions) && d.modules.any (fun x => !leafBody x.body) && (regsOf m.body).isEmpty then
     let (thm, childMs, proofMs) ← Tools.VedU2HierRecEntry.checkU2HN midEntryN declName stmt nDom m d
     return (m, d, thm, nDom, { synthMs := t1 - t0, childMs, proofMs, peakKb := ← peakKb })
   -- option `ved.compose.multiOut`: a register-free parent with a k-output child is proved by `checkU2HR`'s machinery (statement `U2HStmtK`)

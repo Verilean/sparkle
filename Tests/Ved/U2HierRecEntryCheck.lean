@@ -57,6 +57,15 @@ def topsC3 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVe
 def topsC4 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) := mids a b
 def topsOff (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) := mids a b
 
+/-- a parent WITH a register over the middle module (data inputs) -/
+def topr1 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := mids a b
+    acc <~ (accS + c : Signal defaultDomain (BitVec 4))
+    return accS
+
 def expectedR (decl : Name) (nDom : Nat) : Lean.Expr :=
   let nm := HNames.ofBase decl
   let stmt := (List.range nDom).foldl (fun e _ => mkApp e (Lean.mkConst ``defaultDomain)) (Lean.mkConst decl)
@@ -65,6 +74,10 @@ def expectedR (decl : Name) (nDom : Nat) : Lean.Expr :=
 -- the nested entry, option ON
 set_option ved.compose.nested true in
 #ved_u2_hier tops
+
+-- the nested entry for a parent WITH registers (the register route; the middle module's theorem is already stored by `tops`)
+set_option ved.compose.nested true in
+#ved_u2_hier topr1
 
 /-- the accepted theorem, read independently of the entry -/
 def acceptedN (decl kid : Name) (hit : Bool) : CommandElabM Unit := do
@@ -91,6 +104,8 @@ def acceptedN (decl kid : Name) (hit : Bool) : CommandElabM Unit := do
     logInfo m!"ACCEPTED {decl}: U2HRStmtR type ==, same artifact, std3, kernel, {midThm} occurs ({if hit then "stored, checked" else "built"}), no grandchild constant among the {used.size} direct constants (NOT a closure audit)"
 
 #eval acceptedN ``tops `Tests.Ved.RecEntry.mids false
+
+#eval acceptedN ``topr1 `Tests.Ved.RecEntry.mids true
 
 def withNested {α : Type} (act : CommandElabM α) : CommandElabM α :=
   withScope (fun sc => { sc with opts := sc.opts.setBool `ved.compose.nested true }) act

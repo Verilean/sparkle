@@ -1,5 +1,6 @@
 import Tools.VedU2HierEntry
 import Tools.VedU2HierRecOr
+import Tools.VedU2HierRecReg
 
 /-!
 # The nested entry (option `ved.compose.nested`, default OFF; CANDIDATE, Tools/VedU2HierRec.lean)
@@ -55,6 +56,14 @@ structure MidInfo where
   bodyC : Name
   /-- the theorem was found stored (and checked), not produced by this call -/
   hit : Bool
+  deriving Inhabited
+
+/-- A non-leaf module of the parent's design, with the arrangement of its body in the PARENT's design
+(`OrderHS d x`: the witness constant) and its module constant (from its own entry). -/
+structure NlInfo where
+  modC : Name
+  bodyC : Name
+  deriving Inhabited
 
 /-- The stored recursive theorem of `cdecl`, CHECKED against the parent's module `cm` and design `d`.
 Returns the refusal reason on a mismatch. -/
@@ -82,8 +91,6 @@ def checkStored (thmR : Name) (cdecl : Name) (cstmt : Lean.Expr) (cm : Sparkle.I
     return some s!"the stored design's top is {dC.topModule}, not {cm.name}"
   unless dC.modules.all (fun x => d.modules.contains x) do
     return some s!"a module of the stored design {nmC.design} is not a module of the parent's design (by value)"
-  unless decide (Tools.VedU2HierRec.allLeafB dC = true) do
-    return some s!"the stored design has a non-leaf module (depth 3: outside this unit)"
   return none
 
 /-- Ensure the middle module's recursive theorem exists and is checked; run its entry first when it
@@ -127,8 +134,12 @@ def ensureMid (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandE
     | liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: {thmS} is not a theorem"
   let expectS := mkAppN (Lean.mkConst ``Tools.VedU2Hier.U2HRStmt)
     #[Lean.mkConst nmC.contract, Lean.mkConst nmC.mod, Lean.mkConst nmC.design, cstmt]
-  unless ti.type == expectS do
-    liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: the stored theorem {thmS} is not U2HRStmt over the stored constants and the declaration"
+  let expectR := mkAppN (Lean.mkConst ``Tools.VedU2HierRec.U2HRStmtR)
+    #[Lean.mkConst nmC.contract, Lean.mkConst nmC.mod, Lean.mkConst nmC.design, cstmt]
+  let isS := ti.type == expectS
+  let isR := ti.type == expectR
+  unless isS || isR do
+    liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: the stored theorem {thmS} is neither U2HRStmt nor U2HRStmtR over the stored constants and the declaration"
   let some (.defnInfo cmi) := env.find? nmC.mod
     | liftTermElabM <| refuse decl "child" m!"{nmC.mod} missing"
   unless cmi.value == toExpr cm do
@@ -141,19 +152,57 @@ def ensureMid (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandE
     liftTermElabM <| refuse decl "child" m!"the middle module's design has top {dC.topModule}, not {cm.name}"
   unless dC.modules.all (fun x => d.modules.contains x) do
     liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: a module of its own design is not a module of the parent's design (by value)"
+  if isR then
+    -- the middle module's own entry is already recursive (its design has a non-leaf module)
+    return { kid := { kid with nm := { kid.nm with thm := thmS } }, dC := nmC.design, thmR := thmS, bodyC, hit := false }
   unless decide (Tools.VedU2HierRec.allLeafB dC = true) do
-    liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: its own design has a non-leaf module (depth 3 is outside this unit)"
+    liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: a depth-1 theorem over a design with a non-leaf module"
   -- (3) the recursive statement on the sub-design, from the stored depth-1 theorem
   let hl ← liftTermElabM <| mkEqRefl (Lean.mkConst ``Bool.true)
-  let ty := mkAppN (Lean.mkConst ``Tools.VedU2HierRec.U2HRStmtR)
-    #[Lean.mkConst nmC.contract, Lean.mkConst nmC.mod, Lean.mkConst nmC.design, cstmt]
   let val := mkAppN (Lean.mkConst ``Tools.VedU2HierRec.U2HRStmtR_of_S)
     #[Lean.mkConst nmC.contract, Lean.mkConst nmC.mod, Lean.mkConst nmC.design, cstmt, hl, Lean.mkConst thmS]
   try
     liftTermElabM <| withOptions (fun o => o.setBool `Elab.async false) do
-      addDecl (.thmDecl { name := thmR, levelParams := [], type := ty, value := val })
+      addDecl (.thmDecl { name := thmR, levelParams := [], type := expectR, value := val })
   catch e => liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: the kernel refused the recursive statement: {e.toMessageData}"
   finish false
+
+/-- All non-leaf modules of the parent's design with the arrangement constants of their bodies in the PARENT's
+design (`OrderHS d x`, kernel `decide` on the real design). -/
+def defineNl (decl : Name) (d : Design) (parent : HNames) : CommandElabM (List NlInfo) := do
+  let mut out : List NlInfo := []
+  for x in d.modules do
+    unless leafBody x.body do
+      let bm := orderBodyH d x.body
+      unless decide (Tools.VedU2Hier.OrderOkHS d x bm) do
+        liftTermElabM <| refuse decl "order" m!"module {x.name}: {orderDiagHS d x bm}"
+      let nmX := HNames.ofBase x.name.toName
+      unless (← getEnv).contains nmX.mod do
+        liftTermElabM <| refuse decl "child" m!"non-leaf module {x.name}: its entry has not run (no {nmX.mod})"
+      let bodyC := parent.body ++ Name.mkSimple s!"nl{out.length}"
+      liftTermElabM <| addDefn bodyC (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Stmt)) (toExpr bm)
+      out := out ++ [{ modC := nmX.mod, bodyC }]
+  return out
+
+/-- The direct instances of the parent that are non-leaf modules: their theorems (entry first, cache checked). -/
+def ensureMids (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandElabM Name)
+    (decl : Name) (d : Design) (m : Sparkle.IR.AST.Module) (parent : HNames) : CommandElabM (List MidInfo) := do
+  let mut mids : List MidInfo := []
+  let mut midMods : List Sparkle.IR.AST.Module := []
+  for s in m.body do
+    match s with
+    | .inst mn iname _ =>
+      let some cm := d.modules.find? (fun x => x.name == mn)
+        | liftTermElabM <| refuse decl "child" m!"instance {iname}: no module {mn}"
+      if leafBody cm.body then
+        liftTermElabM <| refuse decl "scope" m!"nested route: instance {iname}: {mn} is a leaf (a leaf child next to middle modules is not generated yet)"
+      unless midMods.contains cm do
+        let mi ← ensureMid midEntry decl d cm parent mids.length
+        logInfo m!"VED NESTED {decl}: middle module {cm.name}: theorem {mi.thmR} ({if mi.hit then "stored, checked" else "from its entry run"})"
+        mids := mids ++ [mi]
+        midMods := midMods ++ [cm]
+    | _ => pure ()
+  return mids
 
 /-! ## The proof text -/
 
@@ -162,48 +211,63 @@ private def replaceBlock (ls : Array String) (from_ to_ : String → Bool) (new 
   let b := ((List.range ls.size).find? (fun i => i > a && to_ ls[i]!)).getD ls.size
   return ls.extract 0 a ++ new.toArray ++ ls.extract b ls.size
 
-/-- The proof text of `U2HRStmtR P.contract P.mod P.design F`: the register-free parent's script of
-H2a (`scriptTextS`, its open-parent part) with the shape, order, success and instance blocks replaced
-by the recursive ones. -/
-def scriptTextN (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : OpenInfo)
-    (mids : List MidInfo) (insts : List InstInfo) : String := Id.run do
+/-- The nested proof text from the depth-1 parent script `base` (the register-free script of H2a, or the
+script of H2b for a parent with registers): the shape, order, success and instance blocks are replaced by
+the recursive ones; the open-parent / register-invariant parts are the base script's own.
+`reg` : the base script is H2b's (its closed-run lemmas are renamed to their recursive analogues). -/
+def transformN (base : String) (nm : HNames) (kids : List Kid) (mids : List MidInfo) (nl : List NlInfo)
+    (insts : List InstInfo) (reg : Bool) : String := Id.run do
   let P := nm.user
   let T := "Tools.VedU2HierRec"
   let T2 := "Tools.VedU2Hier"
-  let kids := mids.map fun mi => { mi.kid with nm := namesUser mi.kid.nm }
-  let base := (scriptTextS nm F nDom tbl opn kids insts).splitOn "\n"
-  let mut ls : Array String := base.toArray
-  let midA := (mids.map fun mi => (userName mi.dC, userName mi.bodyC)).toArray
+  let kids := kids.map fun k => { k with nm := namesUser k.nm }
+  let mut ls : Array String := (base.splitOn "\n").toArray
+  let midA := (mids.map fun mi => userName mi.dC).toArray
   let n := mids.length
-  -- (1) shape, order facts of the real design, arrangement
+  -- (1) shape
   ls := ls.map fun l =>
-    if l.startsWith "  have hS : " then s!"  have hS : {T}.HierShapeR {P.design} {P.mod} = true := by decide"
+    if l.startsWith "  have hS : " then l.replace s!"{T2}.HierShapeS" s!"{T}.HierShapeR"
     else if l.startsWith "  have hne := " then s!"  have hne : ∀ x ∈ {P.design}.modules, x ≠ {P.mod} := ({T}.hierR_names hS).2"
     else l
+  let origRefine := (ls.find? (·.startsWith "  refine ⟨by")).getD ""
+  -- (2) the order facts of the real design, the middle modules' facts, the arrangement
   let mut blk : List String := []
   for (k, i) in kids.zipIdx do
     let K := k.nm
-    let (dC, bC) := midA[i]!
     blk := blk ++ [
       s!"  have hmemN{i} : {K.mod} ∈ {P.design}.modules := {T}.mem_of_ex1 (by decide)",
       s!"  have hnl{i} : Tools.VedU1Hier.leafBody {K.mod}.body = false := by decide",
-      s!"  have hordc{i} : {T2}.OrderHS {P.design} {K.mod} := ⟨{bC}, by decide⟩",
-      s!"  have hsub{i} : ∀ x ∈ {dC}.modules, x ∈ {P.design}.modules := {T}.mem_of_ex (by decide)",
-      s!"  have hallC{i} : {T}.allLeafB {dC} = true := by decide"]
-  let disj := " ∨ ".intercalate
-    ((midA.toList.map fun (dC, _) => s!"(∃ y ∈ {dC}.modules, y = x)") ++ (kids.map fun k => s!"x = {k.nm.mod}"))
-  let pat := " | ".intercalate (List.replicate (2 * n) "h")
-  blk := blk ++ [s!"  have hsplit : ∀ x ∈ {P.design}.modules, {disj} := by decide",
+      s!"  have hsub{i} : ∀ x ∈ {userName mids[i]!.dC}.modules, x ∈ {P.design}.modules := {T}.mem_of_ex (by decide)"]
+  for (x, j) in nl.zipIdx do
+    blk := blk ++ [s!"  have hnlO{j} : {T2}.OrderHS {P.design} {userName x.modC} := ⟨{userName x.bodyC}, by decide⟩"]
+  -- the direct middle module `i` is the non-leaf module number `nlIdx i`
+  let nlIdx (i : Nat) : Nat := (nl.zipIdx.find? (fun (x, _) => userName x.modC == kids[i]!.nm.mod)).map (·.2) |>.getD 0
+  for (_, i) in kids.zipIdx do
+    blk := blk ++ [s!"  have hordc{i} := hnlO{nlIdx i}"]
+  let djL := " ∨ ".intercalate (midA.toList.map fun dC => s!"(∃ y ∈ {dC}.modules, y = x)")
+  let djN := " ∨ ".intercalate (nl.map fun x => s!"x = {userName x.modC}")
+  let patL := " | ".intercalate (List.replicate n "h")
+  let patN := " | ".intercalate (List.replicate nl.length "h")
+  blk := blk ++ [
+    s!"  have hsplitL : ∀ x ∈ {P.design}.modules, Tools.VedU1Hier.leafBody x.body = true → {djL} := by decide",
+    s!"  have hsplitN : ∀ x ∈ {P.design}.modules, Tools.VedU1Hier.leafBody x.body = false → {djN} := by decide",
     s!"  have hchR : {T}.OrderModsR {P.design} := by",
     s!"    intro x hx",
-    s!"    rcases hsplit x hx with {pat}"]
-  for (k, i) in kids.zipIdx do
-    blk := blk ++ [s!"    · obtain ⟨y, hy, rfl⟩ := h; exact ⟨fun _ => ({k.nm.thm}.2.2.2.2.2.2.1 y hy).1 ({T}.allLeaf_mem hallC{i} hy), fun hf => by rw [{T}.allLeaf_mem hallC{i} hy] at hf; cases hf⟩"]
-  for (_, i) in kids.zipIdx do
-    blk := blk ++ [s!"    · subst h; exact ⟨fun hl => (by rw [hnl{i}] at hl; cases hl), fun _ => hordc{i}⟩"]
-  blk := blk ++ [s!"  refine ⟨by decide, by decide, by decide, hS, by decide, hord, hchR, {T}.exists_arrHR _ _ hord hchR hne, ?_⟩"]
+    s!"    refine ⟨fun hl => ?_, fun hl => ?_⟩",
+    s!"    · rcases hsplitL x hx hl with {patL}"]
+  for (k, _) in (kids.zipIdx) do
+    blk := blk ++ [s!"      · obtain ⟨y, hy, rfl⟩ := h; exact ({k.nm.thm}.2.2.2.2.2.2.1 y hy).1 hl"]
+  blk := blk ++ [s!"    · rcases hsplitN x hx hl with {patN}"]
+  for (_, j) in nl.zipIdx do
+    blk := blk ++ [s!"      · subst h; exact hnlO{j}"]
+  let refineL :=
+    if reg then
+      (origRefine.replace "hord, hch, " "hord, hchR, ").replace s!"{T2}.exists_arrHS _ _ hord hch hne" s!"{T}.exists_arrHR _ _ hord hchR hne"
+    else
+      s!"  refine ⟨by decide, by decide, by decide, hS, by decide, hord, hchR, {T}.exists_arrHR _ _ hord hchR hne, ?_⟩"
+  blk := blk ++ [refineL]
   ls := replaceBlock ls (·.startsWith "  have hmods") (·.startsWith "  intro arr hadm") blk
-  -- (2) the middle modules' membership/arrangement facts and success of the parent
+  -- (3) success of the parent
   let succInst : List String := Id.run do
     let nI := insts.length
     let patI := " | ".intercalate (insts.map fun _ => "⟨rfl, rfl, rfl⟩")
@@ -217,7 +281,7 @@ def scriptTextN (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     else X := X ++ [s!"    rcases hin1 with {patI}"]
     for (ii, _) in insts.zipIdx do
       let k := kids[ii.kid]!
-      let (dC, _) := midA[ii.kid]!
+      let dC := midA[ii.kid]!
       let G := declTerm k.decl k.nDom
       let ind := if nI == 1 then "    " else "    · "
       X := X ++ [
@@ -225,26 +289,37 @@ def scriptTextN (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         s!"    rw [hfm] at hf; obtain rfl := Option.some.inj hf",
         s!"    exact {T}.succF_of_theoremR {P.design} arr {P.mod} hS hadm _ hmemN{ii.kid} hnl{ii.kid} {dC} hsub{ii.kid} {k.nm.contract} {G} {k.nm.thm}"]
     return X
-  -- drop the leaf-child success block (`hmem`/`hpw`/`hsc` per kid, `hsch`), keep `hsupp`, add `hsucc`
   ls := replaceBlock ls (·.startsWith "  have hmem0") (·.startsWith "  have hsupp") []
   let some iSupp := (List.range ls.size).find? (fun i => ls[i]!.startsWith "  have hsupp") | return "?"
   ls := ls.extract 0 (iSupp + 2) ++ succInst.toArray ++ ls.extract (iSupp + 2) ls.size
-  -- (3) the final refine and the instance fact
+  -- (4) the final refine and the instance fact
   ls := ls.map fun l =>
     if l.startsWith "  refine Tools.VedU2Hier.outputsOnHS_of_oracle" then
       (l.replace "Tools.VedU2Hier.outputsOnHS_of_oracle" s!"{T}.outputsOnHSR_of_oracle").replace "hS hadm hnoreg hsupp hsch" "hS hadm hnoreg hsucc"
-    else if l.contains "Tools.VedU2Hier.kid_inst " then
-      -- `kid_inst` -> `kid_inst_R`: the middle module's own theorem on its sub-design
+    else if l.startsWith "  refine Tools.VedU2Hier.outputsOnHS_of_stepR " then
+      (l.replace "Tools.VedU2Hier.outputsOnHS_of_stepR " s!"{T}.outputsOnHSR_of_stepR ").replace "hS hadm hsupp hsch" "hS hadm hsucc"
+    else l
+  ls := ls.map fun l =>
+    if l.contains "Tools.VedU2Hier.kid_inst " then
       let l1 := l.replace "Tools.VedU2Hier.kid_inst " s!"{T}.kid_inst_R "
       let idx := (insts.zipIdx.find? (fun (ii, _) => l1.contains s!"{sq ii.iname}")).map (·.1.kid) |>.getD 0
       let k := kids[idx]!
-      let (dC, _) := midA[idx]!
       let tail := s!"{k.nm.mod} (by decide)"
-      l1.replace tail s!"{k.nm.mod} (by decide) hnl{idx} hordc{idx} {dC} hsub{idx}"
-        |>.replace "(by decide) ({T2}.connsIn_sound" "(by decide) ({T2}.connsIn_sound"
-        |>.replace " t ht E hE _ hq" s!" ({T}.rstnd_sound (by decide)) t ht E hE _ hq"
+      (l1.replace tail s!"{k.nm.mod} (by decide) hnl{idx} hordc{idx} {userName mids[idx]!.dC} hsub{idx}").replace
+        " t ht E hE _ hq" s!" ({T}.rstnd_sound (by decide)) t ht E hE _ hq"
     else l
+  -- (5) the closed-run lemmas of the register script, by their recursive analogues
+  if reg then
+    ls := ls.map fun l =>
+      ((((l.replace s!"{T2}.st0H " s!"{T}.st0HR ").replace s!"{T2}.runHS_inputs " s!"{T}.runHS_inputsR ").replace
+        s!"{T2}.closed_run_asgOf " s!"{T}.closed_run_asgOfR ").replace s!"{T2}.closed_run_reg " s!"{T}.closed_run_regR ").replace
+        s!"{T2}.st0H)" s!"{T}.st0HR)"
   return "\n".intercalate ls.toList
+
+def scriptTextN (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : OpenInfo)
+    (mids : List MidInfo) (nl : List NlInfo) (insts : List InstInfo) : String :=
+  let kids := mids.map fun mi => { mi.kid with nm := namesUser mi.kid.nm }
+  transformN (scriptTextS nm F nDom tbl opn kids insts) nm (mids.map (·.kid)) mids nl insts false
 
 /-! ## The checker -/
 
@@ -299,8 +374,6 @@ def checkU2HN (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandE
     liftTermElabM <| addDefn nm.body (mkApp (Lean.mkConst ``List [Level.zero]) (Lean.mkConst ``Sparkle.IR.AST.Stmt))
       (toExpr b0)
     -- the parent's instances: direct children, all non-leaf (middle modules)
-    let mut mids : List MidInfo := []
-    let mut midMods : List Sparkle.IR.AST.Module := []
     let t0 ← IO.monoMsNow
     for s in m.body do
       match s with
@@ -310,8 +383,6 @@ def checkU2HN (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandE
         if leafBody cm.body then
           liftTermElabM <| refuse decl "scope" m!"nested route: instance {iname}: {mn} is a leaf (a leaf child next to middle modules is not generated yet)"
         let cdecl := cm.name.toName
-        let (_, _) ← liftTermElabM <| try specialiseDomain cdecl
-          catch e => refuse decl "child" m!"middle module {cm.name}: {e.toMessageData}"
         let ctbl ← liftTermElabM <| try (do let (st, _) ← specialiseDomain cdecl; readTableOfType cdecl (← inferType st))
           catch e => refuse decl "child" m!"middle module {cm.name}: {e.toMessageData}"
         let ck := contractOf ctbl ["out"] (clkRstOf cm) cm
@@ -321,12 +392,9 @@ def checkU2HN (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandE
         unless dataIn c m ck cm cs do
           liftTermElabM <| refuse decl "conns"
             m!"instance {iname}: a data port of {mn} is not connected to a parent DATA input of the same width"
-        unless midMods.contains cm do
-          let mi ← ensureMid midEntry decl d cm nm mids.length
-          logInfo m!"VED NESTED {decl}: middle module {cm.name}: theorem {mi.thmR} ({if mi.hit then "stored, checked" else "built from its entry run"})"
-          mids := mids ++ [mi]
-          midMods := midMods ++ [cm]
       | _ => pure ()
+    let mids ← ensureMids midEntry decl d m nm
+    let nl ← defineNl decl d nm
     if mids.isEmpty then
       liftTermElabM <| refuse decl "scope" m!"the parent has no child instance"
     let t1 ← IO.monoMsNow
@@ -355,7 +423,7 @@ def checkU2HN (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandE
     liftTermElabM <| do
       try Meta.check expected catch e => refuse decl "type" e.toMessageData
       unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
-    let text := "by\n" ++ scriptTextN nm stmt.getAppFn.constName! stmt.getAppNumArgs tbl opn mids insts
+    let text := "by\n" ++ scriptTextN nm stmt.getAppFn.constName! stmt.getAppNumArgs tbl opn mids nl insts
     if (← IO.getEnv "VED_HIER_DEBUG").isSome then IO.eprintln text
     liftTermElabM <| do
       let stx ← match Lean.Parser.runParserCategory (← getEnv) `term text "<ved_u2_hier_nested>" with
