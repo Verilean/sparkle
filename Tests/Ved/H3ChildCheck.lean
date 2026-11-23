@@ -395,4 +395,43 @@ run_cmd do
   for n in ctlNames' `ctlCkOther do
     if (← getEnv).contains n then throwError "left behind: {n}"
 
+/-! ## A prelude with `|||` (issue sparkle-compose-connect, unit 8)
+
+`ckOr` has the prelude shape of `ipv4HeaderChecksumSig` (a word `0x4000 ||| (0#8 ++ proto)` from an 8-bit input next to
+two slices of a 32-bit input), two stages and `~~~`.  Before this unit the `PreFacts` discharge of the chain route
+could not reduce `widthOf` of the `concat` (`widthOf.go`, `evalList` were not unfolded), so that the leaf was refused
+at `[proof]`; the final equality needed `(a ||| b) % 65536 = a ||| b` (`Tools.VedH3ChildChainEntry.or_mod_16`).
+Controls: the constant `0x4000` of the prelude altered to `0x40FF` (overlapping bits: the value differs from the
+declaration's), refused at `[proof]` (no new axiom: the positive checks the axioms). -/
+
+@[hardware_module] def ckOr {dom : DomainConfig} (a : Signal dom (BitVec 32)) (proto : Signal dom (BitVec 8)) :
+    Signal dom (BitVec 16) :=
+  let tp : Signal dom (BitVec 16) := proto.map (fun p => 0x4000#16 ||| ((0#8 : BitVec 8) ++ p))
+  let hi : Signal dom (BitVec 16) := a.map (BitVec.extractLsb' 16 16 ·)
+  let lo : Signal dom (BitVec 16) := a.map (BitVec.extractLsb' 0 16 ·)
+  let s := Sparkle.IP.Net.IPv4.onesAdd16Sig hi lo
+  let s := Sparkle.IP.Net.IPv4.onesAdd16Sig s tp
+  s.map (BitVec.not ·)
+
+/-- info: OK Tests.Ved.H3ChildCheck.ckOr: exact type, axioms 3, chain of 2 stages -/
+#guard_msgs in
+run_cmd checkChain ``ckOr 2
+
+open Sparkle.IR.AST in
+/-- the constant `0x4000` operand of the prelude's `|||` becomes `v` -/
+def orConst (v : Nat) (m : Sparkle.IR.AST.Module) : Except String Sparkle.IR.AST.Module :=
+  mutNth 0 (fun s => match s with
+    | .assign o (.op .or [.const 16384 16, e]) => some (.assign o (.op .or [.const v 16, e]))
+    | _ => none) m
+
+-- overlapping bits in the `|||` operand (0x40FF ||| p): not the declaration's value
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd ctlMutCk `ctlOrOverlap ``ckOr (orConst 0x40FF)
+
+-- a different constant (0x4001 ||| p)
+/-- info: refused [proof], clean -/
+#guard_msgs in
+run_cmd ctlMutCk `ctlOrConst ``ckOr (orConst 0x4001)
+
 end Tests.Ved.H3ChildCheck
