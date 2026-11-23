@@ -625,6 +625,69 @@ macro "ved_addr_eq_local2" : tactic =>
                BitVec.toNat_append, Nat.zero_shiftLeft, Nat.zero_or, Nat.reduceMod, Nat.reducePow, Nat.shiftRight_eq_div_pow]
              ved_local_close))
 
+register_option ved.mem.s94Addr : Bool := {
+  defValue := false
+  descr := "ved_mem_addr_l: an address equality is first tried by `ved_addr_eq_bv` (toNat translation, field extraction, case split on the `if`s, then `decide` over the BitVec variables that are left, kernel-checked); the old closers are the fallback (default false)"
+}
+
+/-- most bits of BitVec variables one leaf of `ved_bv_enum` enumerates (2^bits cases of `decide +kernel`) -/
+def bvEnumMaxBits : Nat := 12
+/-- most leaves the `if` split of `ved_bv_enum` produces -/
+def bvEnumMaxLeaves : Nat := 64
+
+/-- test counters of `ved_bv_enum`: leaves closed, enumerated bits (total) -/
+initialize bvEnumLeaves : IO.Ref Nat ← IO.mkRef 0
+initialize bvEnumBits : IO.Ref Nat ← IO.mkRef 0
+
+/-- the width of a `BitVec w` type with a literal `w`; a `Bool` has 1 -/
+def bvVarBits (ty : Expr) : MetaM (Option Nat) := do
+  let ty ← whnfR (← instantiateMVars ty)
+  if ty.isConstOf ``Bool then return some 1
+  if ty.isAppOfArity ``BitVec 1 then
+    let w ← instantiateMVars ty.appArg!
+    return (← Meta.evalNat w).map id
+  return none
+
+/-- `ved_bv_enum_leaf`: the main goal is a proposition over BitVec / Bool variables only (no other variable in the goal): revert those variables and the context propositions
+over them, and close the finite statement by `decide +kernel` (kernel evaluation, no `ofReduceBool`). Fails when a variable of another type occurs or the bits exceed `bvEnumMaxBits`. -/
+elab "ved_bv_enum_leaf" : tactic => withMainContext do
+  let g ← getMainGoal
+  let tgt ← instantiateMVars (← g.getType)
+  let fvs := (collectFVars {} tgt).fvarIds
+  let mut vars : Array FVarId := #[]
+  let mut bits := 0
+  for f in fvs do
+    let d ← f.getDecl
+    match ← bvVarBits d.type with
+    | some b => vars := vars.push f; bits := bits + b
+    | none => throwError "ved_bv_enum_leaf: variable {d.userName} of a type that cannot be enumerated"
+  if bits > bvEnumMaxBits then throwError "ved_bv_enum_leaf: {bits} bits to enumerate (limit {bvEnumMaxBits})"
+  -- context propositions whose variables are all among `vars`
+  let mut hs : Array FVarId := #[]
+  for d in ← getLCtx do
+    if d.isImplementationDetail || d.isLet || vars.contains d.fvarId then continue
+    let t ← instantiateMVars d.type
+    unless (← isProp t) do continue
+    let fs := (collectFVars {} t).fvarIds
+    if !fs.isEmpty && fs.all (vars.contains ·) then hs := hs.push d.fvarId
+  let (_, g1) ← g.revert (vars ++ hs) (preserveOrder := true)
+  replaceMainGoal [g1]
+  evalTactic (← `(tactic| decide +kernel))
+  bvEnumLeaves.modify (· + 1)
+  bvEnumBits.modify (· + bits)
+
+/-- `ved_bv_enum`: split the `if`s of the main goal (at most `bvEnumMaxLeaves` leaves), then `ved_bv_enum_leaf` on every leaf -/
+macro "ved_bv_enum" : tactic =>
+  `(tactic| ((repeat' split); all_goals ved_bv_enum_leaf))
+
+/-- the BitVec-level closer of an address equality (option `ved.mem.s94Addr`): `toNat` form, field extraction, then `ved_bv_enum`; fails at once when the option is off -/
+elab "ved_addr_eq_bv" : tactic => do
+  unless ved.mem.s94Addr.get (← getOptions) do throwError "ved_addr_eq_bv: option ved.mem.s94Addr is off"
+  evalTactic (← `(tactic| apply BitVec.eq_of_toNat_eq))
+  evalTactic (← `(tactic| simp only [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat, Nat.shiftRight_zero, apply_ite BitVec.toNat, BitVec.toNat_add, BitVec.toNat_mul, BitVec.toNat_sub,
+               BitVec.toNat_append, Nat.zero_shiftLeft, Nat.zero_or, Nat.reduceMod, Nat.reducePow, Nat.shiftRight_eq_div_pow]))
+  evalTactic (← `(tactic| (ved_cone_clear; (try ved_pack_extract); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *); ved_bv_enum)))
+
 /-- the heartbeat budget (thousands) of one argument comparison of `memCanon` (observed: the comparisons that finish need < 1M) -/
 def memCanonBudgetK : Nat := 500
 /-- the heartbeat budget (thousands) of all argument comparisons of one `memCanon` call -/
@@ -740,7 +803,7 @@ elab "ved_mem_addr_l" : tactic => withMainContext do
             tryCatchRuntimeEx
               (withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then addrEqBudgetK * 1000 else min c.maxHeartbeats (addrEqBudgetK * 1000)), initHeartbeats := hbP }) do
                 evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
-                                           first | rfl | ved_addr_eq_local | ved_addr_eq_local2))))
+                                           first | rfl | ved_addr_eq_bv | ved_addr_eq_local | ved_addr_eq_local2))))
               (fun ex => do
                 stP.restore
                 addrEqTimeouts.modify (· + 1)

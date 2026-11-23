@@ -1942,6 +1942,8 @@ elab "ved_local_diag" : tactic => do
         ("split_omega", ← `(tactic| all_goals ved_split_omega)),
         ("omega_nobnd2", ← `(tactic| all_goals ((try (repeat clear ved_bnd2)); omega))),
         ("omega_nobnd", ← `(tactic| all_goals ((try (repeat clear ved_bnd2)); (try (repeat clear ved_bnd)); omega))),
+        ("splitall_omega", ← `(tactic| ((repeat' split); all_goals omega))),
+        ("enum", ← `(tactic| ved_bv_enum)),
         ("mux", ← `(tactic| all_goals ved_mux))]
       for (an, at_) in alts do
         let stA ← saveState
