@@ -433,7 +433,7 @@ macro_rules
 
 /-- `ved_local_close`: the goal from its own cone: cone clear, field extraction, bounds, then `omega` (with `split` for the `if`s) -/
 macro "ved_local_close" : tactic =>
-  `(tactic| (ved_cone_clear; ved_pack_extract; ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *);
+  `(tactic| (ved_cone_clear; (try ved_pack_extract); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *);
              all_goals (ved_bv_bounds
                         (try simp only [mux_mod]); ved_mux)))
 
@@ -458,5 +458,108 @@ elab "ved_local_goal" : tactic => do
   else
     st.restore
     throwError "ved_local_goal: the goal is not closed from its cone"
+
+
+/-! ## class B: the address equalities of `ved_mem_addr` by the local lemmas
+
+Observed (s94q, goals 6 and 17 of the t3 checkpoint, `VED_DUMP_DIR` pair files): the first address equality `ved_mem_addr` asks for is
+`BitVec.extractLsb' 0 4 ck132 = BitVec.ofNat 4 ((PACK) % 2^110 / 2^105 % 2^(4+1))`, i.e. a FIELD EXTRACTION from the packed state; its old proof
+(`ved_pack_simp; ved_bit_simp; simp ..` over the 25-level pack with 150-bit numerals) runs into the heartbeat limit before any address is rewritten.
+`ved_mem_addr_l` is `ved_mem_addr` with that one proof replaced by `ved_addr_eq_local` (toNat, then the once-proved extraction lemmas) and WITHOUT the second
+pass (the contextual `simp`, a walk of the tree of 8e8 .. 8e11 nodes over a DAG of <= 2.9k: observed 23 of the 41 memory goals time out in it, 3 without it; the address
+rewriting of the first pass is by `Expr.replace` with the pointer cache); the rest (pairs, `ved_addr` tag) is the same text. -/
+
+/-- the toNat form of an address equality, closed from its own cone by the extraction lemmas -/
+macro "ved_addr_eq_local" : tactic =>
+  `(tactic| (apply BitVec.eq_of_toNat_eq
+             simp only [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat, Nat.shiftRight_zero]
+             ved_local_close))
+
+elab "ved_mem_addr_l" : tactic => withMainContext do
+  -- cheap gate: nothing to unify unless two memState atoms differ only in the address (the simp below only drops branches)
+  let tgt0 ← instantiateMVars (← getMainTarget)
+  let isMem0 := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
+  let mut seen0 : Array (Expr × Expr) := #[]
+  let mut need := false
+  for o in Tools.VedU1WireShare.collectDag isMem0 tgt0 do
+    if o.hasLooseBVars then continue
+    let args := o.getAppArgs
+    let key := mkAppN o.getAppFn (args.extract 0 8)
+    if seen0.any (fun (k, a) => k == key && a != args[8]!) then need := true; break
+    seen0 := seen0.push (key, args[8]!)
+  if !need then return
+  Tools.VedMemLoop.dbgT "addr: gate passed"
+  let g0 ← getMainGoal
+  g0.setTag ((← g0.getTag) ++ `ved_addr)
+  let isMem := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
+  -- one rewrite per round, the atoms collected again after it (an address can contain another one: the rewrite of the
+  -- inner one changes the outer one)
+  let mut remaining := true
+  for pass in [0:1] do
+    if !remaining then break
+    if pass == 1 then
+      pure ()
+      Tools.VedMemLoop.dbgT "addr: contextual simp done"
+    for _ in [0:8] do
+      let tgt ← instantiateMVars (← getMainTarget)
+      let occs := Tools.VedU1WireShare.collectDag isMem tgt
+      let mut groups : Array (Expr × Array Expr) := #[]
+      for o in occs do
+        if o.hasLooseBVars then continue
+        let args := o.getAppArgs
+        let key := mkAppN o.getAppFn (args.extract 0 8)
+        let a := args[8]!
+        match groups.findIdx? (fun g => g.1 == key) with
+        | some i => if !groups[i]!.2.contains a then groups := groups.set! i (key, groups[i]!.2.push a)
+        | none => groups := groups.push (key, #[a])
+      remaining := groups.any (fun g => g.2.size ≥ 2)
+      let mut progress := false
+      for (_, addrs) in groups do
+        if progress then break
+        if addrs.size < 2 then continue
+        let rep := addrs[0]!
+        let repS ← Term.exprToSyntax rep
+        for a in addrs.toList.drop 1 do
+          if progress then break
+          let aS ← Term.exprToSyntax a
+          if let some dir ← IO.getEnv "VED_DUMP_DIR" then
+            let n := (← IO.monoMsNow)
+            IO.FS.writeFile s!"{dir}/pair{n}.txt" s!"A: {← withOptions (fun o => o.setBool `pp.deepTerms true) (ppExpr a)}\n\nREP: {← withOptions (fun o => o.setBool `pp.deepTerms true) (ppExpr rep)}\n"
+          try
+            evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
+                                       first | rfl | ved_addr_eq_local)))
+            Tools.VedMemLoop.dbgT "addr: have done"
+            -- `rw [hmaddr]` abstracts the occurrences by `kabstract`, a walk of the TREE (12 s per goal of 3e8 nodes, R34); on a goal
+            -- the packing step takes (`Tools.VedMemLoop.addrReplaceMinTree`: R034, 3e8) the replacement is `Expr.replace` (cached by pointer: one visit per
+            -- shared node) with the `congrArg` of the motive; below it the `rw` as before (R032, 1.7e7 nodes: `rw` abstracts the
+            -- occurrences up to instances, the syntactic `Expr.replace` leaves some, and the closing `omega` then fails)
+            let tgt ← instantiateMVars (← getMainTarget)
+            let hm? ← if Tools.VedU1Loop.treeSizeVal tgt < Tools.VedMemLoop.addrReplaceMinTree then pure none else do
+              -- the `have` made a new goal: its local context (not the one this tactic started with) holds `hmaddr`
+              (← getMainGoal).withContext do
+                let mut r : Option Expr := none
+                for d in (← getLCtx).decls.toList.reverse do
+                  if let some d := d then
+                    if r.isNone && !d.isImplementationDetail then
+                      if let some (_, l, rr) := (← instantiateMVars d.type).eq? then
+                        if l == a && rr == rep then r := some d.toExpr
+                pure r
+            Tools.VedMemLoop.dbgT s!"addr: hm found={hm?.isSome} tgt-tree={Tools.VedU1Loop.treeSizeVal tgt}"
+            if let some hm := hm? then
+              let g ← getMainGoal
+              -- in the context of the new goal: `hm` is a hypothesis of it, not of the context this tactic started with
+              -- (`mkCongrArg` infers its type: "unknown free variable")
+              g.withContext do
+                let aTy ← inferType a
+                let motive ← withLocalDeclD `ved_x aTy fun xv =>
+                  mkLambdaFVars #[xv] (tgt.replace fun e => if e == a then some xv else none)
+                let newTgt := tgt.replace fun e => if e == a then some rep else none
+                replaceMainGoal [← g.replaceTargetEq newTgt (← mkCongrArg motive hm)]
+            else
+              evalTactic (← `(tactic| rw [hmaddr]))
+            progress := true
+            Tools.VedMemLoop.dbgT "addr: rewrite ok"
+          catch e => Tools.VedMemLoop.dbgT "addr: equality failed"; Tools.VedMemLoop.dbgLog s!"no equality for {← ppExpr a}: {← e.toMessageData.toString}"
+      if !progress then break
 
 end Tools.VedMemS94Local

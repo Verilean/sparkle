@@ -2423,4 +2423,21 @@ run_cmd liftTermElabM do
   if ← tryClose (← `(∀ x : Nat, x < 3 → (if x = 0 then 5 else if x = 1 then 6 else 8) % 4 = if x % 4 = 0 then 1 else if x = 1 then 2 else 3)) mux then throwError "mux: wrong register value accepted"
   logInfo m!"s94q mux controls: flag hypothesis and ite chain close, wrong register value refused"
 
+-- (L8) class B: an address equality of `ved_mem_addr` is a field extraction from the packed state (`BitVec.extractLsb' 0 4 x = BitVec.ofNat 4 (PACK / 2^100 % 2^5)`):
+-- closes for the register it extracts, refused for another register.
+/-- info: s94q address-equality controls: own field closes, other register refused -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryClose (stmt : Term) (tac : TSyntax `tactic) : TermElabM Bool := do
+    let ty ← elabTerm stmt none
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      pure gs.isEmpty
+    catch _ => pure false
+  let tac ← `(tactic| (intro x y r; ved_addr_eq_local))
+  unless ← tryClose (← `(∀ (x y : BitVec 5) (r : Nat), BitVec.extractLsb' 0 4 x = BitVec.ofNat 4 ((x.toNat % 32 * 1267650600228229401496703205376 + r % 1267650600228229401496703205376) / 1267650600228229401496703205376 % 32))) tac do throwError "own field not closed"
+  if ← tryClose (← `(∀ (x y : BitVec 5) (r : Nat), BitVec.extractLsb' 0 4 y = BitVec.ofNat 4 ((x.toNat % 32 * 1267650600228229401496703205376 + r % 1267650600228229401496703205376) / 1267650600228229401496703205376 % 32))) tac then throwError "other register accepted"
+  logInfo m!"s94q address-equality controls: own field closes, other register refused"
+
 end Tests.Ved.VedMemCloseCheck
