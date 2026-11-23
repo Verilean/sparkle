@@ -374,7 +374,8 @@ def topq (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 
     catch e => liftTermElabM (e.toMessageData.toString)
   logInfo m!"PROBE struct middle module under the option: {r.take 500}"
 
--- the struct middle module as a PARENT of its own entry (multiOut on): the first refusal
+-- the struct middle module as a PARENT of its own entry (multiOut on): refused up to unit 24 (`[table]`); since unit 25 it is ACCEPTED
+-- (the multi-output hierarchical parent entry; the nested struct toys are in `Tests/Ved/U2HierRecStructCheck.lean`)
 #eval show CommandElabM Unit from do
   let r ← try
       discard <| withScope (fun sc => { sc with opts := sc.opts.setBool `ved.compose.multiOut true }) (vedU2HierEntryR ``midq)

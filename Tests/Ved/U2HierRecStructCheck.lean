@@ -94,6 +94,30 @@ def topqC4 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVe
     acc <~ (accS + (c.s - c.d) : Signal defaultDomain (BitVec 4))
     return accS
 
+/-- DEPTH 3: a STRUCT middle module over the struct middle module `midq` (a register, outputs `s := r`, `d := c.s - c.d`) -/
+@[hardware_module] def midq2 (x y : Signal defaultDomain (BitVec 4)) : Pn defaultDomain :=
+  circuit do
+    let r ← Signal.reg 0#4
+    let c := midq x y
+    r <~ r + c.s + y
+    return ({ s := r, d := c.s - c.d } : Pn defaultDomain)
+
+/-- depth 3: a parent WITH a register over the struct middle module `midq2` over the struct middle module `midq` over `leafs` -/
+def topq3 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := midq2 accS b
+    acc <~ (accS + (c.s - c.d) : Signal defaultDomain (BitVec 4))
+    return accS
+def topq3C1 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := midq2 accS b
+    acc <~ (accS + (c.s - c.d) : Signal defaultDomain (BitVec 4))
+    return accS
+
 def withBoth {α : Type} (act : CommandElabM α) : CommandElabM α :=
   withScope (fun sc => { sc with opts := (sc.opts.setBool `ved.compose.nested true).setBool `ved.compose.multiOut true }) act
 
@@ -133,6 +157,13 @@ def acceptedS (decl midThm : Name) : CommandElabM Unit := do
 
 #eval acceptedS ``topqr `Tests.Ved.RecStruct.midq.ved_u2r
 
+-- DEPTH 3, the same code: `midq2` (a struct middle module over the struct middle module `midq`) is entered first by the nested route
+set_option ved.compose.multiOut true in
+set_option ved.compose.nested true in
+#ved_u2_hier topq3
+
+#eval acceptedS ``topq3 `Tests.Ved.RecStruct.midq2.ved_u1
+
 -- the middle module's OWN theorem: the struct result read as two ports, `U2HRStmtR` over the sub-design `[leafs]`
 #eval show CommandElabM Unit from do
   -- the middle module's own entry ran on the module VALUE of the PARENT's design and its sub-design (the standalone synthesis of
@@ -152,6 +183,30 @@ def acceptedS (decl midThm : Name) : CommandElabM Unit := do
     unless mq.outputs.map (·.name) == ["s", "d"] do throwError "midq's output ports are {mq.outputs.map (·.name)}"
     std3Only `Tests.Ved.RecStruct.midq.ved_u2r
     logInfo m!"MIDQ: ved_u1 : U2HRStmtK, ved_u2r : U2HRStmtR over {dq.modules.map (·.name)}, ports {mq.outputs.map (·.name)}, the module is the parent's by value, the design its sub-design, std3"
+
+-- the closed run at DEPTH 3 (struct over struct over leaf), evaluated, against a hand-written reference
+#eval show CommandElabM Unit from do
+  let (m, d) ← synthOf ``topq3
+  let arr : Sparkle.IR.AST.Module → List Stmt := fun c => orderBodyH d c.body
+  let K := 7
+  let b := [2, 7, 1, 8, 2, 8, 3]
+  let ins : Nat → String → Nat := fun t n => if n == "_gen_b" then b.getD t 0 else 0
+  match runHSR d arr m (seedFwd m K ins) K (st0HR d m) with
+  | none => throwError "the closed run of the depth-3 design failed"
+  | some envs =>
+    let outs := envs.map (fun e => e "out")
+    -- midq: r1' = r1 + lr + y, s1 = r1, d1 = lr, lr' = lr + x;  midq2: r2' = r2 + s1 + y, s2 = r2, d2 = s1 - d1
+    -- state (acc, r2, r1, lr): x of midq2 = acc, x of midq = acc; acc' = acc + (s2 - d2)
+    let rec refRun : Nat → Nat → Nat → Nat → Nat → List Nat
+      | 0, _, _, _, _ => []
+      | k + 1, acc, r2, r1, lr =>
+        let t := K - (k + 1)
+        let y := b.getD t 0
+        let d2 := (r1 + 16 - lr) % 16
+        acc :: refRun k ((acc + (r2 + 16 - d2)) % 16) ((r2 + r1 + y) % 16) ((r1 + lr + y) % 16) ((lr + acc) % 16)
+    let ref := refRun K 0 0 0 0
+    unless outs == ref do throwError "run {outs} differs from the reference {ref}"
+    logInfo m!"RUN topq3 (depth 3, struct over struct over leaf, runHSR on the real design): out = {outs} = reference {ref}"
 
 -- the closed run of the parent's real design (the nested semantics), evaluated, against a hand-written reference
 #eval show CommandElabM Unit from do
@@ -235,6 +290,19 @@ def swapPorts (b : List Stmt) : List Stmt :=
           | s => s }
     else x
   ctlS "(c) same-name different middle module (stored theorem refused)" ``topqC3 "child" "same name, different module"
+    m { d with modules := mods }
+
+-- (g) depth 3: the INNER struct middle module edited (same name, other register initial value): `midq2`'s stored design no longer
+-- lies in the parent's design (by value), the stored theorem is refused
+#eval show CommandElabM Unit from do
+  let (m, d) ← synthOf ``topq3C1
+  let mods := d.modules.map fun x =>
+    if x.name == "Tests.Ved.RecStruct.midq" then
+      { x with body := x.body.map fun s => match s with
+          | .register o c r e _ => .register o c r e 1
+          | s => s }
+    else x
+  ctlS "(g) depth 3: same-name different inner struct middle module" ``topq3C1 "child" "not a module of the parent's design"
     m { d with modules := mods }
 
 -- (d) the option OFF: the old refusal, exactly (the struct middle module is not read)
