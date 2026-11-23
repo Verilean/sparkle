@@ -1570,4 +1570,87 @@ elab "#ved_s95_replay " d:str : command => do
     dbgLog s!"S95 replay total ms={(← IO.monoMsNow) - tAll} hb(k)={((← IO.getNumHeartbeats) - hbAll) / 1000}"
     Tools.VedMemLoop.declWidthTab.set none
 
+/-- replay from the t3 checkpoint (`VED_S95_T3OUT` of `#ved_s95_replay`): `VED_T3_GOALS=i,j,..` (default all) the goals `ved_t3_g<i>`; for each goal a line with its
+cone (the free variables of the target with name and type, the context entries that mention them) and, with `VED_T3_TAIL=FILE` (`name TAB tactic`), the steps of FILE
+run on the goal under `VED_T3_GOALHB` thousand heartbeats (default 30000), one line per step (result, ms, heartbeats, tree) -/
+elab "#ved_t3_replay " d:str : command => do
+  let dir := d.getString
+  let n := ((← IO.FS.readFile (dir ++ "/t3.txt")).splitOn "\n").filter (· ≠ "") |>.map (·.splitOn "\t") |>.findSome? fun r => match r with | ["n", k] => k.toNat? | _ => none
+  let n := n.getD 0
+  let sel : List Nat := match (← IO.getEnv "VED_T3_GOALS") with
+    | some ds => (ds.splitOn ",").filterMap String.toNat?
+    | none => List.range n
+  let lg : String → IO Unit := fun msg => do
+    if let some f ← IO.getEnv "VED_T3_LOG" then
+      let h ← IO.FS.Handle.mk f .append
+      h.putStrLn msg
+    else dbgLog msg
+  let tailRows ← match (← IO.getEnv "VED_T3_TAIL") with
+    | some tf => do pure (((← IO.FS.readFile tf).splitOn "\n").filter (· ≠ "") |>.map (·.splitOn "\t"))
+    | none => pure []
+  let cap := ((← IO.getEnv "VED_T3_GOALHB").bind String.toNat?).getD 30000
+  Lean.Elab.Command.liftTermElabM do
+    let seen ← IO.mkRef (({} : Std.HashSet Name))
+    for i in sel do
+      let some ci := (← getEnv).find? (Name.mkSimple s!"ved_t3_g{i}") | lg s!"T3 goal {i}: no constant"; continue
+      let cs := (Tools.VedU1WireShare.collectDag (fun x => x.isConst) ci.type).map (·.constName!)
+      for c in cs do ckptRealize seen c 6
+      let mut g := (← mkFreshExprMVar ci.type).mvarId!
+      let mut k := 0
+      repeat
+        unless (← g.getType).isForall || (← g.getType).isLet do break
+        let (_, g') ← g.intro (Name.mkSimple s!"ck{k}")
+        g := g'; k := k + 1
+      let tgt ← instantiateMVars (← g.getType)
+      let fvs := (Tools.VedU1WireShare.collectDag (fun x => x.isFVar) tgt).map (·.fvarId!)
+      let desc ← g.withContext do
+        let mut parts : Array String := #[]
+        for f in fvs do
+          let d ← f.getDecl
+          parts := parts.push s!"{d.userName}:{(progShallow 3 (← instantiateMVars d.type)).take 60}"
+        pure (" ".intercalate parts.toList)
+      let nHyp ← g.withContext do
+        let mut c := 0
+        for d in ← getLCtx do
+          unless d.isImplementationDetail do
+            let t ← instantiateMVars d.type
+            if ((Tools.VedU1WireShare.collectDag (fun x => x.isFVar) t).any fun x => fvs.contains x.fvarId!) then c := c + 1
+        pure c
+      let nodes := Tools.VedU1WireShare.collectDag (fun _ => true) tgt
+      let cnt (c : Name) : Nat := (nodes.filter fun x => x.isAppOf c).size
+      lg s!"T3 goal {i} feat: memState={cnt ``Sparkle.Core.Signal.Signal.memState} ite={cnt ``ite} div={cnt ``HDiv.hDiv} mod={cnt ``HMod.hMod} mul={cnt ``HMul.hMul} add={cnt ``HAdd.hAdd} sub={cnt ``HSub.hSub} fst={cnt ``Prod.fst} snd={cnt ``Prod.snd} toNat={cnt ``BitVec.toNat} xor={cnt ``HXor.hXor} and={cnt ``HAnd.hAnd} or={cnt ``HOr.hOr} shr={cnt ``HShiftRight.hShiftRight} shl={cnt ``HShiftLeft.hShiftLeft} lt={cnt ``LT.lt} le={cnt ``LE.le} Or={cnt ``Or} And={cnt ``And} Not={cnt ``Not}"
+      lg s!"T3 goal {i}: ctx={k} tree={Tools.VedU1Loop.treeSizeVal tgt} dag={(Tools.VedU1WireShare.collectDag (fun _ => true) tgt).size} nfv={fvs.size} hyps-mentioning={nHyp}; cone: {desc.take 1500}"
+      if let some nh := (← IO.getEnv "VED_T3_HYPS").bind String.toNat? then
+        g.withContext do
+          let mut c := 0
+          for d in ← getLCtx do
+            unless d.isImplementationDetail do
+              let t ← instantiateMVars d.type
+              if ((Tools.VedU1WireShare.collectDag (fun x => x.isFVar) t).any fun x => fvs.contains x.fvarId!) && c < nh then
+                c := c + 1
+                lg s!"T3 goal {i} hyp {d.userName} (tree {Tools.VedU1Loop.treeSizeVal t}): {((← ppExpr t).pretty.replace "\n" " ").take ((← IO.getEnv "VED_T3_HYPLEN").bind String.toNat? |>.getD 260)}"
+      if let some lim := (← IO.getEnv "VED_T3_PP").bind String.toNat? then
+        g.withContext do
+          lg s!"T3 goal {i} pp: {((← ppExpr tgt).pretty.replace "\n" " ").take lim}"
+      let mut cur : List MVarId := [g]
+      for row in tailRows do
+        let [name, txt] := row | continue
+        let tac : TSyntax `tactic ← match Parser.runParserCategory (← getEnv) `tactic txt with
+          | .ok st => pure ⟨st⟩
+          | .error e => throwError "T3: cannot parse step {name}: {e}"
+        let t1 ← IO.monoMsNow
+        let hb1 ← IO.getNumHeartbeats
+        let (gsO, r) : Option (List MVarId) × String ← tryCatchRuntimeEx
+          (do
+            let gs ← withTheReader Core.Context (fun c => { c with maxHeartbeats := cap * 1000, initHeartbeats := hb1 }) do
+              Tactic.run cur.head! (do Tactic.setGoals cur; Tactic.evalTactic tac)
+            pure (some gs, s!"ok out={gs.length}"))
+          (fun ex => do pure (none, s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 200}"))
+        if let some gs := gsO then cur := gs
+        let mut tr := 0
+        for q in cur do tr := tr + Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← q.getType))
+        let ctxN ← match cur.head? with | some q => q.withContext do return (← getLCtx).decls.size | none => pure 0
+        lg s!"T3 goal {i} step {name}: {r} ms={(← IO.monoMsNow) - t1} hb(k)={((← IO.getNumHeartbeats) - hb1) / 1000} goals={cur.length} tree={tr} ctx={ctxN}"
+        if cur.isEmpty then break
+
 end Tools.VedMemS94Diag

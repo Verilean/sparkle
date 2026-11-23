@@ -10,6 +10,7 @@ import Tools.VedMemS94Prof
 import Tools.VedMemS94Fix
 import Tools.VedMemS94Peel
 import Tools.VedMemS94Gen
+import Tools.VedMemS94Local
 import Tools.VedMemPack
 import Tools.VedMemShape
 import Tools.VedMemOrder
@@ -583,6 +584,8 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
    let lw : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
      Syntax.TSepArray.ofElems ((if fz then fzs else #[]) ++ #[← `(Lean.Parser.Tactic.simpLemma| BitVec.toNat_eq),
        ← `(Lean.Parser.Tactic.simpLemma| Nat.and_one_is_mod), ← `(Lean.Parser.Tactic.simpLemma| Tools.VedU1Loop.ved_mul_lit_bv)])
+   let localT ← `(tactic| all_goals (try ved_local_goal))
+   let localSt : Array (TSyntax `tactic) := if fz && Tools.VedMemS94Local.ved.mem.s94Local.get (← getOptions) then #[localT] else #[]
    let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| all_goals (try ved_lt_close)),
       ← `(tactic| all_goals (try ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, $ex2,*])),
@@ -590,7 +593,8 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
       ← `(tactic| all_goals (try ved_lt_close))],
     #[← `(tactic| all_goals (try ved_loopw_simp [$lw,*]))],
     #[← `(tactic| ved_bit_simp_share_m)],
-    #[← `(tactic| all_goals (try ved_or_lit_g))],
+    -- option `ved.mem.s94Local` (new branch only): each goal is first tried from its own cone (`ved_local_goal`: a goal it does not close is left to the old steps below)
+    #[← `(tactic| all_goals (try ved_or_lit_g))] ++ localSt,
     #[← `(tactic| all_goals (try ved_mem_addr)), ← `(tactic| all_goals (try ved_addr_post_g))],
     #[← `(tactic| ved_pack_dag_wire_all), ← `(tactic| ved_stamp 51), ← `(tactic| ved_all_goals_log (try ved_bit_simp_g)), ← `(tactic| ved_stamp 52), ← `(tactic| ved_all_goals_log (try (first | (ved_dag_only; ved_pack_dag) | skip))), ← `(tactic| ved_stamp 53), ← `(tactic| ved_all_goals_log (try ved_or_lit_post))],
     #[← `(tactic| ved_all_goals_log (try ved_bits_facts)), ← `(tactic| ved_stamp 61), ← `(tactic| ved_all_goals_log (try ved_mul_facts)), ← `(tactic| ved_stamp 62),
