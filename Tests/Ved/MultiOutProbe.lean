@@ -59,6 +59,13 @@ set_option ved.compose.multiOut true in
 
 #print axioms Tests.Ved.MultiOutProbe.probeTop.ved_u1
 
+/-- the stored module constant evaluated to a `Module`, its registers read by `regsOf` (not by matching the printed text) -/
+unsafe def storedRegs (n : Name) : CommandElabM (List (String × String × String × Int)) := do
+  let m ← liftTermElabM <| Meta.evalExpr Sparkle.IR.AST.Module (mkConst ``Sparkle.IR.AST.Module) (mkConst n)
+  pure (Tools.VedU1Contract.regsOf m.body)
+
+@[implemented_by storedRegs] opaque storedRegsOf (n : Name) : CommandElabM (List (String × String × String × Int))
+
 /-! ### Unit 3: the child theorem of a SEQUENTIAL struct child (one register), by the standard `#ved_u1` command
 
 The struct child of the parent route is proved by the same entry (`stmtOfStruct` + `checkU1E`); here the standard command is run on a
@@ -79,12 +86,13 @@ No acceptance of a PARENT over such a child is claimed (see docs/VED-COMPOSE-CON
   let thm := `Tests.Ved.MultiOutProbe.kidSeq.ved_u1
   let some (.thmInfo ti) := env.find? thm | throwError "{thm}: not a theorem in the environment"
   unless ti.type.getAppFn.isConstOf ``Tools.VedU1Contract.U1Stmt do throwError "{thm}: not a U1Stmt"
-  let some (.defnInfo mi) := env.find? (`Tests.Ved.MultiOutProbe.kidSeq.ved_mod) | throwError "no module constant"
-  let hasReg : Bool := decide (((toString mi.value).splitOn "register").length > 1)
+  let some (.defnInfo _) := env.find? (`Tests.Ved.MultiOutProbe.kidSeq.ved_mod) | throwError "no module constant"
+  let hasReg : Bool := !(← storedRegsOf `Tests.Ved.MultiOutProbe.kidSeq.ved_mod).isEmpty
+  unless hasReg do throwError "the stored module has no register (regsOf)"
   let axs ← liftCoreM (collectAxioms thm)
   if axs.contains ``sorryAx then throwError "sorryAx"
   unless axs.all (fun a => [``propext, ``Classical.choice, ``Quot.sound].contains a) do throwError "axioms outside std3: {axs}"
-  logInfo m!"PROBE SEQ OK: kidSeq.ved_u1 is a U1Stmt; module mentions a register: {toString hasReg}; axioms {axs}; no sorryAx"
+  logInfo m!"PROBE SEQ OK: kidSeq.ved_u1 is a U1Stmt; stored module has a register by regsOf: {toString hasReg}; axioms {axs}; no sorryAx"
 
 /-! ### Unit 4: a parent with a register over the SEQUENTIAL struct child, the child's input read from the PARENT REGISTER
 
@@ -113,10 +121,9 @@ set_option ved.compose.multiOut true in
   unless ti.type == expected do throwError "the stored type is not U2HRStmtK c m d probeTopSeq:\n{ti.type}"
   let kidThm := `Tests.Ved.MultiOutProbe.probeTopSeq.ved_child.Tests.Ved.MultiOutProbe.kidSeq.ved_u1
   unless ti.value.getUsedConstants.contains kidThm do throwError "the child's theorem {kidThm} does not occur in the proof"
-  let some (.defnInfo cm) := env.find? (`Tests.Ved.MultiOutProbe.probeTopSeq.ved_child.Tests.Ved.MultiOutProbe.kidSeq.ved_mod)
-    | throwError "no child module constant"
-  let hasReg : Bool := decide (((toString cm.value).splitOn "register").length > 1)
-  unless hasReg do throwError "the child module has no register"
+  let kidMod := `Tests.Ved.MultiOutProbe.probeTopSeq.ved_child.Tests.Ved.MultiOutProbe.kidSeq.ved_mod
+  let some (.defnInfo _) := env.find? kidMod | throwError "no child module constant"
+  unless !(← storedRegsOf kidMod).isEmpty do throwError "the child module has no register (regsOf)"
   let axs ← liftCoreM (collectAxioms thm)
   if axs.contains ``sorryAx then throwError "sorryAx"
   unless axs.all (fun a => [``propext, ``Classical.choice, ``Quot.sound].contains a) do throwError "axioms outside std3: {axs}"

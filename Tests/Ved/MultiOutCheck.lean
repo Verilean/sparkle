@@ -255,11 +255,11 @@ def ctlK (what : String) (decl : Name) (stages : List String) (m : Sparkle.IR.AS
     -- (i) the two same-width outputs swapped in the parent's use: the shape passes, the proof refuses
     let mSwap := kd (editConn 0 o1 (some w2) (editConn 0 o2 (some w1) m.body))
     unless HierShapeK d mSwap == true do throwError "swap: HierShapeK should stay true"
-    ctlK "(i) swapped same-width outputs" ``top2n ["proof", "kernel", "open", "deep"] mSwap d
+    ctlK "(i) swapped same-width outputs" ``top2n ["proof"] mSwap d
     -- (ii) an output missing
     ctlK "(ii) output d missing" ``top2n ["hier-shape"] (kd (editConn 0 o2 none m.body)) d
     -- (iii) wrong wiring: the child's output s on the wire of the OTHER instance's s
-    ctlK "(iii) wrong wiring" ``top2n ["hier-shape", "order", "proof", "kernel", "conns", "open", "deep", "artifact"]
+    ctlK "(iii) wrong wiring" ``top2n ["order"]
       (kd (editConn 0 o1 (some (.ref "_tmp_c_s_9")) m.body)) d
   -- (iv) the option off: the old text
   let off ← refMsg ``top2n m d
@@ -420,9 +420,9 @@ def instsOf (b : List Stmt) : List (Nat × String × String × List (String × S
     let kd := fun b => ({ m with body := b } : Sparkle.IR.AST.Module)
     let mSwap := kd (editConn 0 o1 (some w2) (editConn 0 o2 (some w1) m.body))
     unless HierShapeK d mSwap == true do throwError "swap: HierShapeK should stay true"
-    ctlK "(a-i) topr0: swapped same-width outputs" ``topr0n ["proof", "kernel", "open", "deep"] mSwap d
+    ctlK "(a-i) topr0: swapped same-width outputs" ``topr0n ["proof"] mSwap d
     ctlK "(a-ii) topr0: output d missing" ``topr0n ["hier-shape"] (kd (editConn 0 o2 none m.body)) d
-    ctlK "(a-iii) topr0: wrong wiring" ``topr0n ["hier-shape", "order", "proof", "kernel", "conns", "open", "deep", "artifact"]
+    ctlK "(a-iii) topr0: wrong wiring" ``topr0n ["order"]
       (kd (editConn 0 o1 (some (.ref "_tmp_c_s_9")) m.body)) d
   -- (c) topc: the two outputs of the producer swapped between the two consumers
   withScope (withMO true) do
@@ -445,7 +445,7 @@ def instsOf (b : List Stmt) : List (Nat × String × String × List (String × S
       | _, _ => b
     let mSw := ({ m with body := swapPair (swapPair m.body cons[0]! cons[1]!) cons[2]! cons[3]! } : Sparkle.IR.AST.Module)
     ctlK "(c) topc: the producer's two outputs swapped between the consumers" ``topcn
-      ["proof", "kernel", "open", "deep", "hier-shape", "order"] mSw d
+      ["proof"] mSw d
     -- (b) topb: the consumer reads the producer's OTHER output (d for s)
     let (mb, db) ← synthOf ``topbn
     let isb := instsOf mb.body
@@ -461,7 +461,7 @@ def instsOf (b : List Stmt) : List (Nat × String × String × List (String × S
         | _, _ => none).head? | throwError "no producer"
       bodyB := setConnAt kb "_gen_x" (.ref dw) bodyB
     ctlK "(b) topb: the consumer reads the producer's other output" ``topbn
-      ["proof", "kernel", "open", "deep", "hier-shape", "order"]
+      ["proof"]
       ({ mb with body := bodyB } : Sparkle.IR.AST.Module) db
   -- the option off: the old text (a design with a 2-output child is outside U2HRStmt)
   let (m0, d0) ← synthOf ``topr0n

@@ -574,6 +574,9 @@ lean_lib «Tests.Ved.U1OrderFastCheck» where
 lean_lib «Tests.Ved.U1StructShareCheck» where
   roots := #[`Tests.Ved.U1StructShareCheck]
 
+lean_lib «Tests.Ved.U1StructWireCheck» where
+  roots := #[`Tests.Ved.U1StructWireCheck]
+
 lean_lib «Tests.Ved.VedMemWidthCheck» where
   roots := #[`Tests.Ved.VedMemWidthCheck]
 

@@ -39,6 +39,10 @@ it was when that fails too.  With `VED_MS_LOG` one line per goal before and afte
 milliseconds, heartbeats, which tactic took it), so the cost of the stage is named per goal. -/
 def packGoalHb : Nat := 400000 * 1000
 
+/-- tree >= `packRatio` x DAG and tree >= `packRatioMin`: `ved_wire_bits` before the packing step -/
+def packRatio : Nat := 20
+def packRatioMin : Nat := 20000
+
 elab "ved_ss_pack_share" : tactic => do
   let gs ← Tactic.getGoals
   let log : String → Tactic.TacticM Unit := fun m => do
@@ -67,15 +71,37 @@ elab "ved_ss_pack_share" : tactic => do
         (local' packGoalHb (do Tactic.withoutRecover tac; pure true))
         fun e => if e.isRuntime then pure false else throw e
     let mut how := "pack_wire"
-    let ok1 ← step "pack_wire" (Tactic.evalTactic (← `(tactic| ved_pack_wire)))
-    unless ok1 do
-      st.restore
-      how := "pack_wire:budget,wire_bits"
-      let ok2 ← try step "wire_bits" (Tactic.evalTactic (← `(tactic| ved_wire_bits)))
-        catch _ => pure false
-      unless ok2 do
+    -- a goal whose tree is at least `packRatio` times its DAG (and `packRatioMin` nodes): the unfolded register/output value
+    -- is read as a tree by `ved_pack_simp` (measured, wScalarMul: tree up to ~150 x DAG); `ved_wire_bits` (equalities per
+    -- shared wire) first, its failure message logged (it names the missing proposition), then the ordinary route
+    let ratioRoute := sz ≥ packRatioMin && sz ≥ packRatio * dag
+    let mut done := false
+    if ratioRoute then
+      let ok0 ← try
+          tryCatchRuntimeEx
+            (local' packGoalHb (do Tactic.withoutRecover (Tactic.evalTactic (← `(tactic| ved_wire_bits))); pure true))
+            fun e => do
+              log s!"VED PK goal {i} wire_bits-first runtime failure after {(← IO.monoMsNow) - t0}ms: {(← e.toMessageData.toString).take 600}"
+              if e.isRuntime then pure false else throw e
+        catch e =>
+          log s!"VED PK goal {i} wire_bits-first failed after {(← IO.monoMsNow) - t0}ms: {(← e.toMessageData.toString).take 600}"
+          pure false
+      if ok0 then
+        how := "ratio:wire_bits"
+        done := true
+      else
         st.restore
-        how := "pack_wire:budget,wire_bits:failed,left"
+        how := "ratio:wire_bits:failed,pack_wire"
+    unless done do
+      let ok1 ← step "pack_wire" (Tactic.evalTactic (← `(tactic| ved_pack_wire)))
+      unless ok1 do
+        st.restore
+        how := how ++ ":budget,wire_bits"
+        let ok2 ← try step "wire_bits" (Tactic.evalTactic (← `(tactic| ved_wire_bits)))
+          catch _ => pure false
+        unless ok2 do
+          st.restore
+          how := how ++ ":failed,left"
     log s!"VED PK goal {i} done {how} tree={sz} {(← IO.monoMsNow) - t0}ms hb={((← IO.getNumHeartbeats) - h0) / 1000}"
     i := i + 1
     rest := rest ++ (← Tactic.getGoals)
@@ -103,6 +129,13 @@ step (not a budget exhaustion).  Candidate for `wScalarMul` (R184), whose `ved_p
 register_option ved.sseq.share : Bool := {
   defValue := false
   descr := "ved.sseq.share: struct script packs with ved_pack_wire_all (sharing-aware for large goals), default off"
+}
+
+/-- Default off: the widths of the data inputs for `hin` by a closed `decide +kernel` (`declWidth M n = PTy.width`), then `simp`
+without `M` / `declWidth` at `hin hrst` (class (a): the unsupplied local fact about the input widths). -/
+register_option ved.sseq.dwLemma : Bool := {
+  defValue := false
+  descr := "ved.sseq.dwLemma: input widths of the module by a kernel check, not by simp at hin/hrst (default off)"
 }
 
 /-- The generated (untrusted) script for `U1Stmt C M f` where `f` is the statement TERM (the bundled
@@ -152,7 +185,19 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
   tacs := tacs.push (← wrap (← `(tactic| intro $insI hok $sI st mems $hR)))
   tacs := tacs.push (← wrap (← `(tactic| have $hinI := hok.1 $sI)))
   tacs := tacs.push (← wrap (← `(tactic| have $hrstI := hok.2 $sI)))
-  tacs := tacs.push (← wrap (← `(tactic| simp (config := { maxSteps := 2000000 }) [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident)))
+  if ved.sseq.dwLemma.get (← getOptions) then
+    let hdwI := mkIdent `hdw
+    -- the widths of the data inputs by ONE closed kernel check (`declWidth M n` is a `find?` over the module's wires: `simp`
+    -- unfolding `M` (every wire, every statement) and `declWidth` at `hin` costs 82 s on R184's `wPointOp`, 563 wires)
+    tacs := tacs.push (← wrap (← `(tactic| have $hdwI : ∀ q ∈ ($C).inNames.zip ($C).table.ins, declWidth $M q.1 = q.2.width := by decide +kernel)))
+    tacs := tacs.push (← wrap (← `(tactic| replace $hinI : ∀ q ∈ ($C).inNames.zip ($C).table.ins, $insI $sI q.1 < 2 ^ q.2.width := fun q hq => by
+      have h := $hinI ⟨q.1, q.2.hw⟩ (List.mem_map.2 ⟨q, hq, rfl⟩)
+      change $insI $sI q.1 < 2 ^ declWidth $M q.1 at h
+      rwa [$hdwI q hq] at h)))
+    tacs := tacs.push (← wrap (← `(tactic| clear $hdwI)))
+    tacs := tacs.push (← wrap (← `(tactic| simp (config := { maxSteps := 2000000 }) [$C:ident, contractOf, PTy.width] at $hinI:ident $hrstI:ident)))
+  else
+    tacs := tacs.push (← wrap (← `(tactic| simp (config := { maxSteps := 2000000 }) [$C:ident, contractOf, Contract.dataInputs, $M:ident, declWidth] at $hinI:ident $hrstI:ident)))
   tacs := tacs.push (← wrap (← `(tactic| simp only [$O:ident, List.mem_cons, List.not_mem_nil, or_false, forall_eq_or_imp, forall_eq])))
   tacs := tacs.push (← wrap (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = (applyIns ($C).table.ins ($C).inNames $insI $f).val $sI := ⟨_, rfl⟩)))
   tacs := tacs.push (← wrap (← `(tactic| ved_ss_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, Signal.fst, Signal.snd, $exHelp,*] at $hv:ident)))
