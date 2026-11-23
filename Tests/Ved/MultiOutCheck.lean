@@ -466,4 +466,57 @@ def instsOf (b : List Stmt) : List (Nat × String × String × List (String × S
   let off ← refMsg ``topr0n m0 d0
   expectMsg "(iv) option off, topr0" off ["[hier-shape]", "has 2 outputs (multi-output children: H3)"]
 
+-- more toys: a Bool port and a second register (a 3-output child with `Bool`/`BitVec 4`/`BitVec 8` ports), a consumer reading BOTH
+-- outputs of the producer, a COMBINATIONAL 2-output consumer of a sequential producer
+structure R3 (dom : DomainConfig) where
+  a : Signal dom (BitVec 4)
+  b : Signal dom Bool
+  c : Signal dom (BitVec 8)
+
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (R3 dom) dom := ⟨⟩
+
+@[hardware_module] def kid3 {dom : DomainConfig} (x : Signal dom (BitVec 4)) (e : Signal dom Bool) (y : Signal dom (BitVec 8)) :
+    R3 dom :=
+  circuit do
+    let r ← Signal.reg 0#4
+    let q ← Signal.reg 0#8
+    let rS := (r : Signal dom (BitVec 4))
+    let qS := (q : Signal dom (BitVec 8))
+    r <~ Signal.mux e (x + rS) rS
+    q <~ qS + y
+    return ({ a := rS, b := e, c := qS + y } : R3 dom)
+
+def top3s (inp : Signal defaultDomain (BitVec 4)) (en : Signal defaultDomain Bool) :
+    Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let acc ← Signal.reg 0#8
+    let accS := (acc : Signal defaultDomain (BitVec 8))
+    let k := kid3 inp en accS
+    acc <~ Signal.mux k.b k.c accS
+    return accS
+
+def topd (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c1 := kidr accS inp
+    let c2 := kidr c1.s c1.d
+    acc <~ (c2.s + c2.d : Signal defaultDomain (BitVec 4))
+    return accS
+
+def tope (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c1 := kidr accS inp
+    let c2 := child2 c1.s c1.d
+    acc <~ (c2.s + c2.d : Signal defaultDomain (BitVec 4))
+    return accS
+
+#eval show CommandElabM Unit from do
+  withScope (withMO true) do
+    acceptK ``top3s `Tests.Ved.MultiOutCheck.kid3
+    acceptK ``topd `Tests.Ved.MultiOutCheck.kidr
+    acceptK ``tope `Tests.Ved.MultiOutCheck.kidr
+
 end Tests.Ved.MultiOutCheck

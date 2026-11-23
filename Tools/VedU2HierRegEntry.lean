@@ -636,6 +636,11 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
         prodX := X
         X := X0
         if !seqI then X := X ++ prodX
+        -- option `ved.compose.multiOut`: a Bool port fed from a parent input in range: `n = (n != 0).toNat` below 2
+        if mo then
+          X := X.push s!"have hbit : ∀ n : Nat, n < 2 → n = (n != 0).toNat := by"
+          X := X.push s!"  intro n hn"
+          X := X.push s!"  rcases (by omega : n = 0 ∨ n = 1) with h | h <;> simp [h]"
         X := X.push s!"have hrange : ∀ t, ∀ p ∈ {K.contract}.dataInputs, {Fj} ins t p.name < 2 ^ Tools.VedU1Contract.declWidth {K.mod} p.name := by"
         X := X.push s!"  intro t p hp"
         X := X.push s!"  rw [hdl] at hp"
@@ -767,6 +772,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
           if ii.stateArg && dbg then X := X.push s!"    all_goals (ved_eprint_state \"P3-after-close {bn}\")"
           X := X.push s!"    try omega"
           if ii.stateArg then X := X.push s!"    all_goals (try (split <;> omega))"
+          if ii.stateArg && mo then X := X.push s!"    all_goals (try (exact hbit _ (by omega)))"
           -- VED compose connect: the producer's call is stated over its argument definition, the consumer's input over the
           -- loop terms: the two are definitionally the same signal
           if !prodFacts.isEmpty then X := X.push s!"    all_goals (try rfl)"

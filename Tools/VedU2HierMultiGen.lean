@@ -553,14 +553,26 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
   have key2 := congrArg (fun v => {pathOf kid.tbl.out l "v"}) key
   exact key2"
               seqLeaf := seqLeaf.set! idx (some leafName)
+          -- a combinational leaf next to sequential calls (a combinational consumer of a sequential producer): the producers' leaf lemmas
+          -- are simp facts at cycle `i`, and the sequential children are not unfolded
+          let seqKidNames : List Name := (kids.toList.filter fun kd =>
+            multiOutOn && kd.c.outputs.length > 1 && !(regsOf kd.c.body).isEmpty).map (·.decl)
+          let reachNS := ", ".intercalate ((kids.toList.filter fun kd => !seqKidNames.contains kd.decl).flatMap fun kd =>
+            (reachDefs envNow kd.decl 6 #[]).toList.map fun c => toString (userName c)).eraseDups
+          let seqL := seqLeaf.toList.zipIdx.filterMap fun (o, n) => o.map fun ln => (n, toString (userName ln))
+          -- (the facts are brought to the simp normal form of the goal first: `Signal.map` of a projection unfolds there)
+          let hpLines := "\n".intercalate (seqL.map fun (n, ln) =>
+            s!"  have hq{n} := {ln} {intros} t x y h i hi\n  try ({OPEN} simp only [{", ".intercalate ((if reachNS.isEmpty then [] else [reachNS]) ++ [plumbingL, sigvalL])}] at hq{n})")
+          let hpUse := ", ".intercalate (seqL.map fun (n, _) => s!"hq{n}")
+          let simpNS := ", ".intercalate ([osU] ++ (if reachNS.isEmpty then [] else [reachNS]) ++ [plumbingL, sigvalL, hpUse, "hx", "and_self", "and_true"])
           let hOsBody : String :=
             if seqLeaf.all (·.isNone) then s!"  {OPEN} {hOsClose}"
             else
               let goals := String.intercalate ", " (List.replicate nL "?_" ++ ["trivial"])
               let cases := seqLeaf.toList.map fun o => match o with
                 | some ln => s!"  · exact {toString (userName ln)} {intros} t x y h i hi"
-                | none => s!"  · {OPEN} {hOsClose}"
-              s!"  refine ⟨{goals}⟩\n" ++ "\n".intercalate cases
+                | none => s!"  · {OPEN} simp only [{simpNS}]"
+              hpLines ++ s!"\n  refine ⟨{goals}⟩\n" ++ "\n".intercalate cases
           proveByScript decl hOsName hOsTy s!"by
   intro {intros} t x y h
   unfold {eU}
