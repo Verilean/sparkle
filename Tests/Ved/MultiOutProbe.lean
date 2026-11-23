@@ -58,4 +58,31 @@ set_option ved.compose.multiOut true in
 
 #print axioms Tests.Ved.MultiOutProbe.probeTop.ved_u1
 
+/-! ### Unit 3: the child theorem of a SEQUENTIAL struct child (one register), by the standard `#ved_u1` command
+
+The struct child of the parent route is proved by the same entry (`stmtOfStruct` + `checkU1E`); here the standard command is run on a
+2-output child with a register, and its result is read back: a `U1Stmt` theorem over a module that has a register, standard axioms.
+No acceptance of a PARENT over such a child is claimed (see docs/VED-COMPOSE-CONNECT.md, unit 17). -/
+
+@[hardware_module] def kidSeq {dom : DomainConfig} (x y : Signal dom (BitVec 4)) : Q2 dom :=
+  circuit do
+    let r ← Signal.reg 0#4
+    let rS := (r : Signal dom (BitVec 4))
+    r <~ x + y
+    return ({ p := rS, q := rS - y } : Q2 dom)
+
+#ved_u1 kidSeq
+
+#eval show CommandElabM Unit from do
+  let env ← getEnv
+  let thm := `Tests.Ved.MultiOutProbe.kidSeq.ved_u1
+  let some (.thmInfo ti) := env.find? thm | throwError "{thm}: not a theorem in the environment"
+  unless ti.type.getAppFn.isConstOf ``Tools.VedU1Contract.U1Stmt do throwError "{thm}: not a U1Stmt"
+  let some (.defnInfo mi) := env.find? (`Tests.Ved.MultiOutProbe.kidSeq.ved_mod) | throwError "no module constant"
+  let hasReg : Bool := decide (((toString mi.value).splitOn "register").length > 1)
+  let axs ← liftCoreM (collectAxioms thm)
+  if axs.contains ``sorryAx then throwError "sorryAx"
+  unless axs.all (fun a => [``propext, ``Classical.choice, ``Quot.sound].contains a) do throwError "axioms outside std3: {axs}"
+  logInfo m!"PROBE SEQ OK: kidSeq.ved_u1 is a U1Stmt; module mentions a register: {toString hasReg}; axioms {axs}; no sorryAx"
+
 end Tests.Ved.MultiOutProbe

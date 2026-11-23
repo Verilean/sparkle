@@ -1186,7 +1186,9 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
       | none => none
     | _ => none
   let connOn := Tools.VedComposeConnect.ved.compose.connect.get (← getOptions)
-  let useState := !stateInsts.isEmpty
+  -- option `ved.compose.multiOut`: every instance of a design with a k-output child is an H3-open instance (a child's input net may
+  -- be a parent data input only, e.g. a sequential child)
+  let useState := !stateInsts.isEmpty || (ved.compose.multiOut.get (← getOptions) && kids.any (·.c.outputs.length > 1))
   -- H3-open: SEVERAL instances (one of them reading register outputs): the calls sit inside the parent's loop
   -- (`Tools/VedU2HierMultiGen.lean`); ONE instance keeps the H2c-state path
   let nInst := (b0.filter fun s => match s with | .inst .. => true | _ => false).length

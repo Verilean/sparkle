@@ -268,3 +268,77 @@ def ctlK (what : String) (decl : Name) (stages : List String) (m : Sparkle.IR.AS
 end Tests.Ved.MultiOutCheck
 
 #print axioms Tests.Ved.MultiOutCheck.acceptK
+
+/-! ## Unit 3: a SEQUENTIAL struct child (2 outputs, one register of its own)
+
+`kidr` keeps a register and returns `{ s := reg, d := reg - y }`.  The child theorem is the struct entry's loop-script route
+(`Tools.VedU1StructSeq`), through the same `stmtOfStruct` + `checkU1E` as the register-free child. -/
+
+namespace Tests.Ved.MultiOutCheck
+
+open Lean Elab Command Term Meta
+open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics Sparkle.Core.Domain Sparkle.Core.Signal
+open Tools.VedU1Contract Tools.VedU1Hier Tools.VedU2Hier Tools.VedU2HierRegEntry Tests.Ved.ComposeCheckUtil
+
+@[hardware_module] def kidr {dom : DomainConfig} (x y : Signal dom (BitVec 4)) : P2 dom :=
+  circuit do
+    let r ← Signal.reg 0#4
+    let rS := (r : Signal dom (BitVec 4))
+    r <~ x + y
+    return ({ s := rS, d := rS - y } : P2 dom)
+
+/-- a parent with a register reading both outputs of the sequential 2-output child; the child's inputs are the parent's DATA inputs -/
+def topr (inp inp2 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := kidr inp2 inp
+    acc <~ (c.s - c.d : Signal defaultDomain (BitVec 4))
+    return accS
+
+/-- the same parent with the child's inputs read from the parent's REGISTER -/
+def topr0 (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := kidr accS inp
+    acc <~ (c.s - c.d : Signal defaultDomain (BitVec 4))
+    return accS
+
+-- (a) the CHILD theorem of the sequential struct child: the very call of the entry (`stmtOfStruct` of the declaration, `checkU1E`
+-- on the design's own child module), a module WITH a register
+#eval show CommandElabM Unit from do
+  let (_, d) ← synthOf ``topr
+  let some cm := d.modules.head? | throwError "no child"
+  unless (regsOf cm.body).length == 1 do throwError "the child has {(regsOf cm.body).length} registers, expected 1"
+  unless d.modules.length == 1 && cm.outputs.length == 2 do throwError "child shape"
+  liftTermElabM do
+    let (b, _, names) ← Tools.VedU1StructOut.stmtOfStruct ``kidr
+    let thm ← Tools.VedU1Entry.checkU1E ``kidr (``kidr ++ `ved_seq3) b cm .generated names
+    let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+    unless ti.type.getAppFn.isConstOf ``Tools.VedU1Contract.U1Stmt do throwError "{thm}: type is not U1Stmt"
+    let axs ← collectAxioms thm
+    unless axs.all (std3.contains ·) do throwError "{thm}: axioms outside std3: {axs}"
+    if axs.contains ``sorryAx then throwError "{thm}: sorryAx"
+    logInfo m!"CHILD THEOREM (sequential struct child, 1 register, outputs {names}): {thm} U1Stmt, std3, no sorryAx"
+
+-- (b) the PARENT is refused (pinned; the first unsupplied propositions), nothing left behind, option on
+#eval show CommandElabM Unit from do
+  withScope (fun sc => { sc with opts := sc.opts.setBool `ved.compose.multiOut true }) do
+    for (decl, stage, needle) in [(``topr, "proof", "asgOnly"), (``topr0, "conns", "parent register output")] do
+      let (m, d) ← synthOf decl
+      let before ← localConsts
+      let (stmt, nDom) ← liftTermElabM (specialiseDomain decl)
+      let r ← try
+          discard <| checkU2HR decl stmt nDom m d none
+          pure none
+        catch e => pure (some (← liftTermElabM (e.toMessageData.toString)))
+      let some msg := r | throwError "{decl}: expected a refusal, the checker ACCEPTED"
+      unless msg.startsWith s!"VED U1 REFUSED {decl} [{stage}]" && (msg.splitOn needle).length > 1 do
+        throwError "{decl}: expected [{stage}] with `{needle}`, got: {msg.take 400}"
+      let added := (← localConsts).toList.filter (!before.contains ·)
+      unless added.isEmpty do throwError "{decl}: constants left after the refusal: {added}"
+      logInfo m!"PARENT REFUSED (sequential struct child, option on) {decl}: {msg.take 300}"
+
+end Tests.Ved.MultiOutCheck
+
