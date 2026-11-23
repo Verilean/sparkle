@@ -77,6 +77,20 @@ def dagTree (e : Expr) : Nat × Nat :=
   let (t, m) := (treeOf e).run {}
   (m.size, t)
 
+/-- the depth of `e` as a tree of sub-terms (what a recursive traversal such as `simp`'s pays against `maxRecDepth`) -/
+partial def depthOf (e : Expr) : StateM (Std.HashMap Expr Nat) Nat := do
+  if let some n := (← get).get? e then return n
+  let r ← match e with
+    | .app f a => do pure (max (← depthOf f) (← depthOf a) + 1)
+    | .lam _ t b _ => do pure (max (← depthOf t) (← depthOf b) + 1)
+    | .forallE _ t b _ => do pure (max (← depthOf t) (← depthOf b) + 1)
+    | .letE _ t v b _ => do pure (max (max (← depthOf t) (← depthOf v)) (← depthOf b) + 1)
+    | .mdata _ b => do pure ((← depthOf b) + 1)
+    | .proj _ _ b => do pure ((← depthOf b) + 1)
+    | _ => pure 0
+  modify (·.insert e r)
+  return r
+
 structure ZS where
   cache : Std.HashMap Expr Expr := {}
   lets : Nat := 0
@@ -94,12 +108,14 @@ partial def zetaVisit (consts : Array Name) (e : Expr) : StateT ZS MetaM Expr :=
       else if let .const n us := fn then
         if consts.contains n then
           match (← getEnv).find? n with
-          | some ci =>
-            if let some v := ci.value? then
+          | some (.defnInfo ci) =>
+            -- not a recursive definition (its value is the compiled `brecOn` / `WellFounded.fix` form)
+            let v := ci.value
+            if v.find? (fun x => x.isConstOf ``WellFounded.fix || (x.constName?.any fun c => c.isStr && c.getString! == "brecOn")) |>.isNone then
               modify fun st => { st with deltas := st.deltas + 1 }
               zetaVisit consts ((v.instantiateLevelParams ci.levelParams us).beta e.getAppArgs)
-            else pure e
-          | none => pure e
+            else zetaApp consts e
+          | _ => zetaApp consts e
         else zetaApp consts e
       else zetaApp consts e
     | .lam n t b bi => do
@@ -164,8 +180,10 @@ elab "ved_ss_zeta " h:ident " [" ns:ident,* "]" : tactic => withMainContext do
   if let some path ← IO.getEnv "VED_MS_LOG" then
     let (d0, tr0) := dagTree ty
     let (d1, tr1) := dagTree ty'
+    let dp0 := ((depthOf ty).run' {})
+    let dp1 := ((depthOf ty').run' {})
     let hd ← IO.FS.Handle.mk path .append
-    hd.putStrLn s!"VED ZETA {h.getId}: lets={st.lets} deltas={st.deltas} before dag={d0} tree={tr0}; after dag={d1} tree={tr1}; {t1 - t0}ms"
+    hd.putStrLn s!"VED ZETA {h.getId}: lets={st.lets} deltas={st.deltas} before dag={d0} tree={tr0} depth={dp0}; after dag={d1} tree={tr1} depth={dp1}; {t1 - t0}ms"
     hd.flush
   let g ← getMainGoal
   replaceMainGoal [← g.replaceLocalDeclDefEq d.fvarId ty']

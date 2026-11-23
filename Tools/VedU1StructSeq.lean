@@ -248,7 +248,7 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
   else
     tacs := tacs.push (← wrap (← `(tactic| obtain ⟨$vI, $hv⟩ : ∃ v, v = (applyIns ($C).table.ins ($C).inNames $insI $f).val $sI := ⟨_, rfl⟩)))
   if ved.sseq.zeta.get (← getOptions) then
-    tacs := tacs.push (← wrap (← `(tactic| ved_ss_zeta $hv [$fI:ident])))
+    tacs := tacs.push (← wrap (← `(tactic| ved_ss_zeta $hv [$fI:ident, $(helpers.map mkCIdent),*])))
   tacs := tacs.push (← wrap (← `(tactic| ved_ss_core_simp_big [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident, Signal.fst, Signal.snd, $exHelp,*] at $hv:ident)))
   if wires then
     let rPats ← (hs.toList).mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)

@@ -157,4 +157,100 @@ def refused (top : Name) (tag : String) (what : String) (stages : List String) :
 #eval refused ``topNR "ved_nmR" "wrong register update" ["proof"]
 #eval refused ``topNO "ved_nmO" "wrong output wire" ["proof"]
 
+
+/-! ## Unit 11: `ved.sseq.slice`, `ved.sseq.zeta`, `ved.sseq.ratio` (slice lemmas of the packed register file, non-recursive zeta)
+
+`chainN` again with the three options on (accepted, `U1Stmt`, std3, no `sorryAx`), `chainW` (registers of WIDTHS 8, 4, 8: the pack shape
+`A % 256 * 2^12 + B % 2^12`, then `A % 16 * 2^8 + B % 2^8`) with the options on, the two wrong modules of unit 10 with the options on (refused at
+`[proof]`), and the lemma-level controls: a wrong width / wrong modulus in a slice statement is REFUTED. -/
+
+structure PW (dom : DomainConfig) where
+  a : Signal dom (BitVec 8)
+  b : Signal dom (BitVec 4)
+  c : Signal dom (BitVec 8)
+
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (PW dom) dom := ⟨⟩
+
+@[hardware_module] def chainW {dom : DomainConfig} (x : Signal dom (BitVec 8)) (z : Signal dom (BitVec 4)) : PW dom :=
+  circuit do
+    let r ← Signal.reg 0#8
+    let q ← Signal.reg 1#4
+    let p ← Signal.reg 2#8
+    let rS := (r : Signal dom (BitVec 8))
+    let qS := (q : Signal dom (BitVec 4))
+    let pS := (p : Signal dom (BitVec 8))
+    let w1 := (x + rS : Signal dom (BitVec 8))
+    let w2 := (w1 - pS : Signal dom (BitVec 8))
+    let w3 := (qS + z : Signal dom (BitVec 4))
+    r <~ w2
+    q <~ w3
+    p <~ w1 + pS
+    return ({ a := w2, b := w3, c := w1 } : PW dom)
+
+def topW (inp : Signal defaultDomain (BitVec 8)) (inz : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 8) :=
+  circuit do
+    let acc ← Signal.reg 0#8
+    let accS := (acc : Signal defaultDomain (BitVec 8))
+    let c := chainW inp inz
+    acc <~ (c.a - c.c : Signal defaultDomain (BitVec 8))
+    return accS
+
+def u11Opts : List (Name × Bool) :=
+  [(`ved.sseq.fastOrder, true), (`ved.sseq.wires, true), (`ved.sseq.slice, true), (`ved.sseq.zeta, true), (`ved.sseq.ratio, false)]
+
+def childRunU (child : Name) (n : Nat) (top : Name) (tag : String) (opts : List (Name × Bool)) :
+    CommandElabM (Option String × Option Name) := do
+  let (_, d) ← synthOf top
+  let some cm := d.modules.head? | throwError "no child module of {top}"
+  liftTermElabM do
+    withOptions (fun o => opts.foldl (fun o p => o.setBool p.1 p.2) o) do
+      let (b, _, names) ← Tools.VedU1StructOut.stmtOfStruct child
+      unless names.length == n do throwError "expected {n} output ports, got {names}"
+      try
+        let thm ← Tools.VedU1Entry.checkU1E child (child ++ Name.mkSimple tag) b cm .generated names
+        return (none, some thm)
+      catch e => return (some (← e.toMessageData.toString), none)
+
+def acceptedU (child : Name) (n : Nat) (top : Name) (tag : String) (opts : List (Name × Bool)) : CommandElabM Unit := do
+  let (msg, thm?) ← childRunU child n top tag opts
+  let some thm := thm? | throwError "{child} (options {opts}) refused: {msg.getD ""}"
+  liftTermElabM do
+    let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+    unless ti.type.getAppFn.isConstOf ``Tools.VedU1Contract.U1Stmt do throwError "{thm}: type is not U1Stmt"
+    let axs ← collectAxioms thm
+    unless axs.all (std3.contains ·) do throwError "{thm}: axioms outside std3: {axs}"
+    if axs.contains ``sorryAx then throwError "{thm}: sorryAx"
+    logInfo m!"CHILD THEOREM {child} (slice+zeta+wires+ratio false): {thm} U1Stmt, std3, no sorryAx"
+
+def refusedU (top : Name) (tag : String) (what : String) : CommandElabM Unit := do
+  let (msg?, thm?) ← childRunU ``chainN 7 top tag u11Opts
+  if thm?.isSome then throwError "control ({what}): the checker ACCEPTED a wrong module"
+  let some msg := msg? | throwError "control ({what}): neither refused nor accepted"
+  unless msg.startsWith s!"VED U1 REFUSED {``chainN} [proof]" do
+    throwError "control ({what}): unexpected refusal: {msg.take 300}"
+  logInfo m!"CONTROL {what} (slice+zeta on): refused at [proof], {msg.take 160}"
+
+#eval acceptedU ``chainN 7 ``topN "ved_u11a" u11Opts
+#eval acceptedU ``chainW 3 ``topW "ved_u11w" u11Opts
+#eval acceptedU ``chainW 3 ``topW "ved_u11w0" [(`ved.sseq.fastOrder, true)]
+#eval refusedU ``topNR "ved_u11R" "wrong register update"
+#eval refusedU ``topNO "ved_u11O" "wrong output wire"
+
+open Tools.VedU1StructSlice in
+/-- lemma-level controls: the slice statements with a wrong register width / modulus / index are FALSE (so no such lemma can be
+supplied), the right ones are the three lemmas -/
+example : ¬ (∀ A B : Nat, (A % 256 * 65536 + B % 65536) / 65536 = A % 255) := by
+  intro h; have := h 255 0; revert this; decide
+
+example : ¬ (∀ A B : Nat, (A % 256 * 65536 + B % 65536) % 65536 = A % 65536) := by
+  intro h; have := h 1 0; revert this; decide
+
+example : ¬ (∀ A B : Nat, (A % 256 * 65536 + B % 65536) / 256 = A % 256) := by
+  intro h; have := h 1 0; revert this; decide
+
+example (A B : Nat) : (A % 256 * 65536 + B % 65536) / 65536 = A % 256 := Tools.VedU1StructSlice.ved_slice_div A B 256 65536 (by decide)
+example (A B : Nat) : (A % 256 * 65536 + B % 65536) % 65536 = B % 65536 := Tools.VedU1StructSlice.ved_slice_mod A B 256 65536
+example (A B : Nat) : (A % 256 * 65536 + B % 65536) % 16777216 = A % 256 * 65536 + B % 65536 :=
+  Tools.VedU1StructSlice.ved_slice_modM A B 256 65536 16777216 (by decide) (by decide)
+
 end Tests.Ved.U1StructNamedCheck
