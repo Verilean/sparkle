@@ -307,12 +307,13 @@ theorem instPairsF_eq {d : Design} (h : allLeafB d = true) (k : Nat) (m : Module
   unfold instPairF instPair
   cases hx2 : findMod d x.1 with
   | none => rfl
-  | some c => simp only [pairR_leaf k c (allLeaf_find h hx2)]
+  | some c => simp only [pairR_leaf k c (allLeaf_find h hx2)]; rfl
 
 theorem clkRstOkR_eq {d : Design} (h : allLeafB d = true) (k : Nat) (m : Module) :
     clkRstOkR d (k + 1) m = clkRstOk d m := by
   unfold clkRstOkR clkRstOk
   rw [instPairsF_eq h k m]
+  rfl
 
 theorem designClkRstR_eq {d : Design} (h : allLeafB d = true) (m : Module) :
     designClkRstR d m = designClkRst d m := by
@@ -331,6 +332,7 @@ theorem connsOkR_eq {d : Design} (h : allLeafB d = true) (k : Nat) (m : Module) 
   | some c =>
     have hl := allLeaf_find h hx
     simp only [isClkRstPortR, isClkRstPort, pairR_leaf k c hl, hl, Bool.and_true]
+    rfl
 
 theorem reachN_leaf {d : Design} (h : allLeafB d = true) :
     ∀ (k : Nat) (l : List String), reachN d k l = l := by
@@ -360,8 +362,19 @@ theorem instDecls_contains (n : String) : ∀ b : List Stmt,
   | nil => rfl
   | cons s rest ih =>
     cases s with
-    | inst a i cs => simp [instDecls, List.contains_cons, ih, beq_comm]
-    | _ => simpa [instDecls] using ih
+    | inst a i cs =>
+      simp only [instDecls, List.map_cons, List.contains_cons, List.any_cons, ih]
+      have hc : (n == a) = (a == n) := by rw [Bool.eq_iff_iff]; simp only [beq_iff_eq]; exact ⟨Eq.symm, Eq.symm⟩
+      rw [hc]
+    | assign _ _ => simpa [instDecls] using ih
+    | register _ _ _ _ _ => simpa [instDecls] using ih
+    | memory _ _ _ _ _ _ _ _ _ _ _ _ => simpa [instDecls] using ih
+
+theorem all_congr' {α : Type} {l : List α} {f g : α → Bool} (h : ∀ x ∈ l, f x = g x) :
+    l.all f = l.all g := by
+  rw [Bool.eq_iff_iff]
+  simp only [List.all_eq_true]
+  exact ⟨fun H x hx => (h x hx) ▸ H x hx, fun H x hx => (h x hx).symm ▸ H x hx⟩
 
 theorem HierShapeR_eq {d : Design} {m : Module} (h : allLeafB d = true) :
     HierShapeR d m = HierShapeK d m := by
@@ -379,12 +392,12 @@ theorem HierShapeR_eq {d : Design} {m : Module} (h : allLeafB d = true) :
       cases s with
       | inst mn i cs => exact connsOkR_eq h (d.modules.length + 1) m mn cs
       | _ => rfl
-    exact List.all_congr this
+    exact all_congr' this
   have er : reachAllR d m = d.modules.all (fun c => m.body.any (fun s => match s with
       | .inst mn _ _ => mn == c.name
       | _ => false)) := by
     unfold reachAllR
-    apply List.all_congr
+    apply all_congr'
     intro c _
     rw [reachN_leaf h, instDecls_contains]
   have ec : clkRstOkR d (fuelR d) m = clkRstOk d m := clkRstOkR_eq h _ m
@@ -394,6 +407,7 @@ theorem HierShapeR_eq {d : Design} {m : Module} (h : allLeafB d = true) :
     simp [allLeaf_mem h hx]
   unfold HierShapeR HierShapeK
   rw [e5, er, ec, el, Bool.and_true]
+  rfl
 
 theorem st0HR_eq {d : Design} (h : allLeafB d = true) (m : Module) : st0HR d m = st0H d m := by
   funext p
@@ -413,9 +427,7 @@ theorem st0HR_eq {d : Design} (h : allLeafB d = true) (m : Module) : st0HR d m =
         cases hf : findMod d mn with
         | none => rfl
         | some c =>
-          have hpos : 0 < d.modules.length := List.length_pos_of_mem (findMod_mem hf)
-          obtain ⟨n, hn⟩ : ∃ n, d.modules.length = n + 1 := ⟨_, (Nat.succ_pred_eq_of_pos hpos).symm⟩
-          rw [hn]; rfl
+          rfl
     | cons j p'' =>
       simp only [st0HRk, st0H]
       cases hx : (instDecls m.body).find? (fun x => x.2.1 == i) with
@@ -427,9 +439,6 @@ theorem st0HR_eq {d : Design} (h : allLeafB d = true) (m : Module) : st0HR d m =
         | none => rfl
         | some c =>
           have hl := allLeaf_find h hf
-          generalize d.modules.length + 1 = k
-          cases k with
-          | zero => rfl
-          | succ k => simp [st0HRk, instDecls_leaf _ hl]
+          simp only [instDecls_leaf _ hl, List.find?_nil]
 
 end Tools.VedU2HierRec
