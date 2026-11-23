@@ -1792,3 +1792,6 @@ lean_lib «Tools.VedMemS94Gen» where
 
 lean_lib «Tools.VedMemS94Local» where
   roots := #[`Tools.VedMemS94Local]
+
+lean_lib «Tools.VedMemS94Opaque» where
+  roots := #[`Tools.VedMemS94Opaque]

@@ -11,6 +11,7 @@ import Tools.VedMemS94Fix
 import Tools.VedMemS94Peel
 import Tools.VedMemS94Gen
 import Tools.VedMemS94Local
+import Tools.VedMemS94Opaque
 import Tools.VedMemPack
 import Tools.VedMemShape
 import Tools.VedMemOrder
@@ -587,8 +588,11 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
    let localT ← `(tactic| all_goals (try ved_local_goal))
    let localSt : Array (TSyntax `tactic) := if fz && Tools.VedMemS94Local.ved.mem.s94Local.get (← getOptions) then #[localT] else #[]
    -- option `ved.mem.s94Local`: `ved_mem_addr_l` (the address equalities by the local extraction lemmas), and the local route again on what `ved_addr_post_g` leaves (class B: trees of 1e10 shrink to 55 .. 6e4 nodes)
+   let opaqueSt : Array (TSyntax `tactic) ← if Tools.VedMemS94Opaque.ved.mem.s94Opaque.get (← getOptions) then pure #[← `(tactic| all_goals (try ved_mem_opaque_local))] else pure #[]
    let memAddrSt : Array (TSyntax `tactic) ← if fz && Tools.VedMemS94Local.ved.mem.s94Local.get (← getOptions) then
-     pure #[← `(tactic| all_goals (try ved_mem_addr_l)), ← `(tactic| all_goals (try ved_addr_post_g)), localT]
+     pure (#[← `(tactic| all_goals (try ved_mem_addr_l)), ← `(tactic| all_goals (try ved_addr_post_g)), localT] ++
+       -- option `ved.mem.s94Opaque` (on top of `s94Local`): the `memState` keys abstracted before one more local attempt (the closers never walk the port arguments)
+       opaqueSt)
      else pure #[← `(tactic| all_goals (try ved_mem_addr)), ← `(tactic| all_goals (try ved_addr_post_g))]
    let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| all_goals (try ved_lt_close)),

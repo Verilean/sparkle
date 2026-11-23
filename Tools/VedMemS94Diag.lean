@@ -3,6 +3,7 @@ import Tools.VedMemLoop
 import Tools.VedMemS94Fix
 import Tools.VedMemS94Peel
 import Tools.VedMemS94Gen
+import Tools.VedMemS94Local
 import Tools.VedU1WireShare
 
 /-!
@@ -1239,6 +1240,67 @@ elab "#ved_s94_ckpt100_replay " d:str : command => do
       runOn s!"all {mvs.size} goals" mvs
 
 
+open Lean Meta in
+/-- diagnosis (s94s): the case-like hypotheses of a goal (head `Not` / `And` / `Or` / `Iff` / `Ne` / `LT` / `LE`, or an `Eq` that is not a wire-environment fact and
+not an equation of numerals): per hypothesis its name, head, tree size, DAG size, and a shallow rendering -/
+def s94HypLines (g : MVarId) (lim : Nat) : MetaM (Array String) := g.withContext do
+  let mut out : Array String := #[]
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let t ← instantiateMVars d.type
+    let h := s94Head t
+    let wanted := (h == "Not" || h == "And" || h == "Or" || h == "Iff" || h == "Ne" || h == "LT.lt" || h == "LE.le") ||
+      (h == "Eq" && !Tools.VedMemS94Local.isEnvFact t && !t.isForall)
+    if wanted && !t.isForall then
+      out := out.push s!"hyp {d.userName} head={h} tree={Tools.VedU1Loop.treeSizeVal t} dag={(Tools.VedU1WireShare.collectDag (fun _ => true) t).size}: {(progShallow 6 t).take lim}"
+  return out
+
+open Lean Meta in
+/-- diagnosis (s94s): over a goal list, per goal the numbers of `Not` / `And` / `Or` / non-wire `Eq` hypotheses of tree size above 50 (the case-like facts), as a histogram of the
+shapes `n¬/nAnd/nOr/nEq` -> number of goals, with the first goal index of each shape; for tracking which stage drops a case hypothesis -/
+def s94HypHist (gs : List MVarId) : MetaM String := do
+  let mut hist : Std.HashMap String (Nat × Nat) := {}
+  let mut i := 0
+  for g in gs do
+    let (a, b, c, d) ← g.withContext do
+      let mut a := 0; let mut b := 0; let mut c := 0; let mut d := 0
+      for dd in ← getLCtx do
+        if dd.isImplementationDetail then continue
+        let t ← instantiateMVars dd.type
+        if t.isForall then continue
+        let h := s94Head t
+        if Tools.VedU1Loop.treeSizeVal t ≤ 50 then continue
+        if h == "Not" then a := a + 1
+        else if h == "And" then b := b + 1
+        else if h == "Or" then c := c + 1
+        else if h == "Eq" && !Tools.VedMemS94Local.isEnvFact t then d := d + 1
+      pure (a, b, c, d)
+    let k := s!"{a}N/{b}A/{c}O/{d}E"
+    match hist[k]? with
+    | some (n, f) => hist := hist.insert k (n + 1, f)
+    | none => hist := hist.insert k (1, i)
+    i := i + 1
+  let rows := hist.toList.toArray.qsort (fun x y => x.1 < y.1)
+  return " ".intercalate (rows.toList.map fun (k, (n, f)) => s!"[{k}:{n}@{f}]")
+
+open Lean Meta in
+/-- diagnosis (s94s): the case-like hypothesis lines of the first `k` goals of the list that have a `Not` hypothesis of tree size above 50, with the goal index, the target head and tree -/
+def s94HypShow (gs : List MVarId) (k : Nat) (lim : Nat) : MetaM (Array String) := do
+  let mut out : Array String := #[]
+  let mut shown := 0
+  let mut i := 0
+  for g in gs do
+    if shown ≥ k then break
+    let ls ← s94HypLines g lim
+    if ls.any (fun l => ((l.splitOn " head=").getD 1 "").startsWith "Not") then
+      shown := shown + 1
+      let tgt ← g.withContext do instantiateMVars (← g.getType)
+      out := out.push s!"goal {i}: target head={s94Head tgt} tree={Tools.VedU1Loop.treeSizeVal tgt}: {(progShallow 4 tgt).take lim}"
+      for l in ls do
+        out := out.push s!"  {l}"
+    i := i + 1
+  return out
+
 open Lean Meta Elab Command Term Tools.VedU1WireShare in
 /-- replay of the stage-95 checkpoint (`VED_S95_OUT` of `#ved_s94_ckpt_replay`): the ONE goal after `ved_hstep_unify`.  It runs the steps of the script from stamp 95
 on, one step at a time, each with a line (ms, heartbeats (k), goals, tree total / max, and how many goals still contain a loop value `(loop).val s` in the target or a
@@ -1355,6 +1417,8 @@ elab "#ved_s95_replay " d:str : command => do
     let stepNo (n : Nat) : Nat := match n with | 951 => 95 | 991 => 99 | 992 => 99 | n => n
     let mut cur : List MVarId := [g]
     dbgLog s!"S95 replay mode={mode}: start {← shape cur}; {← resid cur}"
+    if (← IO.getEnv "VED_S95_HYPDUMP").isSome then
+      for l in ← s94HypLines cur.head! 230 do dbgLog s!"S95 start {l}"
     let tAll ← IO.monoMsNow
     let hbAll ← IO.getNumHeartbeats
     let mut res0 := "ok"
@@ -1398,6 +1462,9 @@ elab "#ved_s95_replay " d:str : command => do
           pure "ok"
         catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 400}"
       dbgLog s!"S95 step {no} {name}: {res} ms={(← IO.monoMsNow) - t0} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}; {← shape cur}; {← resid cur}"
+      if (← IO.getEnv "VED_S95_HYPHIST").isSome then dbgLog s!"S95 hist after {no} {name}: {← s94HypHist cur}"
+      if let some nShow := (← IO.getEnv "VED_S95_HYPSHOW").bind String.toNat? then
+        for l in ← s94HypShow cur nShow 300 do dbgLog s!"S95 show after {no} {name} {l}"
       if res != "ok" then res0 := res; break
     -- `VED_S95_TAIL=FILE` (with `VED_S95_ARGS=DIR`, the stage-94 checkpoint directory): the tail of the script after stamp 100, one step per line of FILE
     -- (`name TAB tactic`, parsed at run time; the line `@EX2SIMP` stands for the first tail simp `ved_loop_simp [O, M, B, .., ex2F]`, whose arguments are those
@@ -1498,6 +1565,9 @@ elab "#ved_s95_replay " d:str : command => do
             pure "ok"
           catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 400}"
         dbgLog s!"S95 tail {name}: {res} ms={(← IO.monoMsNow) - t0} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}; {← shape cur}; {← resid cur}"
+        if (← IO.getEnv "VED_S95_HYPHIST").isSome then dbgLog s!"S95 hist after {name}: {← s94HypHist cur}"
+        if let some nShow := (← IO.getEnv "VED_S95_HYPSHOW").bind String.toNat? then
+          for l in ← s94HypShow cur nShow 300 do dbgLog s!"S95 show after {name} {l}"
         -- `VED_S95_CLASSIFY=step`: after that tail step, one line per goal (tree, DAG nodes, nodes only in this goal, free variables, shallow head), the DAG nodes
         -- shared by all goals, and the process leaves the tail (diagnosis: which register / memory word the goal states and how large its cone is)
         if name == (← IO.getEnv "VED_S95_CLASSIFY").getD "" then

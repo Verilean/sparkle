@@ -4,6 +4,7 @@ import Tools.VedMemEntry
 import Tools.VedMemLoop
 import Tools.VedMemS94Gen
 import Tools.VedMemS94Local
+import Tools.VedMemS94Opaque
 
 /-!
 # Controls for the s94r pieces of the local route (sparkle-ved-mem-s94)
@@ -108,5 +109,58 @@ run_cmd liftTermElabM do
   if ← tryClose (← stmt (← `(BitVec.ofNat 4 (r + 1)))) tac then
     throwError "mem_canon: atoms at different addresses were identified"
   logInfo m!"mem_canon controls: two spellings of one memory are one atom, different addresses stay apart"
+
+/-! ## ved_mem_opaque (s94s) -/
+
+/-- kernel-checked: the abstracted goal is proved by `omega` (the atoms are unknown words), the original goal follows by applying it to the keys -/
+theorem opaque_ok {dom : DomainConfig} (init : BitVec 4 → BitVec 8) (wa : Signal dom (BitVec 4)) (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) (n : Nat) (a b : BitVec 4) :
+    (Signal.memState init wa wd we n a).toNat + (Signal.memState init wa wd we n b).toNat ≥ (Signal.memState init wa wd we n b).toNat := by
+  ved_mem_opaque
+  omega
+
+/-- the address stays visible: an atom inside the address argument of another atom is abstracted too, the two keys are two variables -/
+theorem opaque_nested {dom : DomainConfig} (init : BitVec 4 → BitVec 8) (init2 : BitVec 8 → BitVec 8) (wa : Signal dom (BitVec 4)) (wd : Signal dom (BitVec 8))
+    (wa2 : Signal dom (BitVec 8)) (wd2 : Signal dom (BitVec 8)) (we : Signal dom Bool) (n : Nat) (a : BitVec 4) :
+    (Signal.memState init2 wa2 wd2 we n (Signal.memState init wa wd we n a)).toNat ≥ (Signal.memState init2 wa2 wd2 we n (Signal.memState init wa wd we n a)).toNat := by
+  ved_mem_opaque
+  omega
+
+/-- info: mem_opaque controls: atoms abstracted (counter +1, no memState left), different memories stay two variables, seam refuses, late failure restores, no atom refused -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryT (stmt : Term) (tac : TSyntax `tactic) : TermElabM (Bool × Bool) := do
+    let ty ← elabTerm stmt none
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      pure (gs.isEmpty, true)
+    catch _ => pure (false, false)
+  let mem (n : Nat) : TermElabM Term := `(Signal.memState (dom := defaultDomain) (fun _ => 0#8) ⟨fun t => BitVec.ofNat 4 t⟩ ⟨fun t => BitVec.ofNat 8 t⟩ ⟨fun t => decide (t % 2 = 0)⟩ $(Lean.quote n) (BitVec.ofNat 4 r))
+  -- the same memory twice (equal words): closes after the abstraction
+  let same ← `(∀ (r : Nat), ($(← mem 3)).toNat = ($(← mem 3)).toNat + 0)
+  -- two different memories (time 3 / time 4): the equation is not provable from the abstraction (the two keys are two variables)
+  let diff ← `(∀ (r : Nat), ($(← mem 3)).toNat = ($(← mem 4)).toNat)
+  let hits0 ← Tools.VedMemS94Opaque.opaqueHits.get
+  let (c1, _) ← tryT same (← `(tactic| (intro r; ved_mem_opaque; omega)))
+  unless c1 do throwError "opaque: the abstracted goal was not closed"
+  unless (← Tools.VedMemS94Opaque.opaqueHits.get) == hits0 + 1 do throwError "opaque: counter"
+  let (c2, _) ← tryT diff (← `(tactic| (intro r; ved_mem_opaque; omega)))
+  if c2 then throwError "opaque: two different memories were identified"
+  -- no memState atom is left in the target after the abstraction
+  let (c3, ok3) ← tryT same (← `(tactic| (intro r; ved_mem_opaque; (fail_if_success (simp only [Signal.memState])); omega)))
+  if !ok3 || !c3 then throwError "opaque: a memState atom was still visible after the abstraction"
+  Tools.VedMemS94Opaque.opaqueRefuse.set true
+  let (_, ok4) ← tryT same (← `(tactic| (intro r; ved_mem_opaque; omega)))
+  Tools.VedMemS94Opaque.opaqueRefuse.set false
+  if ok4 then throwError "opaque: seam did not refuse"
+  -- late failure: the first alternative fails after its work, the `skip` alternative leaves the goal as it was (the original statement, still containing memState, is closed by `omega` directly)
+  Tools.VedMemS94Opaque.opaqueFailLate.set true
+  let (c5, ok5) ← tryT same (← `(tactic| (intro r; (first | ved_mem_opaque | skip); (fail_if_success (intro ved_M0)); omega)))
+  Tools.VedMemS94Opaque.opaqueFailLate.set false
+  if !ok5 || !c5 then throwError "opaque: late failure left an abstracted goal"
+  -- no memState atom at all: refused
+  let (_, ok6) ← tryT (← `(∀ (r : Nat), r + 0 = r)) (← `(tactic| (intro r; ved_mem_opaque)))
+  if ok6 then throwError "opaque: a goal without atoms was accepted"
+  logInfo m!"mem_opaque controls: atoms abstracted (counter +1, no memState left), different memories stay two variables, seam refuses, late failure restores, no atom refused"
 
 end Tests.Ved.VedMemLocalCheck
