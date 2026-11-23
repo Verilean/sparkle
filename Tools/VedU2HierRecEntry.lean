@@ -39,6 +39,12 @@ register_option ved.compose.nested : Bool := {
   descr := "nested hierarchy: a register-free parent over non-leaf (middle) modules, proved from the middle module's own theorem (statement U2HRStmtR; candidate)"
 }
 
+universe u in
+/-- The value of a bundled pair of signals (a struct-result declaration's bundle statement reads it per output port). -/
+theorem bundle2_val {dom : Sparkle.Core.Domain.DomainConfig} {α β : Type u} (a : Sparkle.Core.Signal.Signal dom α)
+    (b : Sparkle.Core.Signal.Signal dom β) (t : Nat) :
+    (Sparkle.Core.Signal.bundle2 a b).val t = (a.val t, b.val t) := rfl
+
 /-- The sub-design of a middle module: the modules of the parent's design reachable from it by
 instances (a sublist of `d.modules`, in its order), the middle module as top. -/
 def subDesignOf (d : Design) (cm : Sparkle.IR.AST.Module) : Design :=

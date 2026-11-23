@@ -344,6 +344,8 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let OE := userName opn.eqName
   let CEq : String := match opn.callEqName with | some n => toString (userName n) | none => ""
   let FT := declTerm F nDom
+  -- a struct-result parent: the statement function is the stored bundle constant, unfolded where the goals read it
+  let FU := if F.getString! == "ved_bundle" then s!"{userName F}, Tools.VedU2HierRecEntry.bundle2_val, " else ""
   let T2 := "Tools.VedU2Hier"
   let ptag := match opn.port with | some p => s!"_{p}" | none => ""
   let ODeep := deepC opn.openName (ptag ++ "_deep")
@@ -367,7 +369,8 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   let isMultiK (k : Kid) : Bool := mo && k.c.outputs.length > 1
   -- option `ved.compose.multiOut`: a multi-output child WITH registers (sequential): its instance fact is asked through `kid_seq_multi`
   -- (`hrunF` at every cycle `s ≤ t`, from the history of the invariant), not `kid_step_multi` (combinational children only)
-  let isSeqK (k : Kid) : Bool := isMultiK k && !(regsOf k.c.body).isEmpty
+  -- (a scalar sequential child next to a struct-result parent is also asked through `kid_seq_multi`: `kid_step` is for combinational children)
+  let isSeqK (k : Kid) : Bool := mo && !(regsOf k.c.body).isEmpty
   let GS (k : Kid) : String :=
     if isMultiK k then toString (userName (k.nm.mod.getPrefix ++ `ved_bundle)) else declTerm k.decl k.nDom
   -- the (port, wire) pairs of an instance's outputs, in the order of its connections (`instOuts`)
@@ -966,7 +969,7 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
       L := L.push s!"      rw [{(rootFact "out").getD "?"}]"
       L := L.push s!"      try rw [if_pos rfl]"
       L := L.push s!"      ved_clear_env"
-      L := L.push s!"      all_goals simp {outCfg}[Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {OE}, Tools.VedU1Contract.PTy.sig]"
+      L := L.push s!"      all_goals simp {outCfg}[{FU}Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {OE}, Tools.VedU1Contract.PTy.sig]"
       L := L.push s!"      all_goals rw [{OTrace}]"
       L := L.push s!"      all_goals unfold {irS} {inpU} at {locsU}"
       L := L.push s!"      all_goals simp only [CExpr.compile, {OOut}]"
@@ -1005,14 +1008,31 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
   if st && opn.knot.isNone then
     -- H2c-state: the declaration IS the call on its closed argument; the output is the oracle value
     -- (`{CEq}` is the kernel equation `decl xs = g a`; the conversion itself is left to the kernel)
-    L := L.push s!"      all_goals simp [Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig]"
+    L := L.push s!"      all_goals simp [{FU}Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig]"
     if dbg then L := L.push s!"      all_goals ved_eprint_state"
     L := L.push s!"      all_goals ved_kernel_rfl"
   else
-    L := L.push s!"      all_goals simp {outCfg}[Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {OE}, Tools.VedU1Contract.PTy.sig]"
-    L := L.push s!"      all_goals rw [{OTrace}]"
+    L := L.push s!"      all_goals simp {outCfg}[{FU}Tools.VedU1Contract.srcOf, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, {P.contract}, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, {OE}, Tools.VedU1Contract.PTy.sig]"
+    -- a struct-result parent: every output port is read through its OWN deep trace and out expression; the per-port circuits differ
+    -- only in `out`, so their IR state recurrences are the used port's (`Cdo.irState_congr`)
+    let strPorts : List String := if F.getString! == "ved_bundle" && opn.ports.length > 1 then opn.ports else []
+    if strPorts.isEmpty then
+      L := L.push s!"      all_goals rw [{OTrace}]"
+    else
+      let tr := ", ".intercalate (strPorts.map fun q => toString (deepC opn.openName s!"_{q}_deep_trace"))
+      L := L.push s!"      all_goals simp only [{tr}]"
     L := L.push s!"      all_goals unfold {irS} {inpU} at {locsU}"
-    L := L.push s!"      all_goals simp only [CExpr.compile, {OOut}]"
+    if strPorts.isEmpty then
+      L := L.push s!"      all_goals simp only [CExpr.compile, {OOut}]"
+    else
+      let oo := ", ".intercalate (strPorts.map fun q => toString (deepC opn.openName s!"_{q}_deep_out"))
+      L := L.push s!"      all_goals simp only [CExpr.compile, {oo}]"
+      for q in strPorts do
+        let Dq := toString (deepC opn.openName s!"_{q}_deep")
+        if Dq != toString ODeep then
+          L := L.push s!"      have hirs_{q} : ∀ nm inp t i, ({Dq}).irState nm inp t i = ({ODeep}).irState nm inp t i := fun nm inp t i => congrFun (congrFun (Cdo.irState_congr {Dq} {ODeep} nm inp rfl rfl) t) i"
+      L := L.push s!"      all_goals try simp only [List.lookup, Option.getD]"
+      L := L.push s!"      all_goals try simp only [{", ".intercalate ((strPorts.filter fun q => toString (deepC opn.openName s!"_{q}_deep") != toString ODeep).map fun q => s!"hirs_{q}")}]"
     L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) [{evalL}] at {locs} ⊢"
     L := L.push s!"      all_goals ved_fin_norm"
     L := L.push s!"      all_goals try simp (config := \{ maxSteps := 4000000 }) [{evalL}] at ⊢"
@@ -1074,7 +1094,8 @@ structure Phase1 where
 (The same stages and refusals as `checkU2H`, minus the register-free scope clause.) -/
 def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
     (clkRstOverride : Option (Option (String × String)))
-    (nested : Option (List Tools.VedU2HierRecEntry.MidInfo × List Tools.VedU2HierRecEntry.NlInfo) := none) : TermElabM Phase1 := do
+    (nested : Option (List Tools.VedU2HierRecEntry.MidInfo × List Tools.VedU2HierRecEntry.NlInfo) := none)
+    (outNames : List String := ["out"]) (stmtU : Lean.Expr := stmt) : TermElabM Phase1 := do
   let nm := HNames.ofBase decl
   let nestedOn := nested.isSome
   -- option `ved.compose.multiOut`: the output port names of a child with several output projections are its module's own
@@ -1082,7 +1103,7 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let kON : DeclTable → Sparkle.IR.AST.Module → List String := fun tb cm =>
     if mo && cm.outputs.length > 1 then cm.outputs.map (·.name) else ["out"]
   let tbl ← try readTableOfType decl (← inferType stmt) catch e => refuse decl "table" e.toMessageData
-  unless tbl.out.flat.length == 1 do
+  unless tbl.out.flat.length == outNames.length do
     refuse decl "multi-output"
       m!"{tbl.out.flat.length} output projections (multi-output: H3), refused (H2b: one output)"
   Tools.VedU2HierDbg.phaseLog "p1: table read"
@@ -1112,9 +1133,9 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let clkRst := clkRstOverride.getD clkRst0
   Tools.VedU2HierDbg.phaseLog "p1: hier-shape checks"
   let cE := mkAppN (Lean.mkConst ``contractOf)
-    #[toExpr tbl, toExpr ["out"], toExpr clkRst, Lean.mkConst nm.mod]
+    #[toExpr tbl, toExpr outNames, toExpr clkRst, Lean.mkConst nm.mod]
   addDefn nm.contract (Lean.mkConst ``Contract) cE
-  let c := contractOf tbl ["out"] clkRst m
+  let c := contractOf tbl outNames clkRst m
   unless decide (CorrStmt c) do
     refuse decl "table" m!"the declaration/contract correspondence (CorrStmt) fails"
   unless decide (c.clkRst = designClkRst d m) do
@@ -1275,17 +1296,17 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let connOn := Tools.VedComposeConnect.ved.compose.connect.get (← getOptions)
   -- option `ved.compose.multiOut`: every instance of a design with a k-output child is an H3-open instance (a child's input net may
   -- be a parent data input only, e.g. a sequential child)
-  let useState := !stateInsts.isEmpty || (ved.compose.multiOut.get (← getOptions) && kids.any (·.c.outputs.length > 1))
+  let useState := !stateInsts.isEmpty || (ved.compose.multiOut.get (← getOptions) && kids.any (·.c.outputs.length > 1)) || outNames.length > 1
   -- H3-open: SEVERAL instances (one of them reading register outputs): the calls sit inside the parent's loop
   -- (`Tools/VedU2HierMultiGen.lean`); ONE instance keeps the H2c-state path
   let nInst := (b0.filter fun s => match s with | .inst .. => true | _ => false).length
   -- VED compose connect: a single instance whose output is NOT the declaration's output (it feeds the parent's own registers) is
   -- generated by the instance loop too; the single-call `genOpenSt` slice needs the declaration to BE the child's call
   let multi := useState && (!(kids.length == 1 && nInst == 1) || Tools.VedComposeConnect.ved.compose.connect.get (← getOptions) ||
-    (mo && kids.any (·.c.outputs.length > 1)))
+    (mo && kids.any (·.c.outputs.length > 1)) || outNames.length > 1)
   Tools.VedU2HierDbg.openTick s!"genOpen dispatch begin multi={multi} kids={kids.length} instances={nInst}"
   let opn ← if multi then
-      Tools.VedU2HierMultiGen.genOpenMulti decl stmt nDom tbl kids.toArray nm.mod.getPrefix openSuf
+      Tools.VedU2HierMultiGen.genOpenMulti decl stmtU nDom tbl kids.toArray nm.mod.getPrefix openSuf
         (pw := Tools.VedCompose.ved.compose.step.get (← getOptions) && (← IO.getEnv "VED_COMPOSE_NOPW").isNone)
         (chain := connOn) (multiOutOn := mo)
     else if useState then
@@ -1405,8 +1426,8 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
 
 /-- The second phase: the deep facts of the open parent exist; build the invariant's constants,
 the proof of `U2HRStmt`, and check it. -/
-def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (p1 : Phase1) :
-    TermElabM (Name × Nat) := do
+def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (p1 : Phase1)
+    (bundleC : Option Name := none) : TermElabM (Name × Nat) := do
   let nm := HNames.ofBase decl
   let opn := p1.opn
   let kids := p1.kids
@@ -1422,7 +1443,11 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
           else refuse decl "deep" m!"the port {p} of the open parent did not export its loop state"
         | none =>
           if env.contains (deepNameP opn.openName "_deep_state") then pure opn
-          else refuse decl "deep" m!"the open parent did not export its loop state"
+          -- option `ved.compose.multiOut`, a struct-result parent: every field is a port with its own deep facts; the loop state is
+          -- taken from the first port that exported it
+          else match opn.ports.find? (fun p => env.contains (deepNameP opn.openName s!"_{p}_deep_state")) with
+            | some p => pure { opn with port := some p }
+            | none => refuse decl "deep" m!"the open parent did not export its loop state"
       else if opn.ports.isEmpty then pure opn
       else
         match opn.ports.find? (fun p => env.contains (deepNameP opn.openName s!"_{p}_deep_state")) with
@@ -1510,14 +1535,18 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   try check expected catch e => refuse decl "type" e.toMessageData
   unless ← isProp expected do refuse decl "type" m!"expected statement is not a Prop"
   let tGen0 ← IO.monoMsNow
-  let text00 := scriptTextR nm stmt.getAppFn.constName! stmt.getAppNumArgs tbl opn kids p1.insts di ((← IO.getEnv "VED_HIER_TRACE").isSome)
+  -- option `ved.compose.multiOut`, a STRUCT-result parent: the statement function is the bundle lambda, stored as a constant
+  let (fN, fD) := match bundleC with
+    | some n => (n, 0)
+    | none => (stmt.getAppFn.constName!, stmt.getAppNumArgs)
+  let text00 := scriptTextR nm fN fD tbl opn kids p1.insts di ((← IO.getEnv "VED_HIER_TRACE").isSome)
   -- option `ved.compose.nested`: the recursive shape/order/success/instance blocks (Tools/VedU2HierRecEntry.lean)
   let text0 := match p1.nested with
     | some (mids, nl) => Tools.VedU2HierRecEntry.transformN text00 nm kids mids nl p1.insts true
     | none => text00
   let text := if noRegK then
       let P := nm.user
-      s!"by\n  have hR : Tools.VedU2Hier.U2HRStmtK {P.contract} {P.mod} {P.design} {declTerm stmt.getAppFn.constName! stmt.getAppNumArgs} := by\n" ++
+      s!"by\n  have hR : Tools.VedU2Hier.U2HRStmtK {P.contract} {P.mod} {P.design} {declTerm fN fD} := by\n" ++
         "\n".intercalate ((text0.splitOn "\n").map fun l => "  " ++ l) ++
         s!"\n  exact Tools.VedU2Hier.U2HStmtK_of_R hR (by decide)"
     else "by\n" ++ text0
@@ -1663,7 +1692,8 @@ deep run; it is `pure` in the entry. -/
 def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
     (clkRstOverride : Option (Option (String × String)) := none)
     (tamper : Phase1 → CommandElabM Phase1 := fun p => pure p)
-    (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandElabM Name := fun _ _ _ => pure .anonymous) :
+    (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandElabM Name := fun _ _ _ => pure .anonymous)
+    (structP : Option (Lean.Expr × List String) := none) :
     CommandElabM (Name × Nat × Nat) := do
   let saved ← get
   try
@@ -1675,7 +1705,13 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
         pure (some (mids, nl))
       else pure none
     Tools.VedU2HierDbg.phaseLog "phase1 start (children)"
-    let p1 ← liftTermElabM (phase1 decl stmt nDom m d clkRstOverride nested)
+    -- option `ved.compose.multiOut`, a struct-result parent: `stmt` is the bundle lambda, `structP = (the declaration's own statement
+    -- function, the port names)`; the bundle is stored as `<decl>.ved_bundle`
+    let bundleC : Option Name := structP.map fun _ => decl ++ `ved_bundle
+    if let some bc := bundleC then
+      liftTermElabM <| do addDefn bc (← inferType stmt) stmt
+    let p1 ← liftTermElabM (phase1 decl stmt nDom m d clkRstOverride nested
+      ((structP.map (·.2)).getD ["out"]) ((structP.map (·.1)).getD stmt))
     Tools.VedU2HierDbg.phaseLog "phase1 end"
     -- measurement only (`VED_OPEN_STOP`): stop after the open-parent generation (the deep run and the proof do not run)
     if (← IO.getEnv "VED_OPEN_STOP").isSome then
@@ -1718,7 +1754,7 @@ def checkU2HRCore (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.
     -- H2e: a limit reached while the proof is elaborated (`maxHeartbeats`, `maxRecDepth`: runtime exceptions, which `catch`
     -- does not see) is a refusal at `[proof]`, like any other failure of the proof
     Tools.VedU2HierDbg.phaseLog "phase2 start"
-    let (thm, proofMs) ← liftTermElabM (tryCatchRuntimeEx (phase2 decl stmt nDom m p1) fun ex =>
+    let (thm, proofMs) ← liftTermElabM (tryCatchRuntimeEx (phase2 decl stmt nDom m p1 bundleC) fun ex =>
       if ex.isRuntime then refuse decl "proof" ex.toMessageData else throw ex)
     return (thm, p1.childMs, proofMs)
   catch e =>
@@ -1732,10 +1768,11 @@ nested circuit exceed the default 200000 heartbeats in `whnf`) to the floors `ve
 constants that also overrode a larger caller limit). -/
 partial def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Module) (d : Design)
     (clkRstOverride : Option (Option (String × String)) := none)
-    (tamper : Phase1 → CommandElabM Phase1 := fun p => pure p) :
+    (tamper : Phase1 → CommandElabM Phase1 := fun p => pure p)
+    (structP : Option (Lean.Expr × List String) := none) :
     CommandElabM (Name × Nat × Nat) :=
   withScope (fun sc => { sc with opts := Tools.VedU2HierBudget.floorOpts sc.opts Tools.VedU2HierBudget.ved.u2.hierRecDepth Tools.VedU2HierBudget.ved.u2.hierHeartbeats })
-    (checkU2HRCore decl stmt nDom m d clkRstOverride tamper
+    (checkU2HRCore decl stmt nDom m d clkRstOverride tamper (structP := structP)
       -- option `ved.compose.nested`: the entry on a middle module (its own module value and sub-design)
       (fun cdecl cm dC => do
         let (stmt', nDom') ← liftTermElabM <| try specialiseDomain cdecl catch e => refuse cdecl "table" e.toMessageData
@@ -1753,9 +1790,22 @@ def midEntryN (declName : Name) (cm : Sparkle.IR.AST.Module) (dC : Design) : Com
 (statement `U2HStmt`), a parent with registers is `checkU2HR` (statement `U2HRStmt`). -/
 def vedU2HierEntryR (declName : Name) :
     CommandElabM (Sparkle.IR.AST.Module × Design × Name × Nat × Stats) := do
-  let (stmt, nDom) ← liftTermElabM <| try specialiseDomain declName catch e => refuse declName "table" e.toMessageData
+  let (stmt0, nDom0) ← liftTermElabM <| try specialiseDomain declName catch e => refuse declName "table" e.toMessageData
+  -- option `ved.compose.multiOut`: a declaration whose result is a STRUCTURE (the table reader refuses it) is read through the
+  -- struct reader (`Tools.VedU1StructOut.stmtOfStruct`: the bundle lambda over the ORIGINAL declaration, ports = the field names)
+  let (stmt, nDom, structP) ← do
+    match ← liftTermElabM <| (try pure (Except.ok (← readTableOfType declName (← inferType stmt0))) catch e => pure (Except.error e)) with
+    | .ok _ => pure (stmt0, nDom0, (none : Option (Lean.Expr × List String)))
+    | .error e0 =>
+      if ved.compose.multiOut.get (← getOptions) then
+        let r ← liftTermElabM <| (try pure (Except.ok (← Tools.VedU1StructOut.stmtOfStruct declName)) catch e => pure (Except.error e))
+        match r with
+        | .ok (b, nd, names) => pure (b, nd, some (stmt0, names))
+        | .error e =>
+          if ← liftTermElabM (isRefusal e0) then throw e0 else throw e
+      else throw e0
   let tbl ← liftTermElabM <| try readTableOfType declName (← inferType stmt) catch e => refuse declName "table" e.toMessageData
-  unless tbl.out.flat.length == 1 do
+  unless tbl.out.flat.length == (structP.map (·.2.length)).getD 1 do
     liftTermElabM <| refuse declName "multi-output"
       m!"{tbl.out.flat.length} output projections (multi-output: H3), refused (H2b: one output)"
   let t0 ← IO.monoMsNow
@@ -1765,15 +1815,15 @@ def vedU2HierEntryR (declName : Name) :
   let t1 ← IO.monoMsNow
   Tools.VedU2HierDbg.phaseLog "synthesis end"
   -- option `ved.compose.nested` (default off): a design with a NON-LEAF module is proved by the nested route (statement `U2HRStmtR`)
-  if Tools.VedU2HierRecEntry.ved.compose.nested.get (← getOptions) && d.modules.any (fun x => !leafBody x.body) && (regsOf m.body).isEmpty then
+  if Tools.VedU2HierRecEntry.ved.compose.nested.get (← getOptions) && d.modules.any (fun x => !leafBody x.body) && (regsOf m.body).isEmpty && structP.isNone then
     let (thm, childMs, proofMs) ← Tools.VedU2HierRecEntry.checkU2HN midEntryN declName stmt nDom m d
     return (m, d, thm, nDom, { synthMs := t1 - t0, childMs, proofMs, peakKb := ← peakKb })
   -- option `ved.compose.multiOut`: a register-free parent with a k-output child is proved by `checkU2HR`'s machinery (statement `U2HStmtK`)
-  if (regsOf m.body).isEmpty && !(ved.compose.multiOut.get (← getOptions) && d.modules.any (·.outputs.length > 1)) then
+  if (regsOf m.body).isEmpty && structP.isNone && !(ved.compose.multiOut.get (← getOptions) && d.modules.any (·.outputs.length > 1)) then
     let (thm, childMs, proofMs) ← liftTermElabM (checkU2H declName stmt nDom m d)
     return (m, d, thm, nDom, { synthMs := t1 - t0, childMs, proofMs, peakKb := ← peakKb })
   else
-    let (thm, childMs, proofMs) ← checkU2HR declName stmt nDom m d
+    let (thm, childMs, proofMs) ← checkU2HR declName stmt nDom m d (structP := structP)
     return (m, d, thm, nDom, { synthMs := t1 - t0, childMs, proofMs, peakKb := ← peakKb })
 
 /-- `#ved_u2_hier decl`: the stateful hierarchical entry (H2a and H2b); prints the theorem, its audit,
