@@ -1029,6 +1029,57 @@ elab "#ved_s94_ckpt97_replay " d:str : command => do
         | none => run
       dbgLog s!"S97 replay goal {j}: {res} ms={(← IO.monoMsNow) - t0} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}"
 
+open Tools.VedU1WireShare in
+/-- diagnosis: `ved_loop_gen_mem s` with a clock per sub-step (loops preamble, `hasValAt`, `mkAppM`, `generalizeDag`, `rcases`, the Bool `cases`), one summary line per loop:
+ms and heartbeats (thousand) of each sub-step, goals before / after.  The same steps in the same order as `ved_loop_gen_mem`. -/
+def s94Clock {α : Type} (acc : IO.Ref (Nat × Nat)) (act : TacticM α) : TacticM α := do
+  let t0 ← IO.monoMsNow
+  let h0 ← IO.getNumHeartbeats
+  let r ← act
+  let t1 ← IO.monoMsNow
+  let h1 ← IO.getNumHeartbeats
+  acc.modify fun (m, h) => (m + (t1 - t0), h + (h1 - h0) / 1000)
+  return r
+
+elab "ved_loop_gen_mem_prof " s:ident : tactic => withMainContext do
+  let sE ← elabTerm s.raw none
+  let tPre ← IO.monoMsNow
+  let hPre ← IO.getNumHeartbeats
+  let mut loops : Array Expr := #[]
+  for g in ← getGoals do
+    for l in ← goalLoops g do
+      unless loops.contains l do loops := loops.push l
+  dbgLog s!"genprof: {loops.size} loops in {(← getGoals).length} goals, preamble ms={(← IO.monoMsNow) - tPre} hb(k)={((← IO.getNumHeartbeats) - hPre) / 1000}"
+  for j in [0:loops.size] do
+    let aHas ← IO.mkRef (0, 0); let aMk ← IO.mkRef (0, 0); let aGen ← IO.mkRef (0, 0); let aRc ← IO.mkRef (0, 0); let aCs ← IO.mkRef (0, 0)
+    let tL ← IO.monoMsNow
+    let nBefore := (← getGoals).length
+    let some α := loops[j]!.getAppArgs[1]? | throwError "ved_loop_gen_mem_prof: malformed Signal.loop"
+    let bare := !(← whnfR α).isAppOf ``Prod
+    let n := (← Tools.VedU1Loop.stateComps α).length
+    let X := mkIdent (Name.mkSimple s!"ved_X{j}")
+    let xs := (List.range (if bare then 1 else n + 1)).toArray.map fun i => mkIdent (Name.mkSimple s!"ved_x{j}_{i}")
+    let pats ← xs.mapM fun x => `(Lean.Parser.Tactic.rcasesPatLo| $x:ident)
+    let mut gsOut : List MVarId := []
+    let mut nHit := 0
+    for g in ← getGoals do
+      setGoals [g]
+      unless (← s94Clock aHas (hasValAt g loops[j]! sE)) do
+        gsOut := gsOut ++ [g]
+        continue
+      nHit := nHit + 1
+      let v ← s94Clock aMk (g.withContext <| mkAppM ``Sparkle.Core.Signal.Signal.val #[loops[j]!, sE])
+      s94Clock aGen (Tools.VedU1WireShare.generalizeDag v (if bare then Name.mkSimple s!"ved_x{j}_0" else X.getId))
+      unless bare do s94Clock aRc (evalTactic (← `(tactic| all_goals rcases $X:ident with ⟨$pats,*⟩)))
+      for x in xs do
+        let some d := (← withMainContext getLCtx).findFromUserName? x.getId | continue
+        if (← whnfR d.type).isConstOf ``Bool && (← IO.getEnv "VED_S100_NOSPLIT").isNone then
+          s94Clock aCs (evalTactic (← `(tactic| all_goals cases $x:ident)))
+      gsOut := gsOut ++ (← getGoals)
+    setGoals gsOut
+    let f (a : IO.Ref (Nat × Nat)) : IO String := do let (m, h) ← a.get; pure s!"{m}ms/{h}k"
+    dbgLog s!"genprof loop {j}: goals {nBefore} -> {gsOut.length} (with the loop: {nHit}), bool comps={(← xs.filterM fun _ => pure true).size}, total ms={(← IO.monoMsNow) - tL}: hasValAt {← f aHas} mkAppM {← f aMk} generalizeDag {← f aGen} rcases {← f aRc} cases {← f aCs}"
+
 open Lean Meta Elab Command Term in
 /-- replay of the stage-100 checkpoint: `ved_loop_gen_mem ck<s>` (the step of the script after stamp 100).  `VED_S100_GOALS` (default all; `a-b` or a comma list
 of numbers and ranges), `VED_S100_HB` (thousand heartbeats per goal / per run; default the ambient budget), `VED_S100_MODE=single` (default: every chosen goal alone,
@@ -1110,7 +1161,7 @@ elab "#ved_s94_ckpt100_replay " d:str : command => do
           let gs ← Tactic.run g0 (do
             -- all chosen goals open at once (mode `all`), the first one's `s`
             Tactic.setGoals (items.toList.map (·.2.1))
-            Tactic.evalTactic (← `(tactic| ved_loop_gen_mem $(mkIdent s0))))
+            if (← IO.getEnv "VED_S100_PROF").isSome then Tactic.evalTactic (← `(tactic| ved_loop_gen_mem_prof $(mkIdent s0))) else Tactic.evalTactic (← `(tactic| ved_loop_gen_mem $(mkIdent s0))))
           pure s!"ok {← shape gs}"
         catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 300}"
       let res ← match hbN? with
