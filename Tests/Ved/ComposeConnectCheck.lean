@@ -1357,11 +1357,32 @@ set_option Elab.async false in
 run_cmd do
   let msgs0 := (← get).messages
   let src := "theorem closerWrong (b : Bool) (o : BitVec 8) (d : BitVec 16) (g0 : BitVec 1) (g1 : BitVec 7) (g2 : BitVec 2) (g3 g4 : BitVec 8) (g5 : BitVec 1) (g6 : BitVec 10) (g7 : BitVec 4) (g8 : BitVec 16) (g9 : BitVec 1) :\n    (if g2 = 2#2 then 1#2\n    else\n      if\n          ((g2 = 0#2 ∨ g2 = 1#2) ∧\n              g0 = 1#1 ∧ ¬g1 = 74#7 ∧ ¬g1 = 75#7 ∧ ¬g1 = 76#7 ∧ ¬g1 = 77#7 ∧ ¬g1 = 78#7 ∧ ¬g1 = 79#7) ∧\n            (o = 192#8 ∨ o = 219#8) then\n        2#2\n      else\n        if\n            ((g2 = 0#2 ∨ g2 = 1#2) ∧\n                g0 = 1#1 ∧ ¬g1 = 74#7 ∧ ¬g1 = 75#7 ∧ ¬g1 = 76#7 ∧ ¬g1 = 77#7 ∧ ¬g1 = 78#7 ∧ ¬g1 = 79#7) ∧\n              ¬o = 192#8 ∧ ¬o = 219#8 then\n          1#2\n        else if g2 = 1#2 ∧ g0 = 1#1 ∧ g1 = 74#7 then 0#2 else g2) =\n    if (if g2 = 2#2 then 1#1 else 0#1) = 1#1 then 1#2\n    else\n      if\n          ((if g2 = 0#2 then 1#1 else 0#1) ||| if g2 = 1#2 then 1#1 else 0#1) &&&\n                (g0 &&&\n                  ((~~~if g1 = 74#7 then 1#1 else 0#1) &&&\n                    ~~~((if g1 = 75#7 then 1#1 else 0#1) |||\n                        ((if g1 = 76#7 then 1#1 else 0#1) |||\n                          ((if g1 = 77#7 then 1#1 else 0#1) |||\n                            ((if g1 = 78#7 then 1#1 else 0#1) ||| if g1 = 79#7 then 1#1 else 0#1)))))) &&&\n              ((if o = 192#8 then 1#1 else 0#1) ||| if o = 219#8 then 1#1 else 0#1) =\n            1#1 then\n        2#2\n      else\n        if\n            ((if g2 = 0#2 then 1#1 else 0#1) ||| if g2 = 1#2 then 1#1 else 0#1) &&&\n                  (g0 &&&\n                    ((~~~if g1 = 74#7 then 1#1 else 0#1) &&&\n                      ~~~((if g1 = 75#7 then 1#1 else 0#1) |||\n                          ((if g1 = 76#7 then 1#1 else 0#1) |||\n                            ((if g1 = 77#7 then 1#1 else 0#1) |||\n                              ((if g1 = 78#7 then 1#1 else 0#1) ||| if g1 = 79#7 then 1#1 else 0#1)))))) &&&\n                ~~~((if o = 192#8 then 1#1 else 0#1) ||| if o = 219#8 then 1#1 else 0#1) =\n              1#1 then\n          1#2\n        else if (if g2 = 1#2 then 1#1 else 0#1) &&& (g0 &&& if g1 = 73#7 then 1#1 else 0#1) = 1#1 then 0#2 else g2 := by\n  ved_bv_close3"
+  let saved ← get
+  let nm := (← getCurrNamespace) ++ `closerWrong
+  let hasNm (env : Environment) : Bool :=
+    env.constants.map₂.foldl (fun acc n _ => acc || nm.isPrefixOf n) false
+  -- the STATEMENT alone elaborates (proof replaced by `sorry`): the refusal below is the tactic's, not the statement's
+  let srcS := src.replace ":= by\n  ved_bv_close3" ":= by sorry"
+  unless srcS.endsWith ":= by sorry" do throwError "control: statement text"
+  let .ok stxS := Lean.Parser.runParserCategory (← getEnv) `command srcS | throwError "control: parse (statement)"
+  let stmtOk ← try
+      elabCommand stxS
+      pure (!(← get).messages.hasErrors)
+    finally set saved
+  unless stmtOk do throwError "control void: the statement of closerWrong does not elaborate"
   let .ok stx := Lean.Parser.runParserCategory (← getEnv) `command src | throwError "control: parse"
-  elabCommand stx
-  let bad := (← get).messages.hasErrors
-  modify fun s => { s with messages := msgs0 }
+  let (bad, tacErr) ← try
+      elabCommand stx
+      let errs := (← get).messages.toList.filter (·.severity == .error)
+      let txts ← errs.mapM (·.data.toString)
+      pure (!errs.isEmpty, txts.any fun t => (t.splitOn "ved_bv_close3").length > 1 || (t.splitOn "unsolved goals").length > 1
+        || (t.splitOn "failed").length > 1 || (t.splitOn "omega").length > 1 || (t.splitOn "bv_decide").length > 1)
+    finally set saved
   unless bad do throwError "control: the wrong register-step goal was accepted"
+  unless tacErr do throwError "control: closerWrong failed, but not with a proof/tactic error"
+  if hasNm (← getEnv) then throwError "control: closerWrong (or an auxiliary constant) survived the refusal"
+  if (← get).messages.hasErrors || (← get).messages.toList.length != msgs0.toList.length then
+    throwError "control: messages of the refused control were not restored"
   logInfo m!"compose connect closer controls: 2 accepted, 1 refused"
 
 
@@ -1377,7 +1398,7 @@ def normControls : CommandElabM Unit := liftTermElabM do
   let C := "Tools.VedComposeConnect"
   let E := "Sparkle.IR.AST.Expr"
   let sel (cat : String) (sh : Nat) :=
-    s!"({E}.op .mux [{E}.ref \"c\", {cat}, {E}.op .shr [{E}.ref \"s\", {E}.const {sh} 10], {E}.ref \"e\"])"
+    s!"({E}.op .mux [{E}.ref \"c\", {cat}, {E}.op .shr [{E}.ref \"s\", {E}.const {sh} 10]])"
   let one := s!"{E}.const 1 1"
   let zero := s!"{E}.const 0 1"
   let b := s!"{E}.ref \"b\""
@@ -1390,6 +1411,18 @@ def normControls : CommandElabM Unit := liftTermElabM do
   if ← isTrue (eqN (sel flatC 1) (sel wrongOrder 1)) then throwError "the normalised comparison accepts a wrong bit order"
   if ← isTrue (eqN (sel flatC 1) (sel nested 2)) then throwError "the normalised comparison accepts a wrong shift amount"
   if ← isTrue s!"{C}.eqE {sel nested 1} {sel flatC 1}" then throwError "control void: the old comparison accepts nested vs flat"
+  -- the controls are on well-formed ASTs: a 3-argument mux of width 10 that evaluates, and the mutations change concrete VALUES
+  let we := "(fun n : String => if n = \"b\" then 8 else if n = \"c\" then 1 else 10)"
+  let env (c bv sv : Nat) := s!"(fun n : String => if n = \"c\" then {c} else if n = \"b\" then {bv} else if n = \"s\" then {sv} else 0)"
+  let wOf (x : String) := s!"(Sparkle.IR.Semantics.widthOf {we} {x} == 10)"
+  let ev (x : String) (c bv sv : Nat) := s!"Sparkle.IR.Semantics.evalExpr {we} {env c bv sv} {x}"
+  for x in [sel nested 1, sel flatC 1, sel wrongOrder 1, sel nested 2] do
+    unless ← isTrue (wOf x) do throwError "control void: the mux control is not of width 10"
+  unless ← isTrue s!"({ev (sel nested 1) 1 1 0} == some 514 && {ev (sel flatC 1) 1 1 0} == some 514)" do
+    throwError "control void: nested/flat do not evaluate to 1++(b++0) = 514 at b = 1"
+  unless ← isTrue s!"({ev (sel wrongOrder 1) 1 1 0} == some 513)" do throwError "control void: the wrong bit order does not evaluate to 513"
+  unless ← isTrue s!"({ev (sel flatC 1) 0 0 4} == some 2 && {ev (sel nested 2) 0 0 4} == some 1)" do
+    throwError "control void: the shift mutation does not change the value (4>>1 = 2 vs 4>>2 = 1)"
   logInfo m!"compose connect normalised comparison controls: 2 accepted, 2 refused (old comparison refuses nested vs flat) by the kernel"
   -- RegsOkNF on the accepted multiTwo
   let M := "Tests.Ved.ComposeConnectCheck.multiTwo"
