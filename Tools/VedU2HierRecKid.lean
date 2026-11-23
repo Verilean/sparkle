@@ -249,4 +249,178 @@ theorem runHSR_runIn {dC d : Design} (hs : SubDesign dC d) (arr : Module → Lis
           · simp [hc] at hst
         simp only [runIn, hstep, ih _ rest hr, Option.bind_eq_bind, Option.bind]
 
+/-! ## L2 + L5 core: the parent's run, projected on one instance -/
+
+/-- What `connsOkR` gives about the resolved child and the connections (`connsOkK_facts` without
+`leafBody`). -/
+theorem connsOkR_facts {d : Design} {m : Module} {mn : String} {cs : List (String × Expr)}
+    (h : connsOkR d m mn cs = true) :
+    ∃ c, findMod d mn = some c ∧ c.isPrimitive = false ∧
+      childSane c = true ∧ (inNames c).Nodup ∧ 1 ≤ c.outputs.length ∧ (cs.map (·.1)).Nodup ∧
+      cs.all (fun p => (c.inputs ++ c.outputs).any (·.name == p.1)) = true ∧
+      (∀ p ∈ c.inputs ++ c.outputs, ∃ q ∈ cs, q.1 = p.name) ∧
+      (∀ q ∈ cs, ∃ x, q.2 = Expr.ref x) := by
+  simp only [connsOkR] at h
+  cases hf : findMod d mn with
+  | none => simp [hf] at h
+  | some c =>
+    simp only [hf, Bool.and_eq_true, Bool.not_eq_true', decide_eq_true_eq, and_assoc] at h
+    obtain ⟨hp, _, _, hsane, hol, _, _, hcsnd, hcov, hall2, hrefs⟩ := h
+    refine ⟨c, rfl, hp, hsane, ?_, hol, hcsnd, hall2, ?_, ?_⟩
+    · have := hsane
+      simp only [childSane, Bool.and_eq_true, decide_eq_true_eq] at this
+      exact this.1.1
+    · intro p hp
+      have := List.all_eq_true.mp hcov p hp
+      obtain ⟨q, hq, hqe⟩ := List.any_eq_true.mp this
+      exact ⟨q, hq, by simpa using hqe⟩
+    · intro q hq
+      have := List.all_eq_true.mp hrefs q hq
+      cases hq2 : q.2 with
+      | ref x => exact ⟨x, rfl⟩
+      | _ => simp [hq2] at this
+
+theorem hierR_inst_ok {d : Design} {m : Module} (h : HierShapeR d m = true) {mn i : String}
+    {cs : List (String × Expr)} (hin : Stmt.inst mn i cs ∈ m.body) : connsOkR d m mn cs = true := by
+  simp only [HierShapeR, Bool.and_eq_true] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, h5⟩, _⟩, _⟩, _⟩, _⟩ := h
+  exact List.all_eq_true.mp h5 _ hin
+
+theorem hierR_inst_unique {d : Design} {m : Module} (h : HierShapeR d m = true) :
+    (instNames m.body).Nodup := by
+  simp only [HierShapeR, Bool.and_eq_true, decide_eq_true_eq] at h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨_, _⟩, _⟩, _⟩, _⟩, h6⟩, _⟩, _⟩, _⟩ := h
+  exact h6
+
+theorem hierR_clk {d : Design} {m : Module} (h : HierShapeR d m = true) : clkRstOk d m = true := by
+  simp only [HierShapeR, Bool.and_eq_true] at h
+  obtain ⟨⟨_, hc⟩, _⟩ := h
+  exact hc
+
+/-- The correspondences at ONE cycle: the input ports read the connections evaluated in the parent's
+environment; the parent wire an output port is connected to holds the child's output. -/
+def ProjAtR (we : WEnv) (c : Module) (cs : List (String × Expr)) (E Ec : Env) : Prop :=
+  (∀ p ∈ c.inputs, ∃ e, cs.lookup p.name = some e ∧ evalExpr we E e = some (Ec p.name)) ∧
+  (∀ q ∈ c.outputs, ∃ x, cs.lookup q.name = some (Expr.ref x) ∧ E x = Ec q.name)
+
+theorem runIn_proj (d : Design) (arr : Module → List Stmt) (m : Module)
+    (hS : HierShapeR d m = true) (hA : AdmArrR d m arr)
+    (mn i : String) (cs : List (String × Expr)) (hin : Stmt.inst mn i cs ∈ m.body) (c : Module)
+    (hf : findMod d mn = some c) (hwoc : WOH d (arr c))
+    (hwrc : ∀ n ∈ wrsH d (arr c), n ∉ inNames c) :
+    ∀ (k : Nat) (seedK : Nat → (String → Nat) → Env) (st : HSt) (envs : List Env) (sts : List HSt),
+      runHSRTrace d arr m seedK k st = some (envs, sts) →
+      ∃ cenvs,
+        runIn d arr c (seedFwd c k (insCOf (declWidth m) cs envs)) k (fun p => st (i :: p)) =
+          some cenvs ∧
+        ∀ t, t < k → ∃ E Ec S, envs[t]? = some E ∧ cenvs[t]? = some Ec ∧ sts[t]? = some S ∧
+          ProjAtR (declWidth m) c cs E Ec := by
+  have hmemM : Stmt.inst mn i cs ∈ arr m := hA.1.mem_iff.mpr hin
+  obtain ⟨c0, hf0, hprim, hsane, hnd, hol, hcsnd, hall, hcov, href⟩ :=
+    connsOkR_facts (hierR_inst_ok hS hin)
+  have hc : c = c0 := by rw [hf] at hf0; exact Option.some.inj hf0
+  subst hc
+  have hinok : instOkR c cs = true := by unfold instOkR; rw [hprim, hall]; rfl
+  have hdecl : ((instDecls (arr m)).map (·.2.1)).Nodup := by
+    rw [← instNames_eq]
+    exact (instNames_perm hA.1).nodup_iff.mpr (hierR_inst_unique hS)
+  have hmemD : (mn, i, cs) ∈ instDecls (arr m) := (mem_instDecls_iff _ _).mpr hmemM
+  intro k
+  induction k with
+  | zero =>
+    intro seedK st envs sts hrun
+    simp only [runHSRTrace, Option.some.injEq, Prod.mk.injEq] at hrun
+    obtain ⟨rfl, rfl⟩ := hrun
+    exact ⟨[], rfl, fun t ht => absurd ht (Nat.not_lt_zero _)⟩
+  | succ k ih =>
+    intro seedK st envs sts hrun
+    simp only [runHSRTrace] at hrun
+    cases hs : stepHSR d arr m st (seedK k (restrictTo (regOuts (arr m)) (st []))) with
+    | none => simp [hs] at hrun
+    | some r =>
+      obtain ⟨envF, ups⟩ := r
+      cases hr : runHSRTrace d arr m seedK k (applyH st ups) with
+      | none => simp [hs, hr] at hrun
+      | some q =>
+        obtain ⟨rest, sts'⟩ := q
+        simp [hs, hr] at hrun
+        obtain ⟨rfl, rfl⟩ := hrun
+        obtain ⟨_, hfold, hupsR⟩ := stepHSR_some_inv hs
+        have hG := good_of_fold d (declWidth m) _ (instEvalF_laws d arr _ st (declWidth m)) (arr m) _
+          envF hA.2.1 hfold
+        obtain ⟨l, hl, hlE⟩ := hG.2 _ hmemM
+        have hl' : instEvalF d arr (combR d arr (d.modules.length + 1)) st (declWidth m) mn i cs envF
+            = some l := by simpa [cellVals] using hl
+        obtain ⟨c1, seed, envC, hf1, _, hsd, hcc, hw⟩ := instEvalF_some hl'
+        have hc1 : c1 = c := by rw [hf] at hf1; exact (Option.some.inj hf1).symm
+        subst hc1
+        obtain ⟨c2, seed2, envC2, upsC, hf2, _, hsd2, hcc2, hup, hslice⟩ :=
+          upsR_slice hupsR hdecl hmemD
+        have hc2 : c2 = c1 := by rw [hf] at hf2; exact Option.some.inj hf2 ▸ rfl
+        subst hc2
+        have hse : seed2 = seed := Option.some.inj (hsd2.symm.trans hsd)
+        subst hse
+        have hee : envC2 = envC := Option.some.inj (hcc2.symm.trans hcc)
+        subst hee
+        -- the child's cycle, stand-alone
+        have hstepR : stepR d arr (d.modules.length + 1) c2 (fun p => st (i :: p)) seed2 =
+            some (envC2, upsC) := by
+          unfold stepR
+          simp only [hcc, hup, Option.bind_eq_bind, Option.bind]
+        have hseed1 := seedFwd_first c2 (declWidth m) cs envF rest k (regOuts (arr c2)) (st [i]) seed2
+          hnd hsd
+        have hstepIn : stepIn d arr c2 (seedFwd c2 (k + 1) (insCOf (declWidth m) cs (envF :: rest)))
+            (fun p => st (i :: p)) k = some (envC2, applyH (fun p => st (i :: p)) upsC) := by
+          unfold stepIn
+          show (match stepR d arr (d.modules.length + 1) c2 (fun p => st (i :: p))
+            (seedFwd c2 (k + 1) (insCOf (declWidth m) cs (envF :: rest)) k
+              (restrictTo (regOuts (arr c2)) (st [i]))) with
+            | some (e, ups) => some (e, applyH (fun p => st (i :: p)) ups)
+            | none => none) = _
+          rw [hseed1, hstepR]
+        have hnext : (fun p => applyH st ups (i :: p)) = applyH (fun p => st (i :: p)) upsC := by
+          rw [applyH_slice, hslice]
+        obtain ⟨cenvs', hrunC', hcorr'⟩ := ih seedK (applyH st ups) rest sts' hr
+        rw [hnext] at hrunC'
+        refine ⟨envC2 :: cenvs', ?_, ?_⟩
+        · have hcongr := runIn_congr_seed d arr c2
+            (seedFwd c2 (k + 1) (insCOf (declWidth m) cs (envF :: rest)))
+            (seedFwd c2 k (insCOf (declWidth m) cs rest)) k (applyH (fun p => st (i :: p)) upsC)
+            (fun j hj => seedFwd_shift c2 _ cs envF rest k j hj)
+          simp only [runIn, hstepIn, Option.bind_eq_bind, Option.bind]
+          rw [hcongr, hrunC']
+        · intro t ht
+          cases t with
+          | succ t =>
+            obtain ⟨E, Ec, S, h1, h2, h3, h5⟩ := hcorr' t (by omega)
+            exact ⟨E, Ec, S, by simpa using h1, by simpa using h2, by simpa using h3, h5⟩
+          | zero =>
+            refine ⟨envF, envC2, st, rfl, rfl, rfl, ?_, ?_⟩
+            · intro p hpm
+              obtain ⟨e0, he0, hsc⟩ := childSeedS_inv c2 cs (declWidth m) envF _ _ seed2 hsd
+              obtain ⟨hz, hp⟩ := childSeed_val c2 cs (declWidth m) envF e0 he0 hnd
+              obtain ⟨ex, hl2, hv⟩ := hp p hpm
+              have hpn : p.name ∈ inNames c2 := List.mem_map.mpr ⟨p, hpm, rfl⟩
+              have hfoldC : evalAssignsI (declWidth c2)
+                  (instEvalF d arr (combR d arr d.modules.length) (fun q => st (i :: q)) (declWidth c2))
+                  (arr c2) seed2 = some envC2 := by
+                simpa [combR] using hcc
+              have hGc := good_of_fold d (declWidth c2) _
+                (instEvalF_laws d arr _ (fun q => st (i :: q)) (declWidth c2)) (arr c2) seed2 envC2
+                hwoc hfoldC
+              have hkeep := hGc.1 p.name (fun h => hwrc _ h hpn)
+              refine ⟨ex, hl2, ?_⟩
+              rw [hv, hkeep, hsc]
+              simp [hpn]
+            · intro q hq
+              obtain ⟨qq, hqq, hq1⟩ := hcov q (List.mem_append_right _ hq)
+              obtain ⟨x, hx⟩ := href qq hqq
+              have hqe : qq = (q.name, Expr.ref x) := by
+                obtain ⟨a, b⟩ := qq; simp only at hq1 hx; subst hq1; subst hx; rfl
+              rw [hqe] at hqq
+              refine ⟨x, lookup_of_mem_nodup cs hcsnd _ _ hqq, ?_⟩
+              have hmemo := outWrites_mem c2 cs envC2 l hw q.name x hqq
+                (List.any_eq_true.mpr ⟨q, hq, by simp⟩)
+              exact hlE _ hmemo
+
 end Tools.VedU2HierRec
