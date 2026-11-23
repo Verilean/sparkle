@@ -427,12 +427,14 @@ def fuseOne (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) 
   let mine : Array Name := #[``Tools.VedComposeMultiCircuit.fuseBody, ``Tools.VedComposeMultiCircuit.liveOfSigs,
     ``Tools.VedComposeMultiCircuit.stake, ``Tools.VedComposeMultiCircuit.sdrop, ``Tools.VedComposeMultiCircuit.sappend,
     ``Sparkle.Core.mkRegList, ``Sparkle.Core.mkHolds]
+  let rawRef ← IO.mkRef (Lean.mkConst ``True)
   let bodyFN ← forallTelescopeReducing (← inferType bodyF) fun vs _ => do
     let e ← Meta.transform (mkAppN bodyF vs) (pre := fun x => do
       if let .const n _ := x.getAppFn then
         if mine.contains n then
           if let some y ← unfoldDefinition? x then return .visit y.headBeta
       return .continue)
+    rawRef.set (← mkLambdaFVars vs e)
     -- `Signal.map fst (bundle2 a b)` is `a` and `Signal.map snd (bundle2 a b)` is `b` (definitionally; the later stages
     -- evaluate plain reads, not a bundle of the seed)
     let isProj (f : Lean.Expr) : Option Bool :=
@@ -464,7 +466,38 @@ def fuseOne (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Expr) 
     mkLambdaFVars vs e
   let fusedRun ← mkAppOptM ``Sparkle.Core.runCircuitH
     #[some dom, some αF, some ρB, some rargs[3]!, some instF1, some instF2, some iF, some bodyFN]
-  return (fusedRun, ← mkExpectedTypeHint fuseApp (← mkEq fusedRun run))
+  let stepPf ← mkExpectedTypeHint fuseApp (← mkEq fusedRun run)
+  -- measurement only (`VED_OPEN_TICK`): the kernel time of this one fusion step (the whole fuseEq is checked once more at the end)
+  if ← Tools.VedU2HierDbg.openTickOn then
+    let t0 ← IO.monoMsNow
+    let chk (nm : String) (lhs rhs : Lean.Expr) : TermElabM Unit := do
+      let t1 ← IO.monoMsNow
+      let ty ← mkForallFVars xs (← mkEq lhs rhs)
+      let v ← mkLambdaFVars xs (← mkEqRefl lhs)
+      try
+        withOptions (fun o => o.setBool `Elab.async false) do
+          addDecl (.thmDecl { name := base ++ Name.mkSimple (sfx ++ nm), levelParams := [], type := ty, value := v })
+      catch e => Tools.VedU2HierDbg.openTick s!"fuseOne {sfx}: {nm} refused: {(← e.toMessageData.toString).take 200}"
+      Tools.VedU2HierDbg.openTick s!"fuseOne {sfx}: {nm} kernel {(← IO.monoMsNow) - t1} ms"
+    -- (a) the fused run against `fuseBody` unfolded (bodyFN); (b) the reader with the circuit read substituted against `run`
+    let fuseRunRaw ← mkAppOptM ``Sparkle.Core.runCircuitH
+      #[some dom, some αF, some ρB, some rargs[3]!, some instF1, some instF2, some iF, some bodyF]
+    chk "_chkA" fuseRunRaw fusedRun
+    let rawRun ← mkAppOptM ``Sparkle.Core.runCircuitH
+      #[some dom, some αF, some ρB, some rargs[3]!, some instF1, some instF2, some iF, some (← rawRef.get)]
+    chk "_chkA1" fuseRunRaw rawRun
+    chk "_chkA2" rawRun fusedRun
+    let rhsB ← mkAppOptM ``Sparkle.Core.runCircuitH
+      #[some dom, some αB, some ρB, some rargs[3]!, some rargs[4]!, some rargs[5]!, some iB, some (mkApp bodyB (mkApp wA runA))]
+    chk "_chkB" rhsB run
+    let stepTy ← mkForallFVars xs (← mkEq fusedRun run)
+    let stepVal ← mkLambdaFVars xs stepPf
+    try
+      withOptions (fun o => o.setBool `Elab.async false) do
+        addDecl (.thmDecl { name := base ++ Name.mkSimple (sfx ++ "_stepchk"), levelParams := [], type := stepTy, value := stepVal })
+    catch e => Tools.VedU2HierDbg.openTick s!"fuseOne {sfx}: step kernel check refused: {← e.toMessageData.toString}"
+    Tools.VedU2HierDbg.openTick s!"fuseOne {sfx}: step kernel check {(← IO.monoMsNow) - t0} ms"
+  return (fusedRun, stepPf)
 
 /-- VED compose multiCircuit, K circuits: fuse every closed circuit read inside `run`, innermost first (a circuit read by a
 circuit that is itself read is fused with its own readers first), and of several circuits read by one body the LAST one first
