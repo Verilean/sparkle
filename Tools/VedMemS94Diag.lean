@@ -1350,8 +1350,9 @@ elab "#ved_s95_replay " d:str : command => do
       (97, "peel", ← `(tactic| all_goals (try $peelAlt:tactic))),
       (99, "if_read_simp", ← `(tactic| ved_if_read (ved_loop_simp [$r99,*]))),
       (991, "dsimp_goals", ← `(tactic| ved_dsimp_goals)),
+      (992, "canon2", ← (if (← IO.getEnv "VED_S95_CANON") == some "1" then `(tactic| all_goals (try ved_loop_canon)) else `(tactic| skip))),
       (100, if once then "gen_resid" else "gen_mem", genLastT)]
-    let stepNo (n : Nat) : Nat := match n with | 951 => 95 | 991 => 99 | n => n
+    let stepNo (n : Nat) : Nat := match n with | 951 => 95 | 991 => 99 | 992 => 99 | n => n
     let mut cur : List MVarId := [g]
     dbgLog s!"S95 replay mode={mode}: start {← shape cur}; {← resid cur}"
     let tAll ← IO.monoMsNow
@@ -1732,6 +1733,27 @@ elab "#ved_s95_loops " d:str : command => do
               pure (if r2 then "defEq(default)" else "not defeq"))
             (fun _ => pure "timeout")
           lg s!"S95 pair {i},{j}: sameStateType={sameTy} {res} ms={(← IO.monoMsNow) - t1} hb(k)={((← IO.getNumHeartbeats) - hb1) / 1000}"
+
+
+/-- diagnosis (s94r): the `memState` atoms of the main goal's target; per pair, which arguments differ (index, `==`, `isDefEq` reducible / default under 3M hb) -/
+elab "ved_mem_diff" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let isMem := fun (x : Expr) => x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs ≥ 9
+  let occs := (Tools.VedU1WireShare.collectDag isMem tgt).filter (!·.hasLooseBVars)
+  let mut out := s!"mem atoms={occs.size}"
+  for i in [0:occs.size] do
+    for j in [i+1:occs.size] do
+      let a := occs[i]!.getAppArgs
+      let b := occs[j]!.getAppArgs
+      let mut d := ""
+      for k in [0:min a.size b.size] do
+        if a[k]! != b[k]! then
+          let r ← withReducible (isDefEq a[k]! b[k]!)
+          let hb0 ← IO.getNumHeartbeats
+          let r2 ← tryCatchRuntimeEx (withTheReader Core.Context (fun c => { c with maxHeartbeats := 3000000, initHeartbeats := hb0 }) (isDefEq a[k]! b[k]!)) (fun _ => pure false)
+          d := d ++ s!" arg{k}:{if r then "red" else if r2 then "dflt" else "NO"}"
+      out := out ++ s!"\n pair {i},{j}:{d}"
+  logInfo out
 
 
 end Tools.VedMemS94Diag

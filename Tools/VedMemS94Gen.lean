@@ -186,6 +186,9 @@ initialize canonRefuse : IO.Ref Bool ← IO.mkRef false
 /-- the heartbeat limit (thousands) of one default-transparency comparison of two loops -/
 def canonHbK : Nat := 4000
 
+/-- memo of the comparisons (shared by the goals of one run) -/
+initialize canonMemo : IO.Ref (Std.HashMap (Expr × Expr) Bool) ← IO.mkRef {}
+
 /-- the pairs (loop, earlier loop it is `isDefEq` to) among `loops`; the comparison is only made between loops of the same (reducibly defeq) state type -/
 def loopCanonPairs (loops : Array Expr) : MetaM (Array (Expr × Expr)) := do
   let mut reps : Array Expr := #[]
@@ -198,7 +201,8 @@ def loopCanonPairs (loops : Array Expr) : MetaM (Array (Expr × Expr)) := do
       let some b := r.getAppArgs[1]? | continue
       unless a == b || (← withReducible (isDefEq a b)) do continue
       if l == r then continue
-      let same ← do
+      let same ← if let some b := (← canonMemo.get)[(l, r)]? then pure b else do
+       let res ← do
         if ← withReducible (isDefEq l r) then pure true
         else
           let st ← saveState
@@ -208,6 +212,8 @@ def loopCanonPairs (loops : Array Expr) : MetaM (Array (Expr × Expr)) := do
             (fun _ => pure false)
           unless ok do st.restore
           pure ok
+       canonMemo.modify (·.insert (l, r) res)
+       pure res
       if same then
         out := out.push (l, r)
         found := true
@@ -218,7 +224,17 @@ def loopCanonPairs (loops : Array Expr) : MetaM (Array (Expr × Expr)) := do
 elab "ved_loop_canon" : tactic => withMainContext do
   if (← canonRefuse.get) then throwError "ved_loop_canon: refused (test seam)"
   let g0 ← getMainGoal
-  let loops ← goalLoops g0
+  let loops0 ← goalLoops g0
+  -- the loops of the generalisation equations `ved_hX<j> : (loop).val s = tuple` come first: they are the representatives (`ved_loop_gen_resid` replaces by their tuples)
+  let hxLoops : Array Expr ← g0.withContext do
+    let mut a : Array Expr := #[]
+    for d in ← getLCtx do
+      unless d.isImplementationDetail do
+        if d.userName.toString.startsWith "ved_hX" then
+          if let some (_, l, _) := (← instantiateMVars d.type).eq? then
+            if l.isAppOfArity ``Signal.val 4 && (l.getArg! 2).isAppOfArity ``Signal.loop 4 && !a.contains (l.getArg! 2) then a := a.push (l.getArg! 2)
+    pure a
+  let loops := hxLoops ++ loops0.filter (!hxLoops.contains ·)
   let pairs ← loopCanonPairs loops
   if pairs.isEmpty then throwError "ved_loop_canon: no two loops are the same loop"
   let map : Std.HashMap Expr Expr := pairs.foldl (fun m (l, r) => m.insert l r) {}

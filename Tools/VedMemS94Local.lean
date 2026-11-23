@@ -475,6 +475,14 @@ macro "ved_addr_eq_local" : tactic =>
              simp only [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat, Nat.shiftRight_zero]
              ved_local_close))
 
+/-- the same for an address built by `BitVec` arithmetic (`ite` of a `0#6 ++ extractLsb' ..` shuffle, `+`, `*`; observed on R033 goal 69: the first closer leaves `split` without an `if`
+because `toNat` of `+ * ++` and of the `ite` stays unexpanded): the `toNat` lemmas first, then the same closer -/
+macro "ved_addr_eq_local2" : tactic =>
+  `(tactic| (apply BitVec.eq_of_toNat_eq
+             simp only [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat, Nat.shiftRight_zero, apply_ite BitVec.toNat, BitVec.toNat_add, BitVec.toNat_mul,
+               BitVec.toNat_append, Nat.zero_shiftLeft, Nat.zero_or, Nat.reduceMod, Nat.reducePow, Nat.shiftRight_eq_div_pow]
+             ved_local_close))
+
 elab "ved_mem_addr_l" : tactic => withMainContext do
   -- cheap gate: nothing to unify unless two memState atoms differ only in the address (the simp below only drops branches)
   let tgt0 ← instantiateMVars (← getMainTarget)
@@ -527,7 +535,7 @@ elab "ved_mem_addr_l" : tactic => withMainContext do
             IO.FS.writeFile s!"{dir}/pair{n}.txt" s!"A: {← withOptions (fun o => o.setBool `pp.deepTerms true) (ppExpr a)}\n\nREP: {← withOptions (fun o => o.setBool `pp.deepTerms true) (ppExpr rep)}\n"
           try
             evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
-                                       first | rfl | ved_addr_eq_local)))
+                                       first | rfl | ved_addr_eq_local | ved_addr_eq_local2)))
             Tools.VedMemLoop.dbgT "addr: have done"
             -- `rw [hmaddr]` abstracts the occurrences by `kabstract`, a walk of the TREE (12 s per goal of 3e8 nodes, R34); on a goal
             -- the packing step takes (`Tools.VedMemLoop.addrReplaceMinTree`: R034, 3e8) the replacement is `Expr.replace` (cached by pointer: one visit per
