@@ -1291,4 +1291,76 @@ run_cmd do
   logInfo m!"compose connect shared-circuit controls: 5 refused"
 
 
+
+/-! ## Controls of the multi-circuit trace closer (`ved_bv_close3`, used by `#verify_elab_deep` under `sparkle.deepRepre`, i.e. under
+`ved.compose.multiCircuit`): the register-step goals of the real chain (txSequencer, slipFramer, uartTx; the atoms are the loop-state
+components) are closed by the normalise-then-interleaved-split closer; a goal with one constant changed is refused. -/
+
+theorem closerFsm (b : Bool) (o : BitVec 8) (d : BitVec 16) (g0 : BitVec 1) (g1 : BitVec 7) (g2 : BitVec 2) (g3 g4 : BitVec 8) (g5 : BitVec 1) (g6 : BitVec 10) (g7 : BitVec 4) (g8 : BitVec 16) (g9 : BitVec 1) :
+    (if g2 = 2#2 then 1#2
+    else
+      if
+          ((g2 = 0#2 ∨ g2 = 1#2) ∧
+              g0 = 1#1 ∧ ¬g1 = 74#7 ∧ ¬g1 = 75#7 ∧ ¬g1 = 76#7 ∧ ¬g1 = 77#7 ∧ ¬g1 = 78#7 ∧ ¬g1 = 79#7) ∧
+            (o = 192#8 ∨ o = 219#8) then
+        2#2
+      else
+        if
+            ((g2 = 0#2 ∨ g2 = 1#2) ∧
+                g0 = 1#1 ∧ ¬g1 = 74#7 ∧ ¬g1 = 75#7 ∧ ¬g1 = 76#7 ∧ ¬g1 = 77#7 ∧ ¬g1 = 78#7 ∧ ¬g1 = 79#7) ∧
+              ¬o = 192#8 ∧ ¬o = 219#8 then
+          1#2
+        else if g2 = 1#2 ∧ g0 = 1#1 ∧ g1 = 74#7 then 0#2 else g2) =
+    if (if g2 = 2#2 then 1#1 else 0#1) = 1#1 then 1#2
+    else
+      if
+          ((if g2 = 0#2 then 1#1 else 0#1) ||| if g2 = 1#2 then 1#1 else 0#1) &&&
+                (g0 &&&
+                  ((~~~if g1 = 74#7 then 1#1 else 0#1) &&&
+                    ~~~((if g1 = 75#7 then 1#1 else 0#1) |||
+                        ((if g1 = 76#7 then 1#1 else 0#1) |||
+                          ((if g1 = 77#7 then 1#1 else 0#1) |||
+                            ((if g1 = 78#7 then 1#1 else 0#1) ||| if g1 = 79#7 then 1#1 else 0#1)))))) &&&
+              ((if o = 192#8 then 1#1 else 0#1) ||| if o = 219#8 then 1#1 else 0#1) =
+            1#1 then
+        2#2
+      else
+        if
+            ((if g2 = 0#2 then 1#1 else 0#1) ||| if g2 = 1#2 then 1#1 else 0#1) &&&
+                  (g0 &&&
+                    ((~~~if g1 = 74#7 then 1#1 else 0#1) &&&
+                      ~~~((if g1 = 75#7 then 1#1 else 0#1) |||
+                          ((if g1 = 76#7 then 1#1 else 0#1) |||
+                            ((if g1 = 77#7 then 1#1 else 0#1) |||
+                              ((if g1 = 78#7 then 1#1 else 0#1) ||| if g1 = 79#7 then 1#1 else 0#1)))))) &&&
+                ~~~((if o = 192#8 then 1#1 else 0#1) ||| if o = 219#8 then 1#1 else 0#1) =
+              1#1 then
+          1#2
+        else if (if g2 = 1#2 then 1#1 else 0#1) &&& (g0 &&& if g1 = 74#7 then 1#1 else 0#1) = 1#1 then 0#2 else g2 := by
+  ved_bv_close3
+
+theorem closerShift (b : Bool) (o : BitVec 8) (d : BitVec 16) (g0 : BitVec 1) (g1 : BitVec 7) (g2 : BitVec 2) (g3 g4 : BitVec 8) (g5 : BitVec 1) (g6 : BitVec 10) (g7 : BitVec 4) (g8 : BitVec 16) (g9 : BitVec 1) :
+    (if g9 = 1#1 ∨ g5 = 1#1 ∧ ¬g9 = 1#1 then
+      if g5 = 1#1 ∧ ¬g9 = 1#1 then 1#1 ++ (g4 ++ 0#1) else if g9 = 1#1 ∧ g8 = 0#16 then g6 >>> 1 else g6
+    else 1023#10) =
+    if g9 ||| g5 &&& ~~~g9 = 1#1 then
+      if g5 &&& ~~~g9 = 1#1 then 1#1 ++ (g4 ++ 0#1)
+      else if (g9 &&& if g8 = 0#16 then 1#1 else 0#1) = 1#1 then g6 >>> (1#10).toNat else g6
+    else 1023#10 := by
+  ved_bv_close3
+
+/-- info: compose connect closer controls: 2 accepted, 1 refused -/
+#guard_msgs in
+set_option Elab.async false in
+run_cmd do
+  let msgs0 := (← get).messages
+  let src := "theorem closerWrong (b : Bool) (o : BitVec 8) (d : BitVec 16) (g0 : BitVec 1) (g1 : BitVec 7) (g2 : BitVec 2) (g3 g4 : BitVec 8) (g5 : BitVec 1) (g6 : BitVec 10) (g7 : BitVec 4) (g8 : BitVec 16) (g9 : BitVec 1) :\n    (if g2 = 2#2 then 1#2\n    else\n      if\n          ((g2 = 0#2 ∨ g2 = 1#2) ∧\n              g0 = 1#1 ∧ ¬g1 = 74#7 ∧ ¬g1 = 75#7 ∧ ¬g1 = 76#7 ∧ ¬g1 = 77#7 ∧ ¬g1 = 78#7 ∧ ¬g1 = 79#7) ∧\n            (o = 192#8 ∨ o = 219#8) then\n        2#2\n      else\n        if\n            ((g2 = 0#2 ∨ g2 = 1#2) ∧\n                g0 = 1#1 ∧ ¬g1 = 74#7 ∧ ¬g1 = 75#7 ∧ ¬g1 = 76#7 ∧ ¬g1 = 77#7 ∧ ¬g1 = 78#7 ∧ ¬g1 = 79#7) ∧\n              ¬o = 192#8 ∧ ¬o = 219#8 then\n          1#2\n        else if g2 = 1#2 ∧ g0 = 1#1 ∧ g1 = 74#7 then 0#2 else g2) =\n    if (if g2 = 2#2 then 1#1 else 0#1) = 1#1 then 1#2\n    else\n      if\n          ((if g2 = 0#2 then 1#1 else 0#1) ||| if g2 = 1#2 then 1#1 else 0#1) &&&\n                (g0 &&&\n                  ((~~~if g1 = 74#7 then 1#1 else 0#1) &&&\n                    ~~~((if g1 = 75#7 then 1#1 else 0#1) |||\n                        ((if g1 = 76#7 then 1#1 else 0#1) |||\n                          ((if g1 = 77#7 then 1#1 else 0#1) |||\n                            ((if g1 = 78#7 then 1#1 else 0#1) ||| if g1 = 79#7 then 1#1 else 0#1)))))) &&&\n              ((if o = 192#8 then 1#1 else 0#1) ||| if o = 219#8 then 1#1 else 0#1) =\n            1#1 then\n        2#2\n      else\n        if\n            ((if g2 = 0#2 then 1#1 else 0#1) ||| if g2 = 1#2 then 1#1 else 0#1) &&&\n                  (g0 &&&\n                    ((~~~if g1 = 74#7 then 1#1 else 0#1) &&&\n                      ~~~((if g1 = 75#7 then 1#1 else 0#1) |||\n                          ((if g1 = 76#7 then 1#1 else 0#1) |||\n                            ((if g1 = 77#7 then 1#1 else 0#1) |||\n                              ((if g1 = 78#7 then 1#1 else 0#1) ||| if g1 = 79#7 then 1#1 else 0#1)))))) &&&\n                ~~~((if o = 192#8 then 1#1 else 0#1) ||| if o = 219#8 then 1#1 else 0#1) =\n              1#1 then\n          1#2\n        else if (if g2 = 1#2 then 1#1 else 0#1) &&& (g0 &&& if g1 = 73#7 then 1#1 else 0#1) = 1#1 then 0#2 else g2 := by\n  ved_bv_close3"
+  let .ok stx := Lean.Parser.runParserCategory (← getEnv) `command src | throwError "control: parse"
+  elabCommand stx
+  let bad := (← get).messages.hasErrors
+  modify fun s => { s with messages := msgs0 }
+  unless bad do throwError "control: the wrong register-step goal was accepted"
+  logInfo m!"compose connect closer controls: 2 accepted, 1 refused"
+
+
 end Tests.Ved.ComposeConnectCheck
