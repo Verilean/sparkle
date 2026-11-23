@@ -1855,3 +1855,9 @@ lean_lib «Tools.VedU2HierRecRun» where
 
 lean_lib «Tools.VedU2HierRecPar» where
   roots := #[`Tools.VedU2HierRecPar]
+
+lean_lib «Tests.Ved.U2HierRecEntryCheck» where
+  roots := #[`Tests.Ved.U2HierRecEntryCheck]
+
+lean_lib «Tools.VedU2HierRecOr» where
+  roots := #[`Tools.VedU2HierRecOr]
