@@ -487,7 +487,7 @@ partial def fuseAll (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lea
   let k ← ctr.modifyGet fun n => (n, n + 1)
   Tools.VedU2HierDbg.openTick s!"fuseOne {k} begin"
   let (fused, pf2) ← fuseOne decl kids pw xs cur (if pf1?.isSome then runA' else x) runA' wrapA base (sfx ++ s!"_{k}")
-  Tools.VedU2HierDbg.openTick s!"fuseOne {k} end"
+  Tools.VedU2HierDbg.openTickE s!"fuseOne {k} end" fused
   let pfD ← match pfC? with
     | some pfC => mkAppM ``Eq.trans #[pf2, pfC]
     | none => pure pf2
@@ -503,16 +503,19 @@ def fuseTwo (decl : Name) (kids : Array Kid) (pw : Bool) (stmt : Lean.Expr) (xs 
     (wrap : Lean.Expr → Lean.Expr) (base : Name) (sfx : String) : TermElabM (Option (Lean.Expr × Name)) := do
   let ctr ← IO.mkRef 0
   let some (fusedRun, pfEq) ← fuseAll decl kids pw xs run base sfx ctr | return none
+  Tools.VedU2HierDbg.openTickE "fuseTwo: fuseAll done (fused run)" fusedRun
   let fuseEqName := base ++ Name.mkSimple (sfx ++ "_fuse")
   let eqTy ← mkForallFVars xs (← mkEq (mkAppN stmt xs) (wrap fusedRun))
   let wrapL ← do
     let ty ← inferType run
     withLocalDeclD `r ty fun r => mkLambdaFVars #[r] (wrap r)
   let pf ← mkLambdaFVars xs (← mkAppM ``congrArg #[wrapL, ← mkEqSymm pfEq])
+  Tools.VedU2HierDbg.openTickE "fuseTwo: fuseEq proof built" pf
   try
     withOptions (fun o => o.setBool `Elab.async false) do
       addDecl (.thmDecl { name := fuseEqName, levelParams := [], type := eqTy, value := pf })
   catch e => refuse decl "open" m!"the kernel refused the fused-circuit equation: {e.toMessageData}"
+  Tools.VedU2HierDbg.openTick "fuseTwo: fuseEq added"
   return some (fusedRun, fuseEqName)
 
 /-- VED compose multiCircuit, pure-wiring top (connect17): a declaration whose value has no circuit of its own but is an output
@@ -570,6 +573,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
         | some (fr, nm) => pure (fr, some nm)
         | none => pure (run, none)
       else pure (run, none)
+    Tools.VedU2HierDbg.openTick "genOpenMulti: fuseTwo end"
     let rargs := run.getAppArgs
     unless rargs.size == 8 do refuse decl "open" m!"runCircuitH is not fully applied"
     let dom := rargs[0]!; let αs := rargs[1]!; let rhoTy := rargs[2]!; let inits := rargs[6]!; let body := rargs[7]!
@@ -585,6 +589,7 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
     let siteKid ← IO.mkRef (#[] : Array Nat)
     let siteFn ← IO.mkRef (#[] : Array Lean.Expr)
     let siteTy ← IO.mkRef (#[] : Array Lean.Expr)
+    Tools.VedU2HierDbg.openTick "genOpenMulti: replaceCalls #1 begin"
     discard <| replaceCalls (nested := chain) kids body fun _ ki fn dargs _ => do
       siteKid.modify (·.push ki)
       siteFn.modify (·.push (mkAppN fn dargs))

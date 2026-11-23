@@ -1162,4 +1162,34 @@ run_cmd do
   logInfo m!"compose connect wiring controls: 7 refused"
 
 
+/-! ### A circuit read both directly and through another circuit (unit 18: the limit R246 meets, recorded as a refusal)
+
+`dmP`: `let a := twoStageA go; let s := twoStageB a.ph; twoStageD a.ph s.b` (D reads A and S, S reads A: a shared circuit).  The
+generator fuses a reader at a time and abstracts every occurrence of the circuit read, so the shared circuit A is fused twice (a
+copy inside S and a copy of its own): the open parent has 4 registers, the parent 3.  This is NOT accepted; the control pins the
+refusal (stage and text) so that a later change that makes the shared circuit one set of registers is visible here.  R246's
+`deframer` (read by the IPv4 parser, the TCP parser, the HTTP parser and two pulse generators) is of this shape. -/
+
+def dmP (go : Signal defaultDomain Bool) : TwoB defaultDomain :=
+  let a := twoStageA go
+  let s := twoStageB a.ph
+  twoStageD a.ph s.b
+
+/-- A copy for the control (never accepted). -/
+def dmRef (go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  (dmP go).b
+
+def diamondControl : CommandElabM Unit := do
+  let noT : Phase1 → CommandElabM Phase1 := fun p => pure p
+  let (m, d) ← synthOf ``dmRef
+  withScope (fun sc => { sc with opts := ((sc.opts.setBool `ved.compose.step true).setBool `ved.compose.connect true).setBool `ved.compose.multiCircuit true }) do
+    expectRefusedT ``dmRef "deep" "the parent has 3 registers, the open parent's circuit has 4" m d noT
+
+/-- info: compose connect shared-circuit control: 1 refused -/
+#guard_msgs in
+run_cmd do
+  diamondControl
+  logInfo m!"compose connect shared-circuit control: 1 refused"
+
+
 end Tests.Ved.ComposeConnectCheck
