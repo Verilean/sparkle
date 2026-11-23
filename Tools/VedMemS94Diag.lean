@@ -2,6 +2,7 @@ import Lean
 import Tools.VedMemLoop
 import Tools.VedMemS94Fix
 import Tools.VedMemS94Peel
+import Tools.VedMemS94Gen
 import Tools.VedU1WireShare
 
 /-!
@@ -728,6 +729,13 @@ elab "#ved_s94_ckpt_replay " d:str : command => do
     dbgLog s!"S94 replay: {(← seen.get).size} constants visited for matcher equations"
     let mut g := (← mkFreshExprMVar ci.type).mvarId!
     let mut k := 0
+    -- the binder names of the context (the original user names: `s`, `hM<i>`), for the stage-95 checkpoint
+    let mut binderNames : Array Name := #[]
+    let mut tyW := ci.type
+    repeat
+      match tyW with
+      | .forallE n _ b _ | .letE n _ _ b _ => binderNames := binderNames.push n; tyW := b
+      | _ => break
     repeat
       unless (← g.getType).isForall || (← g.getType).isLet do break
       let (_, g') ← g.intro (Name.mkSimple s!"ck{k}")
@@ -771,6 +779,42 @@ elab "#ved_s94_ckpt_replay " d:str : command => do
         sz := sz ++ s!" [dag={(Tools.VedU1WireShare.collectDag (fun _ => true) e).size} tree={Tools.VedU1Loop.treeSizeVal e}]"
       dbgLog s!"S94 replay: simp {if nic then "without" else "with"} ite_congr done ms={ms} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000} goals={gs.length}{sz}"
       logInfo m!"ckpt replay ok: ms={ms} goals={gs.length}"
+      -- `VED_S95_OUT=DIR`: `ved_hstep_unify` (the rest of stage 94) and the stage-95 checkpoint of the one goal (`ckpt95.txt`, `VedCkpt.olean`), then the process ends
+      if let some out := (← IO.getEnv "VED_S95_OUT") then
+        let [g2] := gs | throwError "VED_S95_OUT: {gs.length} goals after the simp"
+        let t1 ← IO.monoMsNow
+        let hb1 ← IO.getNumHeartbeats
+        let gs2 ← Tactic.run g2 (Tactic.evalTactic (← `(tactic| ved_hstep_unify)))
+        dbgLog s!"S94 replay: ved_hstep_unify ms={(← IO.monoMsNow) - t1} hb(k)={((← IO.getNumHeartbeats) - hb1) / 1000} goals={gs2.length}"
+        let [g3] := gs2 | throwError "VED_S95_OUT: {gs2.length} goals after ved_hstep_unify"
+        let (ty, hmLine, spLine) ← g3.withContext do
+          let tgt3 ← instantiateMVars (← g3.getType)
+          let fvs : Array Expr := (← getLCtx).foldl (fun a d => if d.isImplementationDetail then a else a.push d.toExpr) #[]
+          unless fvs.size == k do throwError "VED_S95_OUT: {fvs.size} context entries, expected {k}"
+          let hms := (List.range 64).filterMap fun i => binderNames.findIdx? (· == Name.mkSimple s!"hM{i}")
+          let some si := binderNames.findIdx? (· == `s) | throwError "VED_S95_OUT: no binder s"
+          pure ((← instantiateMVars (← mkForallFVars fvs tgt3 (usedLetOnly := false))), "hm\t0\t" ++ "\t".intercalate (hms.map toString), s!"sp\t0\t{si}")
+        if ty.hasFVar || ty.hasMVar || ty.hasLevelParam || ty.hasLevelMVar then throwError "VED_S95_OUT: goal still has fvars/mvars/level parameters"
+        withTheReader Core.Context (fun c => { c with options := c.options.setBool `debug.skipKernelTC true }) do
+          addDecl (.axiomDecl { name := `ved_ckpt95_goal0, levelParams := [], type := ty, isUnsafe := false })
+        let mut lines : Array String := #["n\t1", hmLine, spLine]
+        match tab with
+        | some (mn, t) =>
+          lines := lines.push ("tab\t" ++ "\t".intercalate (nameComps mn))
+          for (kk, v) in t.toList do lines := lines.push s!"w\t{kk}\t{v}"
+        | none => lines := lines.push "notab"
+        IO.FS.createDirAll out
+        IO.FS.writeFile (out ++ "/ckpt95.txt") ("\n".intercalate lines.toList ++ "\n")
+        let md ← Lean.mkModuleData (← getEnv)
+        let realized (n : Name) : Bool :=
+          match n with
+          | .str _ s => s == "splitter" || s == "eq_def" || s == "sunfold" || (s.startsWith "eq_" && (s.drop 3).all Char.isDigit)
+          | _ => false
+        let keep := md.constants.filter (fun c => !realized c.name)
+        let md' := { md with constNames := keep.map (·.name), constants := keep }
+        Lean.saveModuleData (out ++ "/VedCkpt.olean") (← getEnv).mainModule md'
+        dbgLog s!"S95 ckpt written to {out}: {md.constants.size} constants"
+        IO.Process.exit 0
     catch ex =>
       dbgLog s!"S94 replay: FAILED ms={(← IO.monoMsNow) - t0}: {((← ex.toMessageData.toString).replace "\n" " ").take 600}"
       if let some (e, lctx, linst) := ← progCap.get then
@@ -1175,5 +1219,115 @@ elab "#ved_s94_ckpt100_replay " d:str : command => do
         runOn s!"goal {it.1}" #[it]
     else
       runOn s!"all {mvs.size} goals" mvs
+
+
+open Lean Meta Elab Command Term Tools.VedU1WireShare in
+/-- replay of the stage-95 checkpoint (`VED_S95_OUT` of `#ved_s94_ckpt_replay`): the ONE goal after `ved_hstep_unify`.  It runs the steps of the script from stamp 95
+on, one step at a time, each with a line (ms, heartbeats (k), goals, tree total / max, and how many goals still contain a loop value `(loop).val s` in the target or a
+hypothesis).  `VED_S95_MODE`: `old` (default; the script's steps with `ved_loop_gen_mem s` at the end), `once` (`ved_loop_gen_once s` right after stamp 95,
+`ved_loop_gen_resid s` at the end), `onceLate` (as `once`, but the generalisation after the stage-99 simp, before the split is not possible there: runs it at the
+stamp-96 goal-count 96, i.e. after `And.intro`, single goal is not given: only for the occurrence counts).  `VED_S95_UPTO=k` (stop after step k, k = 95, 951 refine, 96, 97, 98, 99, 991 dsimp, 100). -/
+elab "#ved_s95_replay " d:str : command => do
+  let dir := d.getString
+  let rows := ((← IO.FS.readFile (dir ++ "/ckpt95.txt")).splitOn "\n").filter (· ≠ "") |>.map (·.splitOn "\t")
+  let mut hms : List Nat := []
+  let mut sp := 0
+  let mut tab : Option (Name × Std.HashMap String Nat) := none
+  for r in rows do
+    match r with
+    | "hm" :: _ :: ps => hms := ps.map String.toNat!
+    | ["sp", _, i] => sp := i.toNat!
+    | "tab" :: cs => tab := some (compsName cs, {})
+    | ["w", k, v] => tab := tab.map fun (n, t) => (n, t.insert k v.toNat!)
+    | _ => pure ()
+  let mode := (← IO.getEnv "VED_S95_MODE").getD "old"
+  let upto := ((← IO.getEnv "VED_S95_UPTO").bind String.toNat?).getD 100
+  liftTermElabM do
+    let ci ← getConstInfo `ved_ckpt95_goal0
+    let seen ← IO.mkRef (({} : Std.HashSet Name))
+    for c in (Tools.VedU1WireShare.collectDag (fun x => x.isConst) ci.type).map (·.constName!) do ckptRealize seen c 6
+    dbgLog s!"S95 replay: {(← seen.get).size} constants visited for matcher equations"
+    let mut g := (← mkFreshExprMVar ci.type).mvarId!
+    let mut k := 0
+    repeat
+      unless (← g.getType).isForall || (← g.getType).isLet do break
+      let (_, g') ← g.intro (Name.mkSimple s!"ck{k}")
+      g := g'; k := k + 1
+    let sId := mkIdent (Name.mkSimple s!"ck{sp}")
+    let hs : Array (TSyntax `ident) := hms.toArray.map fun i => mkIdent (Name.mkSimple s!"ck{i}")
+    Tools.VedMemLoop.declWidthTab.set tab
+    let sE ← g.withContext do elabTerm sId none
+    let isV := fun (e : Expr) => e.isAppOfArity ``Sparkle.Core.Signal.Signal.val 4 && (e.getArg! 2).isAppOfArity ``Sparkle.Core.Signal.Signal.loop 4 && e.getArg! 3 == sE
+    -- (goals with a loop value, distinct loop-value terms) over all goals; each distinct type scanned once
+    let resid (gs : List MVarId) : MetaM String := do
+      let memo ← IO.mkRef (({} : Std.HashMap Expr (Array Expr)))
+      let scan (e : Expr) : MetaM (Array Expr) := do
+        let e ← instantiateMVars e
+        if let some r := (← memo.get)[e]? then return r
+        let r := collectDag isV e
+        memo.modify (·.insert e r)
+        return r
+      let mut nGoals := 0
+      let mut all : Array Expr := #[]
+      for g in gs do
+        let found ← g.withContext do
+          let mut f : Array Expr := ← scan (← g.getType)
+          for d in ← getLCtx do
+            unless d.isImplementationDetail do f := f ++ (← scan d.type)
+          pure f
+        unless found.isEmpty do nGoals := nGoals + 1
+        for x in found do unless all.contains x do all := all.push x
+      pure s!"goals with a loop value={nGoals} distinct loop values={all.size}"
+    let shape (gs : List MVarId) : MetaM String := do
+      let mut szs : Array Nat := #[]
+      for g in gs do
+        szs := szs.push (← g.withContext do return Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← g.getType)))
+      pure s!"goals={gs.length} tree: total={szs.foldl (· + ·) 0} max={szs.foldl max 0}"
+    let opts ← getOptions
+    -- the stage-99 simp set of the script (`fzs.push mcr`)
+    let mut r99 : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) := #[
+      ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedMemLoopFreeze):term),
+      ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedDeclWidth):term),
+      ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedDeclWidth1):term),
+      ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedBindStrictO):term),
+      ← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedBindStrictB):term)]
+    if Tools.VedMemLoop.ved.mem.s94EnvFreeze.get opts then
+      r99 := r99.push (← `(Lean.Parser.Tactic.simpLemma| ↓ $(mkCIdent ``Tools.VedMemLoop.vedEnvFreeze):term))
+    r99 := r99.push (← `(Lean.Parser.Tactic.simpLemma| Sparkle.Core.Signal.Signal.memoryComboRead_val))
+    let mut peels : Array (TSyntax `tactic) := #[]
+    for h in hs do peels := peels.push (← `(tactic| (ved_s97_peel $h:ident)))
+    let mut peelAlt : TSyntax `tactic := peels[0]!
+    for c in peels.toList.drop 1 do peelAlt ← `(tactic| first | ($peelAlt:tactic) | ($c:tactic))
+    if Tools.VedMemS94Peel.ved.mem.s94PeelDag.get opts then
+      peelAlt ← `(tactic| first | (ved_mem_peel_dag $[$hs]*) | ($peelAlt:tactic))
+    let once := mode == "once"
+    let genOnceT ← if once then `(tactic| first | ved_loop_gen_once $sId | skip) else `(tactic| skip)
+    let genLastT ← if once then `(tactic| ved_loop_gen_resid $sId) else `(tactic| ved_loop_gen_mem $sId)
+    let steps : List (Nat × String × TSyntax `tactic) := [
+      (95, "gen_once", genOnceT),
+      (951, "refine", ← `(tactic| all_goals refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩)),
+      (96, "and_intro", ← `(tactic| all_goals (try (repeat' apply And.intro)))),
+      (97, "peel", ← `(tactic| all_goals (try $peelAlt:tactic))),
+      (99, "if_read_simp", ← `(tactic| ved_if_read (ved_loop_simp [$r99,*]))),
+      (991, "dsimp_goals", ← `(tactic| ved_dsimp_goals)),
+      (100, if once then "gen_resid" else "gen_mem", genLastT)]
+    let stepNo (n : Nat) : Nat := match n with | 951 => 95 | 991 => 99 | n => n
+    let mut cur : List MVarId := [g]
+    dbgLog s!"S95 replay mode={mode}: start {← shape cur}; {← resid cur}"
+    let tAll ← IO.monoMsNow
+    let hbAll ← IO.getNumHeartbeats
+    for (no, name, tac) in steps do
+      if stepNo no > upto then break
+      let t0 ← IO.monoMsNow
+      let hb0 ← IO.getNumHeartbeats
+      let res ← try
+          let gs ← Tactic.run cur.head! (do Tactic.setGoals cur; Tactic.evalTactic tac)
+          cur := gs
+          pure "ok"
+        catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 400}"
+      dbgLog s!"S95 step {no} {name}: {res} ms={(← IO.monoMsNow) - t0} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}; {← shape cur}; {← resid cur}"
+      if res != "ok" then break
+    dbgLog s!"S95 replay total ms={(← IO.monoMsNow) - tAll} hb(k)={((← IO.getNumHeartbeats) - hbAll) / 1000}"
+    Tools.VedMemLoop.declWidthTab.set none
 
 end Tools.VedMemS94Diag

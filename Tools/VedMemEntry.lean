@@ -9,6 +9,7 @@ import Tools.VedMemS94Diag
 import Tools.VedMemS94Prof
 import Tools.VedMemS94Fix
 import Tools.VedMemS94Peel
+import Tools.VedMemS94Gen
 import Tools.VedMemPack
 import Tools.VedMemShape
 import Tools.VedMemOrder
@@ -638,7 +639,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           Tools.VedU1Contract.OTy.packNat ($C).tbl.out ((Tools.VedU1Contract.applyIns ($C).tbl.ins ($C).inNames $insI $f).val t) := fun t => Tools.VedU1Packed.srcOf_packed $C $f $insI t),
       ← `(tactic| simp only [$O:ident, List.mem_singleton, forall_eq, key])] else pure #[← `(tactic| skip)]
   -- the step case from the hypotheses' normalisation to the end; `fz`: the simps do not enter `Signal.loop` (option `ved.mem.hstepNorm`)
-  let mkSeg := fun (nh : TSyntax `tactic) (e1 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (tl : Array (TSyntax `tactic)) (r99 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (un : TSyntax `tactic) (dg : Bool) (isNew : Bool) (atm : Bool) (nic : Bool) => do
+  let mkSeg := fun (nh : TSyntax `tactic) (e1 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (tl : Array (TSyntax `tactic)) (r99 : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma ",") (un : TSyntax `tactic) (dg : Bool) (isNew : Bool) (atm : Bool) (nic : Bool) (go : Bool) => do
     let prof ← Tools.VedMemS94Diag.s94Prof
     let dgT : TSyntax `tactic ← if dg && prof then `(tactic| all_goals (ved_s94_prof [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             comboReads, syncReadLatches, Tools.VedMem.memWritePorts_ref_one,
@@ -678,6 +679,10 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
     let ck100T : TSyntax `tactic ← if isNew && (← Tools.VedMemS94Diag.s94Gate) && (← IO.getEnv "VED_S94_CKPT").isSome && ckAt == "100" then
         `(tactic| ved_s94_ckpt100 $sI [$[$hM],*])
       else `(tactic| skip)
+    -- option `ved.mem.s94GenOnce` (new branch only): the loop states are generalised once on the shared goal (stamp 95), no `Bool` splits; at stamp 100
+    -- `ved_loop_gen_resid` runs the old per-goal `ved_loop_gen_mem` only when a loop value is left (also when `ved_loop_gen_once` failed: the fallback)
+    let genT : TSyntax `tactic ← if go then `(tactic| first | ved_loop_gen_once $sI | skip) else `(tactic| skip)
+    let genM : TSyntax `tactic ← if go then `(tactic| ved_loop_gen_resid $sI) else `(tactic| ved_loop_gen_mem $sI)
     let ex95 : TSyntax `tactic ← if exitAt && (← IO.getEnv "VED_EXIT_AT") == some "95" then `(tactic| ved_s94_exit 95) else `(tactic| skip)
     `(tactic| (
           $nh
@@ -694,6 +699,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           $un
           ved_stamp 95
           $ex95
+          $genT
           $d3
           all_goals refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩
           ved_stamp 96
@@ -711,7 +717,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           ved_dsimp_goals
           ved_stamp 100
           $ck100T
-          ved_loop_gen_mem $sI
+          $genM
           $d6
           $tl*))
   let normHypsF ← `(tactic| (ved_hstep_loops_clear; try (ved_loop_simp [$O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf,
@@ -719,8 +725,8 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
          Sparkle.Core.Signal.Signal.memoryComboRead_val, Sparkle.Core.Signal.Signal.memory_val_succ,
          Sparkle.Core.Signal.Signal.memory_val_zero, $hsSepF,*] at $[$hNorm]*); ved_hstep_loops))
   let mcr ← `(Lean.Parser.Tactic.simpLemma| Sparkle.Core.Signal.Signal.memoryComboRead_val)
-  let segOld ← mkSeg normHyps ex1 tail (Syntax.TSepArray.ofElems #[mcr]) (← `(tactic| skip)) false false false false
-  let segNew ← mkSeg normHypsF ex1F tailF (Syntax.TSepArray.ofElems (fzs.push mcr)) (← `(tactic| ved_hstep_unify)) ((← IO.getEnv "VED_S94_DIAG").isSome || (← Tools.VedMemS94Diag.s94Prof)) true (Tools.VedMemLoop.ved.mem.s94LoopAtom.get (← getOptions)) (Tools.VedMemS94Fix.ved.mem.s94NoIteCongr.get (← getOptions))
+  let segOld ← mkSeg normHyps ex1 tail (Syntax.TSepArray.ofElems #[mcr]) (← `(tactic| skip)) false false false false false
+  let segNew ← mkSeg normHypsF ex1F tailF (Syntax.TSepArray.ofElems (fzs.push mcr)) (← `(tactic| ved_hstep_unify)) ((← IO.getEnv "VED_S94_DIAG").isSome || (← Tools.VedMemS94Diag.s94Prof)) true (Tools.VedMemLoop.ved.mem.s94LoopAtom.get (← getOptions)) (Tools.VedMemS94Fix.ved.mem.s94NoIteCongr.get (← getOptions)) (Tools.VedMemS94Gen.ved.mem.s94GenOnce.get (← getOptions))
   let core ← `(by
     ved_no_recover (
         ved_stamp 80
