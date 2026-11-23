@@ -191,10 +191,8 @@ def evalVedMemPeelDagCore : Tactic := fun stx => withMainContext do
   if (← peelDagRefuse.get) then throwError "ved_mem_peel_dag: refused (test seam)"
   let g ← getMainGoal
   let restGoals := (← getGoals).drop 1
-  let tgt0 ← g.getType
-  -- a goal of another head is refused before anything else is touched (the goals are DAGs of tree size 1e13)
-  unless tgt0.consumeMData.isAppOf ``Tools.VedMem.MemInv do throwError "ved_mem_peel_dag: not a MemInv goal"
-  let tgt ← instantiateMVars tgt0
+  -- the goal's type may be an assigned metavariable (the real goals): instantiate before the head check
+  let tgt ← instantiateMVars (← g.getType)
   unless tgt.isAppOf ``Tools.VedMem.MemInv && tgt.getAppNumArgs == 10 do throwError "ved_mem_peel_dag: not a MemInv goal"
   let nameE := tgt.getArg! 3
   let .lit (.strVal nameS) := nameE | throwError "ved_mem_peel_dag: the memory name is not a string literal"
@@ -215,9 +213,13 @@ def evalVedMemPeelDagCore : Tactic := fun stx => withMainContext do
   if (← peelDagFailLate.get) then throwError "ved_mem_peel_dag: failed late (test seam)"
   peelDagHits.modify (· + 1)
 
-/-- the tactic; with `VED_DUMP_DIR` set a refusal is written to `addr.log` (diagnosis only) before it is rethrown -/
+/-- the tactic; with `VED_DUMP_DIR` set a success / a refusal is written to `addr.log` (diagnosis only; a refusal is rethrown) -/
 @[tactic vedMemPeelDag] def evalVedMemPeelDag : Tactic := fun stx => do
-  try evalVedMemPeelDagCore stx
+  try
+    evalVedMemPeelDagCore stx
+    if let some dir ← IO.getEnv "VED_DUMP_DIR" then
+      let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
+      h.putStrLn s!"S94 peel_dag ok: {(← getGoals).length} goals left"
   catch ex =>
     if let some dir ← IO.getEnv "VED_DUMP_DIR" then
       let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
