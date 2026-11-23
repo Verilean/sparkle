@@ -140,3 +140,16 @@ R193 `synth_sha512Block_out0` is accepted through the connection path (post-chec
 * Rows run once each with `ved.compose.step` + `ved.compose.connect` (harness cases, guard 23068672): all 20 are refused in 12-28 s wall (peak 2.97-3.35 GB), before any parent proof, so no heartbeat line is reached.
 * Groups by first cause: (A) child with more than one output, `[hier-shape]` `connsOkS` `c.outputs.length == 1` (R184, R185, R186, R126, R127, R187, R188, R247, R248, R065: 10 rows); (B) a memory at the top, `[hier-shape]` (R040, R291, R024: 3); (C) child not a leaf (`leafBody`, depth 1 only), `[hier-shape]` (R163, R164, R067, R068: 4); singletons: R230 `[conns]` (one instance's output feeds another instance's data port), R227 `[deep]` (the open parent's port `txByte` does not export its loop state), R220 `[open]` (no call of a child in the circuit body).
 * No group is small: A needs the single-output assumption removed in `connsOkS`/`connsOkS_facts` (`Tools/VedU2HierProj.lean`), `outNameOf`/`leafOut`/`instEval_leaf` (`Tools/VedU1HierComp.lean`), the H3 child table (`Tools/VedH3ChildTblEntry.lean`: `m.outputs = [⟨_, .bitVector n⟩]`) and the per-output instance/cone generation (`outPort := k.c.outputs.headD`) in `VedU2HierRegEntry`/`VedU2HierEntry`; most of these files are outside the allowed edits. Nothing implemented. Toy (refused, `[hier-shape] ... child Toy2Out.child2 has 2 outputs (multi-output children: H3)`): a `@[hardware_module]` returning a 2-field structure (`s := x + y`, `d := x - y`) and a parent using both fields.
+
+## Unit 11: multi-output combinational leaf children, part 1 (observed; local lemmas only, NO toy accepted, no real row run)
+
+* New file `Tools/VedComposeMultiOut.lean` (own lean_lib): `leafOutAt`, `outWrites_multi`, `instEval_leaf_multi` (the k-output instance step: `instEval` of a
+  combinational leaf child with `hout : conns.filter (outputs) = ps.map (fun q => (q.1, .ref q.2))` equals `some (ps.map (fun q => (q.2, leafOutAt cm (arr cm) q.1 (xs.map env))))`),
+  `instEval_leaf_of_multi` (the existing single-output `instEval_leaf` statement as the k = 1 case, control, the old lemma is untouched), `child_rel_outAt` (per-output
+  child theorem for any number of outputs, from `child_rel`). Built with `kjob lake build Tools.VedComposeMultiOut`, no sorry, no new axiom.
+* Blocker for the end-to-end toy (and for every multi-output row): `HierShapeS d m = true` is a conjunct of the CONCLUSION of `U2HRStmt` (and `U2HStmt`), and
+  `HierShapeS` calls `connsOkS`, which contains `c.outputs.length == 1`. On `Toy2Out.top2` (child `child2`, 2 outputs) `HierShapeS d m` evaluates to `false` on the
+  returned `(m, d)` (observed, scratch check, 2.68 GB rss_guard peak), so `U2HRStmt` is false for that `(m, d)`: no generator or option can prove it, and the stored type
+  must equal `U2HRStmt`. Relaxing it means changing the definition `connsOkS` inside the statement (not option-gatable: it is a kernel-side `def`), re-proving its users
+  (`connsOkS_facts`, `instEvalS`, `kid_inst`, ...) without `length = 1`, and a reviewer decision that the statement's shape conjunct may be weakened. Not done (statement edit
+  is excluded by the brief). Generator hunks and `ved.compose.multiOut` were therefore not added (nothing could be accepted behind it).

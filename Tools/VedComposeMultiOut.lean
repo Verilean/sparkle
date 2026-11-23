@@ -99,4 +99,23 @@ theorem instEval_leaf_of_multi (d : Design) (arr : Module → List Stmt) (we : W
   instEval_leaf_multi d arr we mn iname conns cm xs [(outNameOf cm, y)] env hres hprim hall hin
     hout hass hperm hfuel hsucc
 
+/-- Per-output child theorem (any number of outputs): the child's real `U1Stmt` gives, for EVERY
+output port `o` of the contract, `leafOutAt` at the observed arguments equal to that port's
+observed value; `child_rel_out` is the one-output observation of the same fact. -/
+theorem child_rel_outAt (cc : Contract) (cm : Module) (g : cc.table.Ty) (b : List Stmt)
+    (hU : U1Stmt cc cm g) (hpa : b.Perm cm.body) (hwo : WO [] b)
+    (hasg : assignOnly cm.body = true) (hclk : cc.clkRst = none)
+    (args : ArgSigs cc.table.ins) (t : Nat) :
+    ∀ o ∈ cc.outputs, leafOutAt cm b o.name (obsArgs cc.table.ins args t) =
+      ((cc.outNames.zip (cc.table.out.obs ((applyArgs cc.table.ins g args).val t))).lookup o.name).getD 0 := by
+  intro o ho
+  obtain ⟨envC, hE, hO⟩ := child_rel cc cm g b hU hpa hwo hasg hclk args t
+  obtain ⟨hcorr, ⟨hcore, _⟩, _⟩ := hU
+  obtain ⟨hl1, hl2, hl3, _⟩ := hcorr
+  have hinp : cm.inputs = cc.dataInputs := by
+    rw [hcore.2.2.2.2.1]; simp [clkRstPorts, hclk]
+  have hnames : cm.inputs.map (·.name) = cc.inNames := by rw [hinp]; exact dataInputs_names cc hl2
+  simp only [leafOutAt, hnames, hE, Option.map_some, Option.getD_some]
+  exact hO o ho
+
 end Tools.VedComposeMultiOut
