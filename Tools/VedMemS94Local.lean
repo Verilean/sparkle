@@ -74,6 +74,20 @@ theorem pack_hit_n (a r Wl C T Wm wl s w : Nat) (hW : Wl = 2 ^ wl) (hC : C = 2 ^
   subst hW hWm
   exact Nat.mod_mod_of_dvd _ (Nat.pow_dvd_pow 2 hw)
 
+/-- the unmasked read `x % 2^m / 2^t` is the masked read `x % 2^m / 2^t % 2^(m-t)` (the mask is the top of the chain) -/
+theorem div_top (x M T Wm m t w : Nat) (hM : M = 2 ^ m) (hT : T = 2 ^ t) (hW : Wm = 2 ^ w) (h : t + w = m) :
+    x % M / T = x % M / T % Wm := by
+  subst hM hT hW
+  have h1 : 2 ^ m = 2 ^ t * 2 ^ w := by rw [← Nat.pow_add]; congr 1; omega
+  symm
+  apply Nat.mod_eq_of_lt
+  rw [Nat.div_lt_iff_lt_mul (Nat.two_pow_pos t), Nat.mul_comm, ← h1]
+  exact Nat.mod_lt _ (Nat.two_pow_pos m)
+
+/-- the mask of a 0/1 flag is redundant -/
+theorem ite10_mod (p : Prop) [Decidable p] : (if p then 1 else 0) % 2 = (if p then 1 else 0 : Nat) := by
+  by_cases h : p <;> simp [h]
+
 /-- a 0/1 flag as a proposition: the condition of the case hypotheses `(if p then 1 else 0) % 2 = 1` -/
 theorem ite10_mod2 (p : Prop) [Decidable p] : ((if p then 1 else 0) % 2 = 1) ↔ p := by
   by_cases h : p <;> simp [h]
@@ -148,26 +162,30 @@ private def litNat? (e : Expr) : MetaM (Option Nat) := do
 private def leP (a b : Nat) : Expr := mkApp3 (mkConst ``Nat.le_of_ble_eq_true) (nl a) (nl b) (mkApp2 (mkConst ``Eq.refl [1]) (mkConst ``Bool) (mkConst ``Bool.true))
 private def refl (e : Expr) : MetaM Expr := mkEqRefl e
 
+/-- diagnosis: the site (and offset t, width w) of the last `extField` failure -/
+initialize extLastFail : IO.Ref String ← IO.mkRef ""
+def failAt {α} (n t w : Nat) : MetaM (Option α) := do extLastFail.set s!"site {n} t={t} w={w}"; return none
+
 /-- `E / T % Wm = v` for a packed state `E` (nested `(a % 2^wl) * 2^s + r % 2^s` under `% 2^m`): `v` is the field's value `a % 2^wl`
 (`T = 2^t`, `Wm = 2^w` literals); the proof is built from the once-proved lemmas `mod_div_mod`, `pack_skip`, `pack_hit`, `atom_div` only -/
 partial def extField (E T Wm : Expr) (t w : Nat) : MetaM (Option (Expr × Expr)) := do
   match E.getAppFnArgs with
   | (``HMod.hMod, #[_, _, _, _, x, M]) =>
-    let some mv ← litNat? M | return none
-    let some m := pow2? mv | return none
-    unless t + w ≤ m do return none
-    let some (v, pf) ← extField x T Wm t w | return none
+    let some mv ← litNat? M | failAt 1 t w
+    let some m := pow2? mv | failAt 2 t w
+    unless t + w ≤ m do return (← failAt 3 t w)
+    let some (v, pf) ← extField x T Wm t w | failAt 4 t w
     let step := mkAppN (mkConst ``mod_div_mod) #[x, M, T, Wm, nl m, nl t, nl w, ← refl M, ← refl T, ← refl Wm, leP (t + w) m]
     return some (v, ← mkEqTrans step pf)
   | (``HAdd.hAdd, #[_, _, _, _, ma, r]) =>
-    let (``HMul.hMul, #[_, _, _, _, am, C]) := ma.getAppFnArgs | return none
-    let (``HMod.hMod, #[_, _, _, _, a, Wl]) := am.getAppFnArgs | return none
-    let some wlv ← litNat? Wl | return none
-    let some wl := pow2? wlv | return none
-    let some Cv ← litNat? C | return none
-    let some s := pow2? Cv | return none
-    let (``HMod.hMod, #[_, _, _, _, y, C']) := r.getAppFnArgs | return none
-    unless (← litNat? C') == some Cv do return none
+    let (``HMul.hMul, #[_, _, _, _, am, C]) := ma.getAppFnArgs | failAt 5 t w
+    let (``HMod.hMod, #[_, _, _, _, a, Wl]) := am.getAppFnArgs | failAt 6 t w
+    let some wlv ← litNat? Wl | failAt 7 t w
+    let some wl := pow2? wlv | failAt 8 t w
+    let some Cv ← litNat? C | failAt 9 t w
+    let some s := pow2? Cv | failAt 10 t w
+    let (``HMod.hMod, #[_, _, _, _, y, C']) := r.getAppFnArgs | failAt 11 t w
+    unless (← litNat? C') == some Cv do return (← failAt 12 t w)
     let hr := mkApp3 (mkConst ``Nat.mod_lt) y C' (mkApp (mkConst ``Nat.two_pow_pos) (nl s))
     if t == s && w == wl then
       let pf := mkAppN (mkConst ``pack_hit) #[a, r, Wl, C, T, Wm, nl wl, nl s, ← refl Wl, ← refl C, ← refl C, ← refl Wl, hr]
@@ -185,16 +203,46 @@ partial def extField (E T Wm : Expr) (t w : Nat) : MetaM (Option (Expr × Expr))
       return some (← mkAppM ``HMod.hMod #[← mkAppM ``HDiv.hDiv #[a, K], Wm], pf)
     else if t + w ≤ s then
       let step := mkAppN (mkConst ``pack_skip) #[a, r, Wl, C, T, Wm, nl wl, nl s, nl t, nl w, ← refl Wl, ← refl C, ← refl T, ← refl Wm, hr, leP (t + w) s]
-      let some (v, pf) ← extField r T Wm t w | return none
+      let some (v, pf) ← extField r T Wm t w | failAt 13 t w
       return some (v, ← mkEqTrans step pf)
-    else return none
+    else failAt 14 t w
   | _ =>
-    unless t == 0 do return none
+    unless t == 0 do return (← failAt 15 t w)
     let v ← mkAppM ``HMod.hMod #[E, Wm]
     return some (v, mkAppN (mkConst ``atom_div) #[E, T, Wm, ← refl T])
 
+/-- drop the redundant mask of a whole field value (`y.toNat % 2^n` for `y : BitVec n`, `(if p then 1 else 0) % 2`): `omega` is incomplete on the masked forms
+(observed: `(a % 32 / 4 % 4 * 4 + ..)` with `a < 32` and the equation `a % 32 = a` still fails, the unmasked form is proved) -/
+def dropMask (r : Option (Expr × Expr)) : MetaM (Option (Expr × Expr)) := do
+  let some (v, pf) := r | return none
+  match v.getAppFnArgs with
+  | (``HMod.hMod, #[_, _, _, _, a, L]) =>
+    if a.isAppOfArity ``BitVec.toNat 2 then
+      let y := a.appArg!
+      let n := (← whnfR (← inferType y)).appArg!
+      if (← litNat? L) == (← litNat? (← mkAppM ``HPow.hPow #[nl 2, n])) && (← litNat? L).isSome then
+        return some (a, ← mkEqTrans pf (← mkAppM ``BitVec.toNat_mod_cancel #[y]))
+    else if a.isAppOfArity ``ite 5 && (← litNat? L) == some 2 then
+      unless (a.getArg! 3).nat? == some 1 && (a.getArg! 4).nat? == some 0 do return some (v, pf)
+      return some (a, ← mkEqTrans pf (mkAppN (mkConst ``ite10_mod) #[a.getAppArgs[1]!, a.getAppArgs[2]!]))
+    return some (v, pf)
+  | _ => return some (v, pf)
+
 /-- a candidate `X` of the form `E / 2^t % 2^w` or `E % 2^w` (`E` a packed state or a `%` chain): the value and the proof of `X = v` -/
-def tryExtract (X : Expr) : MetaM (Option (Expr × Expr)) := do
+def tryExtract0 (X : Expr) : MetaM (Option (Expr × Expr)) := do
+  if let (``HDiv.hDiv, #[_, _, _, _, E, T]) := X.getAppFnArgs then
+    -- `x % 2^m / 2^t` (no outer mask): the mask is the top of the chain, width `m - t`
+    let (``HMod.hMod, #[_, _, _, _, x, M]) := E.getAppFnArgs | return none
+    let some mv ← litNat? M | return none
+    let some m := pow2? mv | return none
+    let some tv ← litNat? T | return none
+    let some t := pow2? tv | return none
+    unless t < m do return none
+    let w := m - t
+    let Wm := nl (2 ^ w)
+    let step := mkAppN (mkConst ``div_top) #[x, M, T, Wm, nl m, nl t, nl w, ← refl M, ← refl T, ← refl Wm, ← mkEqRefl (nl m)]
+    let some (v, pf) ← extField E T Wm t w | return none
+    return some (v, ← mkEqTrans step pf)
   let (``HMod.hMod, #[_, _, _, _, E, Wm]) := X.getAppFnArgs | return none
   let some wv ← litNat? Wm | return none
   let some w := pow2? wv | return none
@@ -209,9 +257,24 @@ def tryExtract (X : Expr) : MetaM (Option (Expr × Expr)) := do
     return some (v, ← mkEqTrans (mkAppN (mkConst ``mod_as_div) #[E, Wm]) pf)
   | _ => return none
 
+def tryExtract (X : Expr) : MetaM (Option (Expr × Expr)) := do dropMask (← tryExtract0 X)
+
+/-- diagnosis (`ved_extract_diag`): the failure sites of the extraction candidates of the target -/
+elab "ved_extract_diag" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let mut seen : Std.HashSet String := {}
+  for x in collectDag (fun x => x.isAppOfArity ``HMod.hMod 6) tgt do
+    if x.hasLooseBVars then continue
+    extLastFail.set "no-pattern"
+    if (← tryExtract x).isNone then
+      let r ← extLastFail.get
+      unless seen.contains r do
+        seen := seen.insert r
+        logInfo m!"EXTDIAG {r}"
+
 /-- the first extraction candidate of an expression (parents first), by the DAG -/
 def firstExtract (e : Expr) : MetaM (Option (Expr × Expr × Expr)) := do
-  for x in collectDag (fun x => x.isAppOfArity ``HMod.hMod 6) e do
+  for x in collectDag (fun x => x.isAppOfArity ``HMod.hMod 6 || x.isAppOfArity ``HDiv.hDiv 6) e do
     if x.hasLooseBVars then continue
     if let some (v, pf) ← tryExtract x then return some (x, v, pf)
   return none
@@ -272,7 +335,12 @@ elab "ved_bv_bounds" : tactic => do
       let pr ← mkAppM ``BitVec.isLt #[x]
       pure (pr, ← inferType pr)
     let (_, g1) ← (← g.assert `ved_bnd ty pr).intro1P
-    g := g1
+    -- `x.toNat % 2^w = x.toNat`: the equation lets `omega` drop the `% 2^w` of the packed fields exactly (no dark shadow needed)
+    let (pr2, ty2) ← g1.withContext do
+      let pr ← mkAppM ``BitVec.toNat_mod_cancel #[x]
+      pure (pr, ← inferType pr)
+    let (_, g2) ← (← g1.assert `ved_bnd2 ty2 pr2).intro1P
+    g := g2
   replaceMainGoal [g]
 
 /-- the goals of the local route are the small cones: a target with at most `ved.mem.s94Local` tree nodes (`localMaxTree`); `omega` and `split`
@@ -283,11 +351,16 @@ elab "ved_local_small" : tactic => withMainContext do
   let n := Tools.VedU1Loop.treeSizeVal (← instantiateMVars (← getMainTarget))
   if n > localMaxTree then throwError "ved_local_small: the target has {n} tree nodes (limit {localMaxTree})"
 
+/-- `omega`, splitting one `if` at a time as long as it does not close the goal -/
+syntax "ved_split_omega" : tactic
+macro_rules
+  | `(tactic| ved_split_omega) => `(tactic| first | omega | (split <;> ved_split_omega))
+
 /-- `ved_local_close`: the goal from its own cone: cone clear, field extraction, bounds, then `omega` (with `split` for the `if`s) -/
 macro "ved_local_close" : tactic =>
   `(tactic| (ved_cone_clear; ved_pack_extract; ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *);
              all_goals (ved_bv_bounds
-                        first | omega | (split <;> omega) | (split <;> split <;> omega))))
+                        ved_split_omega)))
 
 /-- the heartbeat limit of one local attempt (thousands; lower than any whole-goal step: a successful attempt needs at most about 4M) -/
 def localCapK : Nat := 8000
