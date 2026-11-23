@@ -492,9 +492,93 @@ macro_rules
          case hb => intro _; ved_mux)
       | ved_split_omega)
 
+
+/-! ## memState atoms abstracted (shared with `Tools.VedMemS94Opaque`): the keys of the target, and with `ved.mem.s94OpaqueH` also those of the kept hypotheses -/
+
+def isMemAtom (x : Expr) : Bool :=
+  x.isAppOf ``Sparkle.Core.Signal.Signal.memState && x.getAppNumArgs == 9 && !x.hasLooseBVars
+
+/-- the target with every atom `memState a0 .. a7 addr` whose key is in `keys` replaced by `M addr` (the address abstracted by the same map); memoised, one visit per shared node -/
+partial def absGo (keys : Array (Expr × Expr)) (e : Expr) : StateM (Std.HashMap Expr Expr) Expr := do
+  if let some r := (← get)[e]? then return r
+  let r ← do
+    if isMemAtom e then
+      let args := e.getAppArgs
+      let key := mkAppN e.getAppFn (args.extract 0 8)
+      match keys.find? (·.1 == key) with
+      | some (_, m) => pure (mkApp m (← absGo keys args[8]!))
+      | none => pure e
+    else match e with
+      | .app f a => pure (e.updateApp! (← absGo keys f) (← absGo keys a))
+      | .lam _ t b _ => pure (e.updateLambdaE! (← absGo keys t) (← absGo keys b))
+      | .forallE _ t b _ => pure (e.updateForallE! (← absGo keys t) (← absGo keys b))
+      | .mdata _ b => pure (e.updateMData! (← absGo keys b))
+      | .proj _ _ b => pure (e.updateProj! (← absGo keys b))
+      | .letE n t v b nd => pure (Expr.letE n (← absGo keys t) (← absGo keys v) (← absGo keys b) nd)
+      | _ => pure e
+  modify (·.insert e r)
+  return r
+
+/-- abstract the distinct `memState` keys of the target; returns the new goal (the variables introduced) and their number (0: nothing to do, the goal is returned unchanged) -/
+def memOpaque (g : MVarId) : MetaM (MVarId × Nat) := g.withContext do
+  let tgt ← instantiateMVars (← g.getType)
+  let mut keys : Array Expr := #[]
+  for o in collectDag isMemAtom tgt do
+    let key := mkAppN o.getAppFn (o.getAppArgs.extract 0 8)
+    unless keys.contains key do keys := keys.push key
+  if keys.isEmpty then return (g, 0)
+  let mut tys : Array Expr := #[]
+  for k in keys do tys := tys.push (← inferType k)
+  -- bound variables of the abstraction, as free variables of a local telescope
+  let rec go (i : Nat) (acc : Array (Expr × Expr)) : MetaM Expr := do
+    if h : i < keys.size then
+      withLocalDeclD (Name.mkSimple s!"ved_M{i}") tys[i]! fun m => do
+        let body ← go (i + 1) (acc.push (keys[i]!, m))
+        mkForallFVars #[m] body
+    else
+      let (t', _) := (absGo acc tgt).run {}
+      return t'
+  let absTy ← go 0 #[]
+  let g' ← mkFreshExprSyntheticOpaqueMVar absTy (← g.getTag)
+  g.assign (mkAppN g' keys)
+  let (_, g'') ← g'.mvarId!.introN keys.size ((List.range keys.size).map fun i => Name.mkSimple s!"ved_M{i}")
+  return (g'', keys.size)
+
+
+register_option ved.mem.s94OpaqueH : Bool := {
+  defValue := false
+  descr := "ved_local_close: after the cone clear, abstract the memState keys of the kept hypotheses (and the target) to variables before the field extraction and omega, so that omega never walks the port arguments of a memory read inside a hypothesis (default false)"
+}
+
+/-- number of runs of `ved_cone_opaque` that abstracted something (test counter) -/
+initialize coneOpaqueHits : IO.Ref Nat ← IO.mkRef 0
+
+/-- abstract the `memState` keys of the target AND of the context propositions that contain one: those propositions are reverted, the target `H1 → .. → tgt` is abstracted by `memOpaque`,
+and the propositions are introduced again under their names.  Returns the new goal and the number of keys (0: nothing to do, the goal is returned unchanged) -/
+def memOpaqueH (g : MVarId) : MetaM (MVarId × Nat) := g.withContext do
+  let mut hs : Array FVarId := #[]
+  for d in ← getLCtx do
+    if d.isImplementationDetail || d.isLet then continue
+    let t ← instantiateMVars d.type
+    if (← isProp t) && !(collectDag isMemAtom t).isEmpty then hs := hs.push d.fvarId
+  if hs.isEmpty && (collectDag isMemAtom (← instantiateMVars (← g.getType))).isEmpty then return (g, 0)
+  let names ← hs.mapM fun f => do return (← f.getDecl).userName
+  let (_, g1) ← g.revert hs (preserveOrder := true)
+  let (g2, n) ← memOpaque g1
+  let (_, g3) ← g2.introN hs.size names.toList
+  return (g3, n)
+
+/-- `ved_cone_opaque`: `memOpaqueH` on the main goal when `ved.mem.s94OpaqueH` is on; otherwise (and when there is no atom) it does nothing -/
+elab "ved_cone_opaque" : tactic => do
+  unless ved.mem.s94OpaqueH.get (← getOptions) do return
+  let (g, n) ← memOpaqueH (← getMainGoal)
+  if n == 0 then return
+  coneOpaqueHits.modify (· + 1)
+  replaceMainGoal [g]
+
 /-- `ved_local_close`: the goal from its own cone: cone clear, field extraction, bounds, then `omega` (with `split` for the `if`s) -/
 macro "ved_local_close" : tactic =>
-  `(tactic| (ved_cone_clear; (try ved_pack_extract); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *);
+  `(tactic| (ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *);
              all_goals (ved_bv_bounds
                         (try simp only [mux_mod]); ved_mux)))
 

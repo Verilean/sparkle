@@ -1922,6 +1922,7 @@ elab "ved_local_diag" : tactic => do
   let boundsT ← if (← IO.getEnv "VED_LDIAG_TBOUNDS").isSome then `(tactic| all_goals ved_bv_bounds_t) else `(tactic| all_goals ved_bv_bounds)
   let steps : List (String × TSyntax `tactic) := [
     ("cone_clear", ← `(tactic| ved_cone_clear)),
+    ("cone_opaque", ← `(tactic| (try ved_cone_opaque))),
     ("pack_extract", ← `(tactic| ved_pack_extract)),
     ("small", ← `(tactic| ved_local_small)),
     ("dsimp", ← `(tactic| (try dsimp only at *))),
@@ -1987,7 +1988,7 @@ elab "ved_local_diag" : tactic => do
           unless d.isImplementationDetail do
             let t ← instantiateMVars d.type
             if (← isProp t) && !Tools.VedMemS94Local.isEnvFact t then
-              s94LdLog s!"LDIAG {tag}   hyp {d.userName}: tree={Tools.VedU1Loop.treeSizeVal t} {(progShallow 5 t).take 240}"
+              s94LdLog s!"LDIAG {tag}   hyp {d.userName}: tree={Tools.VedU1Loop.treeSizeVal t} {(progShallow ((← IO.getEnv "VED_LDIAG_DEPTH").bind String.toNat? |>.getD 5) t).take ((← IO.getEnv "VED_LDIAG_LEN").bind String.toNat? |>.getD 240)}"
   st.restore
 
 def diagKids (x : Expr) : Array Expr := match x with
@@ -2018,5 +2019,27 @@ elab "ved_tree_diag" : tactic => withMainContext do
     cur := best
   logInfo out
 
+
+/-- diagnosis (s94t): for each hypothesis with a tree of at least `VED_HDIAG_MIN` nodes (default 1e6) its tree / DAG, and the spine of its largest tree (head, arguments, tree size; <= 45 steps;
+literal Nat arguments and instances skipped), one line per step to `VED_T3_LOG` / stderr -/
+elab "ved_hyp_diag" : tactic => withMainContext do
+  let minT := ((← IO.getEnv "VED_HDIAG_MIN").bind String.toNat?).getD 1000000
+  for d in ← getLCtx do
+    if d.isImplementationDetail then continue
+    let t ← instantiateMVars d.type
+    unless (← isProp t) do continue
+    let (n, ts) := (diagTsOf t).run {}
+    let ts : Std.HashMap Expr Nat := ts
+    if n < minT then continue
+    let ns := Tools.VedU1WireShare.collectDag (fun _ => true) t
+    s94LdLog s!"HDIAG {d.userName}: tree={n} dag={ns.size}"
+    let mut cur := t
+    for _ in [0:45] do
+      let ks := (diagKids cur).filter fun k => !k.isConst && !k.isFVar
+      let some best := ks.foldl (fun (b : Option Expr) k => match b with | none => some k | some b => if ts.getD k 0 > ts.getD b 0 then some k else some b) none | break
+      let head := match best.getAppFn with | .const n _ => n.toString | .fvar _ => "fvar" | .lam .. => "lam" | .proj _ i _ => s!"proj{i}" | _ => "?"
+      let shape := if best.isAppOf ``OfNat.ofNat then s!" {(progShallow 3 best).take 40}" else ""
+      s94LdLog s!"HDIAG   {head}/{best.getAppNumArgs} tree={ts.getD best 0}{shape}"
+      cur := best
 
 end Tools.VedMemS94Diag
