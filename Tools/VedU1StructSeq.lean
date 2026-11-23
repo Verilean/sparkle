@@ -32,6 +32,55 @@ open Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.VedU1Contract Tools.VedU1Loop Tools.VedU1StructSeqTac
 open Lean Meta Elab Term
 
+/-- `ved_ss_pack_share`: the packing stage under `ved.sseq.share`.  `ved_pack_wire` on each goal (as `ved_pack_wire_all`), but
+with a heartbeat budget of its own per goal (`packGoalHb`, never above what is left of the ambient one: no raise); a goal that
+exhausts it is restored and given `ved_wire_bits` (the sharing-aware wiring, any size) with the same budget, and is left as
+it was when that fails too.  With `VED_MS_LOG` one line per goal before and after (tree size, bit operations, DAG size,
+milliseconds, heartbeats, which tactic took it), so the cost of the stage is named per goal. -/
+def packGoalHb : Nat := 400000 * 1000
+
+elab "ved_ss_pack_share" : tactic => do
+  let gs ← Tactic.getGoals
+  let log : String → Tactic.TacticM Unit := fun m => do
+    if let some path ← IO.getEnv "VED_MS_LOG" then
+      let h ← IO.FS.Handle.mk path .append
+      h.putStrLn m
+      h.flush
+  let local' : Nat → Tactic.TacticM Bool → Tactic.TacticM Bool := fun n x => do
+    let hb ← IO.getNumHeartbeats
+    withTheReader Core.Context (fun c =>
+        let left := c.maxHeartbeats - (hb - c.initHeartbeats)
+        { c with maxHeartbeats := if c.maxHeartbeats == 0 then n else max 1 (min left n), initHeartbeats := hb }) x
+  let mut rest : List MVarId := []
+  let mut i := 0
+  for g in gs do
+    Tactic.setGoals [g]
+    let (sz, nb, dag) ← g.withContext do
+      let t ← instantiateMVars (← g.getType)
+      pure (Tools.VedU1Loop.treeSizeVal t, (Tools.VedU1Loop.natBitOps t).size, (Tools.VedU1WireShare.collectDag (fun _ => true) t).size)
+    log s!"VED PK goal {i} start tree={sz} bitops={nb} dag={dag}"
+    let h0 ← IO.getNumHeartbeats
+    let t0 ← IO.monoMsNow
+    let st ← saveState
+    let step : String → Tactic.TacticM Unit → Tactic.TacticM Bool := fun _ tac => do
+      tryCatchRuntimeEx
+        (local' packGoalHb (do Tactic.withoutRecover tac; pure true))
+        fun e => if e.isRuntime then pure false else throw e
+    let mut how := "pack_wire"
+    let ok1 ← step "pack_wire" (Tactic.evalTactic (← `(tactic| ved_pack_wire)))
+    unless ok1 do
+      st.restore
+      how := "pack_wire:budget,wire_bits"
+      let ok2 ← try step "wire_bits" (Tactic.evalTactic (← `(tactic| ved_wire_bits)))
+        catch _ => pure false
+      unless ok2 do
+        st.restore
+        how := "pack_wire:budget,wire_bits:failed,left"
+    log s!"VED PK goal {i} done {how} tree={sz} {(← IO.monoMsNow) - t0}ms hb={((← IO.getNumHeartbeats) - h0) / 1000}"
+    i := i + 1
+    rest := rest ++ (← Tactic.getGoals)
+  Tactic.setGoals rest
+
 /-- Debugging/controls only: stop the generated script after stage `k` and print the goals. -/
 register_option ved.sseq.dbg : Nat := {
   defValue := 0
@@ -126,7 +175,7 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
         | (ved_ss_leafwise <;> ved_ss_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
         | ved_ss_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod]))
   let packT : TSyntax `tactic ←
-    if ved.sseq.share.get (← getOptions) then `(tactic| ved_pack_wire_all)
+    if ved.sseq.share.get (← getOptions) then `(tactic| ved_ss_pack_share)
     else `(tactic| all_goals (try ved_pack_simp))
   let stages : Array (Array (TSyntax `tactic)) := #[
     #[← `(tactic| ved_ss_unfold [$exHelp,*] ($sI + 1))],
