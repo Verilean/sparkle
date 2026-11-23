@@ -84,6 +84,28 @@ theorem div_top (x M T Wm m t w : Nat) (hM : M = 2 ^ m) (hT : T = 2 ^ t) (hW : W
   rw [Nat.div_lt_iff_lt_mul (Nat.two_pow_pos t), Nat.mul_comm, ← h1]
   exact Nat.mod_lt _ (Nat.two_pow_pos m)
 
+/-! ## the register-update mux: `(if c then a else b) % m = if c' then a' else b'` (the declared next value of a register is a chain of `ite`, the
+generated side the same chain under `% m`) closed branch by branch, without `split` (which runs `simp` on the whole 5e3-node goal and times out) -/
+
+theorem mux_mod (c : Prop) [Decidable c] (a b m : Nat) : (if c then a else b) % m = if c then a % m else b % m := by
+  by_cases h : c <;> simp [h]
+
+theorem mux_cong {α : Sort _} (c c' : Prop) [Decidable c] [Decidable c'] (a b a' b' : α) (hc : c ↔ c') (ha : c → a = a') (hb : ¬c → b = b') :
+    (if c then a else b) = (if c' then a' else b') := by
+  by_cases h : c
+  · rw [if_pos h, if_pos (hc.mp h)]; exact ha h
+  · rw [if_neg h, if_neg (fun h' => h (hc.mpr h'))]; exact hb h
+
+theorem mux_l {α : Sort _} (c : Prop) [Decidable c] (a b r : α) (ha : c → a = r) (hb : ¬c → b = r) : (if c then a else b) = r := by
+  by_cases h : c
+  · rw [if_pos h]; exact ha h
+  · rw [if_neg h]; exact hb h
+
+theorem mux_r {α : Sort _} (c : Prop) [Decidable c] (a b r : α) (ha : c → r = a) (hb : ¬c → r = b) : r = (if c then a else b) := by
+  by_cases h : c
+  · rw [if_pos h]; exact ha h
+  · rw [if_neg h]; exact hb h
+
 /-- the mask of a 0/1 flag is redundant -/
 theorem ite10_mod (p : Prop) [Decidable p] : (if p then 1 else 0) % 2 = (if p then 1 else 0 : Nat) := by
   by_cases h : p <;> simp [h]
@@ -158,6 +180,20 @@ elab "ved_cone_clear" : tactic => do
   let g ← getMainGoal
   let (g', _, _) ← coneClear g
   replaceMainGoal [g']
+
+/-- diagnosis: the free variables of the target after the cone clear, their types and the number of context hypotheses that mention them -/
+elab "ved_cone_diag" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let mut out := ""
+  for f in fvarsOfDag tgt do
+    let d ← f.getDecl
+    let mut n := 0
+    for e in ← getLCtx do
+      if e.isImplementationDetail || e.fvarId == f then continue
+      if (← isProp e.type) && (fvarsOfDag (← instantiateMVars e.type)).contains f then n := n + 1
+    let ty := (← ppExpr d.type).pretty.replace "\n" " "
+    out := out ++ s!" {d.userName}:{ty.take 14}#{n}"
+  logInfo m!"CONE{out}"
 
 private def nl (n : Nat) : Expr := mkNatLit n
 private def pow2? (n : Nat) : Option Nat :=
@@ -364,11 +400,29 @@ syntax "ved_split_omega" : tactic
 macro_rules
   | `(tactic| ved_split_omega) => `(tactic| first | omega | (split <;> ved_split_omega))
 
+/-- `ved_mux`: an equation of two `ite` chains branch by branch (`mux_mod` pushes `% m` into the chain, `mux_cong` pairs the conditions, `mux_l` / `mux_r` when only one
+side is a chain), the leaves by `ved_split_omega`; no `split` on the chain itself -/
+syntax "ved_mux" : tactic
+macro_rules
+  | `(tactic| ved_mux) => `(tactic| first
+      | (rw [mux_mod]; ved_mux)
+      | (refine mux_cong _ _ _ _ _ _ ?hc ?ha ?hb
+         case hc => ved_split_omega
+         case ha => intro _; ved_mux
+         case hb => intro _; ved_mux)
+      | (refine mux_l _ _ _ _ ?ha ?hb
+         case ha => intro _; ved_mux
+         case hb => intro _; ved_mux)
+      | (refine mux_r _ _ _ _ ?ha ?hb
+         case ha => intro _; ved_mux
+         case hb => intro _; ved_mux)
+      | ved_split_omega)
+
 /-- `ved_local_close`: the goal from its own cone: cone clear, field extraction, bounds, then `omega` (with `split` for the `if`s) -/
 macro "ved_local_close" : tactic =>
   `(tactic| (ved_cone_clear; ved_pack_extract; ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *);
              all_goals (ved_bv_bounds
-                        ved_split_omega)))
+                        ved_mux)))
 
 /-- the heartbeat limit of one local attempt (thousands; lower than any whole-goal step: a successful attempt needs at most about 4M) -/
 def localCapK : Nat := 8000
