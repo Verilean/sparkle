@@ -22,6 +22,7 @@ import Tools.VedComposeStep
 import Tools.VedComposeOrder
 import Tools.VedComposeConnectGen
 import Tools.VedU2HierRecEntry
+import Tools.VedU2HierRecLeafCache
 
 /-!
 # Stateful hierarchical entry, H2b: a parent WITH REGISTERS (`#ved_u2_hier decl`)
@@ -1276,6 +1277,16 @@ def phase1 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
     -- `?R` ("ved_ss_R: no invariant mvar", R184's `wMul` after `wSign`).  The statement term is instantiated first; the
     -- context is put back afterwards (the child's constants stay in the environment).
     let cstmt ← instantiateMVars cstmt
+    -- option `ved.compose.leafCache` (nested route, default off): a leaf whose `U1Stmt` theorem was produced earlier under another
+    -- `ved_child` namespace (same module VALUE, same contract value, same statement term: `Tools/VedU2HierRecLeafCache.lean`) is reused
+    let multiLeaf := ved.compose.multiOut.get (← getOptions) && cm.outputs.length > 1
+    let hit? : Option Name ← if nestedOn && Tools.VedU2HierRecLeafCache.ved.compose.leafCache.get (← getOptions) then
+        Tools.VedU2HierRecLeafCache.findStoredLeaf cdecl cstmt cm ctbl (if multiLeaf then cm.outputs.map (·.name) else ["out"]) multiLeaf
+      else pure none
+    if let some b0 := hit? then
+      Tools.VedU2HierDbg.phaseLog s!"p1: child {cdecl} stored theorem reused ({b0}; leaf cache)"
+      kids := kids ++ [{ c := cm, decl := cdecl, nDom := cdom, tbl := ctbl, nm := Names.ofBase b0 }]
+      continue
     let mctx0 ← getMCtx
     let freshCtx := ved.compose.multiOut.get (← getOptions)
     if freshCtx then setMCtx {}

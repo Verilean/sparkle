@@ -549,6 +549,16 @@ theorem Cdo.irState_congr {Γr Γi wOut wOut'} (c : Cdo Γr Γi wOut)
   | zero => funext i; simp [Cdo.irState, hi]
   | succ t ih => funext i; simp only [Cdo.irState, ih, hn]
 
+/-- `stateAt` reads only `next` and `inits` (Nested6: the ports of a struct-valued circuit that share the first port's register arms
+under `sparkle.deepShareRegs` have the same spec recurrence). -/
+theorem Cdo.stateAt_congr {Γr Γi wOut wOut'} (c : Cdo Γr Γi wOut) (c' : Cdo Γr Γi wOut')
+    (inp : Nat → CEnv Γi) (hn : c.next = c'.next) (hi : c.inits = c'.inits) :
+    c.stateAt inp = c'.stateAt inp := by
+  funext t
+  induction t with
+  | zero => simp only [Cdo.stateAt, hi]
+  | succ t ih => funext i; simp only [Cdo.stateAt, ih, hn]
+
 /-- **E2a, general**: the IR recurrence equals the spec, for EVERY deep
     circuit — one induction, `compile_correct` doing the per-register
     step. -/
@@ -1366,6 +1376,16 @@ reads one port of the open parent (the declaration's own); a struct of ten ports
 register_option sparkle.deepPorts : String := {
   defValue := ""
   descr := "#verify_elab_deep: only these ports of a struct-valued circuit (comma-separated)"
+}
+
+/-- Nested6: the ports of a struct-valued circuit share the register bundle.  For every port after the first (Cdo route, no memory),
+the port's `Cdo` is `⟨inits, next of the FIRST port's Cdo, its own out⟩`; the equation theorems `_deep_next` / `_deep_inits` are the first
+port's statements with the constant renamed (same types, no re-elaboration of the register arms); the readers `_deep_rd<i>` are aliases of the
+first port's readers and their `_zero` / `_succ` lemmas are the first port's, restated over the aliases (same types as before: definitionally
+the same statements).  Every per-port theorem keeps its name and its type; the capstone and its state export are unchanged.  Default off. -/
+register_option sparkle.deepShareRegs : Bool := {
+  defValue := false
+  descr := "#verify_elab_deep: the ports of a struct-valued circuit share the first port's register arms, readers and step lemmas"
 }
 
 /-- Connect14: export the loop state theorem also for a port whose output is a bare input of the deep circuit (a child's output
@@ -3834,6 +3854,34 @@ elab "#verify_elab_deep" id:ident : command =>
     let writesEqId := mkDecl s!"{base}{suffix}_deep_writes"
     let minitsEqId := mkDecl s!"{base}{suffix}_deep_minits"
     let readsEqId := mkDecl s!"{base}{suffix}_deep_reads"
+    -- Nested6 (`sparkle.deepShareRegs`): reuse the first port's register bundle (only when the first port's facts exist)
+    let stem0 : String := deep0Id.getId.getString!
+    let rd0Id (i : Nat) : Ident := mkDecl (stem0 ++ s!"_rd{i}")
+    let rd0ZeroId (i : Nat) : Ident := mkDecl (stem0 ++ s!"_rd{i}_zero")
+    let rd0SuccId (i : Nat) : Ident := mkDecl (stem0 ++ s!"_rd{i}_succ")
+    let shareRegs : Bool ← do
+      if k > 0 && !hasMem && nR > 0 && sparkle.deepShareRegs.get (← getOptions) then
+        let env ← getEnv
+        let ns ← getCurrNamespace
+        pure (env.contains (ns ++ (rd0SuccId (nR - 1)).getId) && env.contains (ns ++ (mkDecl (stem0 ++ "_next")).getId)
+          && env.contains (ns ++ (mkDecl (stem0 ++ "_inits")).getId))
+      else pure false
+    -- the statement of a first-port constant restated for this port: the given constants renamed (type and value), added as a theorem
+    let cloneThm (src dst : Ident) (ren : Array (Ident × Ident)) (viaConst : Bool) : CommandElabM Unit := do
+      let ns ← getCurrNamespace
+      let m : Std.HashMap Name Name := ren.foldl (fun m (a, b) => m.insert (ns ++ a.getId) (ns ++ b.getId)) {}
+      let rn (e : Lean.Expr) : Lean.Expr := e.replace fun x => match x with
+        | .const n ls => (m.get? n).map fun n' => Lean.mkConst n' ls
+        | _ => none
+      let ci ← liftCoreM <| getConstInfo (ns ++ src.getId)
+      let ty := rn ci.type
+      let val := if viaConst then Lean.mkConst (ns ++ src.getId) (ci.levelParams.map Lean.mkLevelParam)
+        else rn (match ci with
+          | .thmInfo t => t.value
+          | .defnInfo t => t.value
+          | _ => Lean.mkConst src.getId)
+      liftCoreM <| Lean.addDecl <| .thmDecl { name := ns ++ dst.getId, levelParams := ci.levelParams, type := ty, value := val }
+      liftCoreM <| Lean.enableRealizationsForConst (ns ++ dst.getId)
     if hasMem then
       deepTrace fun _ => s!"#verify_elab_deep STAGE port {k}: reifying _deep (next-arms syntax chars={(nextArmsM.map fun a => (toString a).length).foldl (· + ·) 0})"
       elabSync (← `(def $deepId : CdoM $ΓrT $ΓiT $ΓmT $ΓcT $(quote wOut) where
@@ -3856,6 +3904,16 @@ elab "#verify_elab_deep" id:ident : command =>
       elabSync (← `(theorem $minitsEqId :
         CdoM.minits $deepId = fun _ _ => 0 := rfl))
       elabSync (← `(theorem $outEqId : CdoM.out $deepId = $outC := rfl))
+    else if shareRegs then
+      deepTrace fun _ => s!"#verify_elab_deep STAGE port {k}: reifying _deep (Cdo; register arms shared with {stem0})"
+      elabSync (← `(def $deepId : Cdo $ΓrT $ΓiT $(quote wOut) where
+        inits := Cdo.inits $deep0Id
+        next := Cdo.next $deep0Id
+        out := $outC))
+      let ren : Array (Ident × Ident) := #[(deep0Id, deepId)]
+      cloneThm (mkDecl (stem0 ++ "_next")) nextEqId ren false
+      cloneThm (mkDecl (stem0 ++ "_inits")) initsEqId ren false
+      elabSync (← `(theorem $outEqId : Cdo.out $deepId = $outC := rfl))
     else
       deepTrace fun _ => s!"#verify_elab_deep STAGE port {k}: reifying _deep (Cdo; next-arms syntax chars={(nextArms.map fun a => (toString a).length).foldl (· + ·) 0})"
       elabSync (← `(def $deepId : Cdo $ΓrT $ΓiT $(quote wOut) where
@@ -4264,6 +4322,10 @@ elab "#verify_elab_deep" id:ident : command =>
               BitVec $(quote w) :=
             (CdoM.stateAt $deepId (fun t j => (($inpS) j).val t) $sId).1
               ⟨$(quote i), by decide⟩))
+        else if shareRegs then
+          let r0 := rd0Id i
+          elabSync (← `(def $rdId $paramBinders* ($sId : Nat) :
+              BitVec $(quote w) := $r0 $appArgs* $sId))
         else
           elabSync (← `(def $rdId $paramBinders* ($sId : Nat) :
               BitVec $(quote w) :=
@@ -4283,6 +4345,11 @@ elab "#verify_elab_deep" id:ident : command =>
         let rdId : Ident := rdIds[i]!
         let rdZeroId : Ident := rdZeroIds[i]!
         let rdSuccId : Ident := rdSuccIds[i]!
+        if shareRegs then
+          let ren : Array (Ident × Ident) := (List.range nR).toArray.map fun j => (rd0Id j, rdIds[j]!)
+          cloneThm (rd0ZeroId i) rdZeroId ren true
+          cloneThm (rd0SuccId i) rdSuccId ren true
+          continue
         elabSync (← `(theorem $rdZeroId $paramBinders* :
           $rdId $appArgs* 0
             = BitVec.ofNat $(quote w) $(quote init.toNat) := rfl))
@@ -4325,11 +4392,18 @@ elab "#verify_elab_deep" id:ident : command =>
           rw [CdoM.stateSig_eq]
           rfl))
       else
-        elabSync (← `(theorem $outSId $paramBinders* ($sId : Nat) :
-            (Cdo.outSig $deepId $inpS).val $sId = $outRhs := by
-          show CExpr.denote _ _ = _
-          rw [Cdo.stateSig_eq]
-          rfl))
+        if shareRegs then
+          elabSync (← `(theorem $outSId $paramBinders* ($sId : Nat) :
+              (Cdo.outSig $deepId $inpS).val $sId = $outRhs := by
+            show CExpr.denote _ _ = _
+            rw [Cdo.stateSig_eq, Cdo.stateAt_congr $deepId $deep0Id _ rfl rfl]
+            rfl))
+        else
+          elabSync (← `(theorem $outSId $paramBinders* ($sId : Nat) :
+              (Cdo.outSig $deepId $inpS).val $sId = $outRhs := by
+            show CExpr.denote _ _ = _
+            rw [Cdo.stateSig_eq]
+            rfl))
       -- ===== packs, duplicate copies, and the nested-loop machinery =====
       let uId := mkBinder "u"
       let mId := mkBinder "m"
