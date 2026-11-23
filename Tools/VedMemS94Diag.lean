@@ -969,6 +969,7 @@ elab "#ved_s94_ckpt97_replay " d:str : command => do
           let gs ← Tactic.run g (Tactic.evalTactic (← if (← IO.getEnv "VED_S97_DAG") == some "only" then `(tactic| (ved_mem_peel_dag $[$hs.toArray]*)) else `(tactic| try $pickT:tactic)))
           let mut shapes : Array String := #[]
           for sg in gs do
+            if (← IO.getEnv "VED_S97_SHAPES").isNone then continue
             let ty ← instantiateMVars (← sg.getType)
             let nctx ← sg.withContext do pure (← getLCtx).decls.size
             shapes := shapes.push s!"{ty.getAppFn.constName?.getD `_}/{ty.getAppNumArgs}/{Tools.VedU1Loop.treeSizeVal ty}/h{ty.hash}/ctx{nctx}"

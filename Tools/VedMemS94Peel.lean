@@ -168,7 +168,8 @@ partial def closeGo (hs : Array Expr) (g : MVarId) : TacticM (List MVarId) := do
         if (← withReducible (isDefEq tgt hty)) then
           g.assign h
           return []
-      let gs ← refineWith (← `(tactic| refine Tools.VedMem.MemInv.hold_leaf ?_ ?_))
+      let gs ← try refineWith (← `(tactic| refine Tools.VedMem.MemInv.hold_leaf ?_ ?_))
+        catch _ => throwError "ved_mem_peel_dag: no invariant hypothesis matches the memory array (name, initial contents, ports and cycle must agree)"
       match gs with
       | [g1, hen] => return (← closeGo hs g1) ++ [hen]
       | _ => throwError "ved_mem_peel_dag: hold_leaf"
@@ -186,11 +187,14 @@ partial def closeGo (hs : Array Expr) (g : MVarId) : TacticM (List MVarId) := do
 
 syntax (name := vedMemPeelDag) "ved_mem_peel_dag" (ppSpace colGt ident)* : tactic
 
-@[tactic vedMemPeelDag] def evalVedMemPeelDag : Tactic := fun stx => withMainContext do
+def evalVedMemPeelDagCore : Tactic := fun stx => withMainContext do
   if (← peelDagRefuse.get) then throwError "ved_mem_peel_dag: refused (test seam)"
   let g ← getMainGoal
   let restGoals := (← getGoals).drop 1
-  let tgt ← instantiateMVars (← g.getType)
+  let tgt0 ← g.getType
+  -- a goal of another head is refused before anything else is touched (the goals are DAGs of tree size 1e13)
+  unless tgt0.consumeMData.isAppOf ``Tools.VedMem.MemInv do throwError "ved_mem_peel_dag: not a MemInv goal"
+  let tgt ← instantiateMVars tgt0
   unless tgt.isAppOf ``Tools.VedMem.MemInv && tgt.getAppNumArgs == 10 do throwError "ved_mem_peel_dag: not a MemInv goal"
   let nameE := tgt.getArg! 3
   let .lit (.strVal nameS) := nameE | throwError "ved_mem_peel_dag: the memory name is not a string literal"
@@ -210,5 +214,14 @@ syntax (name := vedMemPeelDag) "ved_mem_peel_dag" (ppSpace colGt ident)* : tacti
   setGoals (side ++ restGoals)
   if (← peelDagFailLate.get) then throwError "ved_mem_peel_dag: failed late (test seam)"
   peelDagHits.modify (· + 1)
+
+/-- the tactic; with `VED_DUMP_DIR` set a refusal is written to `addr.log` (diagnosis only) before it is rethrown -/
+@[tactic vedMemPeelDag] def evalVedMemPeelDag : Tactic := fun stx => do
+  try evalVedMemPeelDagCore stx
+  catch ex =>
+    if let some dir ← IO.getEnv "VED_DUMP_DIR" then
+      let h ← IO.FS.Handle.mk s!"{dir}/addr.log" .append
+      h.putStrLn s!"S94 peel_dag refused: {((← ex.toMessageData.toString).replace "\n" " ").take 300}"
+    throw ex
 
 end Tools.VedMemS94Peel

@@ -3,6 +3,7 @@ import Sparkle.Compiler.Elab
 import Tools.VedMemEntry
 import Tools.VedMemLoop
 import Tools.VedMemS94Fix
+import Tools.VedMemS94Peel
 import Tools.VedMemPack
 
 /-!
@@ -1955,5 +1956,157 @@ run_cmd noIteCongrHitsCheck false
 /-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsX9 -/
 #guard_msgs in
 run_cmd liftTermElabM <| storedPackedOk ``hsX9
+
+/-! ## ved.mem.s94PeelDag (sparkle-ved-mem-s94, eleventh unit)
+
+After the memory loop's case split the memory array of a goal is a DAG of nested updates of all the memories; `ved_mem_peel` walks it as a
+tree (`3 * 2^27 - 2` steps per goal on R033).  With the option ON the peel first projects the array on the goal's memory name (an update of
+another memory is dropped, shared nodes are visited once, `Tools/VedMemS94Peel.lean`) and closes the chain of the memory's own writes; the
+old peel is the fallback.  Controls: (1) the tactic on a small array (an `if` of another memory over a shared update of that memory
+under the own write): closes it, the three side goals of the write are the hypotheses; (2) the same with a wrong initial image: refused;
+(3) a memory name that is not a literal: refused; (4) a loop with two memories (`gateFsm`: the data of the second is read from the
+first, the first is written at `writeAddr`, the second at the counter, so the two write the same address in one cycle when
+`writeAddr = idx[3:0]`; the case split leaves 18 goals; the script of `ved.mem.hstepNorm`, the only one that has the shared `peelAlt`) ON: accepted, stored type exact, std3, counter >= 1; (5) OFF: accepted,
+counter 0; (6) ON, the tactic refuses (test seam `peelDagRefuse`): the old peel is the fallback, accepted, counter 0; (7) ON, the tactic
+fails after its work (test seam `peelDagFailLate`): the state is restored, old peel, accepted, counter 0. -/
+
+/-- info: s94PeelDag default false -/
+#guard_msgs in
+run_cmd do
+  logInfo m!"s94PeelDag default {Tools.VedMemS94Peel.ved.mem.s94PeelDag.get (← getOptions)}"
+
+def peelDagHitsCheck (atLeast : Bool) : CommandElabM Unit := do
+  let n ← Tools.VedMemS94Peel.peelDagHits.get
+  if atLeast then
+    unless n ≥ 1 do throwError "peelDagHits: {n}, expected at least 1"
+    logInfo m!"the DAG peel ran"
+  else
+    unless n == 0 do throwError "peelDagHits: {n}, expected 0"
+    logInfo m!"the DAG peel did not run"
+
+-- (P1) the tactic on a small DAG: the update of "mb" under an `if`, over the own write of "ma", over a shared update of "mb"
+run_cmd Tools.VedMemS94Peel.peelDagHits.set 0
+open Tools.VedMem Sparkle.IR.Semantics in
+example {dom : DomainConfig} (wa : Signal dom (BitVec 4)) (wd : Signal dom (BitVec 16)) (we : Signal dom Bool)
+    (n : Nat) (mems : MEnv) (c1 c2 av dv : Nat)
+    (hM : MemInv "ma" (fun _ => 0#16) wa wd we n mems)
+    (hen : we.val n = true) (hav : av = (wa.val n).toNat) (hdv : dv = (wd.val n).toNat) :
+    MemInv "ma" (fun _ => 0#16) wa wd we (n + 1)
+      (if c1 = 0 then
+        (fun nm i => if nm = "ma" ∧ i = av then dv else
+          (if c2 = 0 then mems else fun nm i => if nm = "mb" ∧ i = 3 then 5 else mems nm i) nm i)
+      else
+        (fun nm i => if nm = "mb" ∧ i = 7 then 1 else
+          (fun nm i => if nm = "ma" ∧ i = av then dv else
+            (if c2 = 0 then mems else fun nm i => if nm = "mb" ∧ i = 3 then 5 else mems nm i) nm i) nm i)) := by
+  ved_mem_peel_dag hM
+  all_goals assumption
+
+/-- info: the DAG peel ran -/
+#guard_msgs in
+run_cmd peelDagHitsCheck true
+
+open Tools.VedMem Sparkle.IR.Semantics in
+-- (P2) a wrong initial image: the invariant hypothesis is about the all-zero image, the goal about `7`: refused
+/-- error: ved_mem_peel_dag: no invariant hypothesis matches the memory array (name, initial contents, ports and cycle must agree) -/
+#guard_msgs in
+example {dom : DomainConfig} (wa : Signal dom (BitVec 4)) (wd : Signal dom (BitVec 16)) (we : Signal dom Bool)
+    (n : Nat) (mems : MEnv) (c2 av dv : Nat)
+    (hM : MemInv "ma" (fun _ => 0#16) wa wd we n mems)
+    (hen : we.val n = true) (hav : av = (wa.val n).toNat) (hdv : dv = (wd.val n).toNat) :
+    MemInv "ma" (fun _ => 7#16) wa wd we (n + 1)
+      (fun nm i => if nm = "ma" ∧ i = av then dv else
+          (if c2 = 0 then mems else fun nm i => if nm = "mb" ∧ i = 3 then 5 else mems nm i) nm i) := by
+  ved_mem_peel_dag hM
+  all_goals assumption
+
+open Tools.VedMem Sparkle.IR.Semantics in
+-- (P3) a memory name that is not a literal: refused
+/-- error: ved_mem_peel_dag: the memory name is not a string literal -/
+#guard_msgs in
+example {dom : DomainConfig} (wa : Signal dom (BitVec 4)) (wd : Signal dom (BitVec 16)) (we : Signal dom Bool)
+    (n : Nat) (mems : MEnv) (nm0 : String) (av dv : Nat)
+    (hM : MemInv nm0 (fun _ => 0#16) wa wd we n mems)
+    (hen : we.val n = true) (hav : av = (wa.val n).toNat) (hdv : dv = (wd.val n).toNat) :
+    MemInv nm0 (fun _ => 0#16) wa wd we (n + 1)
+      (fun nm i => if nm = nm0 ∧ i = av then dv else mems nm i) := by
+  ved_mem_peel_dag hM
+  all_goals assumption
+
+def peelDagGateA {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+def peelDagGateB {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+def peelDagGateC {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+def peelDagGateD {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := gateFsm start writeEn writeAddr writeData
+
+-- (P4) ON, two memories (the same address can be written by both in one cycle): accepted, stored type exact, std3, counter >= 1
+run_cmd Tools.VedMemS94Peel.peelDagHits.set 0
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+#ved_u1_mem peelDagGateA
+
+/-- info: the DAG peel ran -/
+#guard_msgs in
+run_cmd peelDagHitsCheck true
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.peelDagGateA -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``peelDagGateA
+
+-- (P5) OFF: accepted, the DAG peel did not run
+run_cmd Tools.VedMemS94Peel.peelDagHits.set 0
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+#ved_u1_mem peelDagGateB
+
+/-- info: the DAG peel did not run -/
+#guard_msgs in
+run_cmd peelDagHitsCheck false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.peelDagGateB -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``peelDagGateB
+
+-- (P6) ON, the tactic refuses (test seam): the old peel is the fallback, accepted, counter 0
+run_cmd Tools.VedMemS94Peel.peelDagHits.set 0
+run_cmd Tools.VedMemS94Peel.peelDagRefuse.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+#ved_u1_mem peelDagGateC
+run_cmd Tools.VedMemS94Peel.peelDagRefuse.set false
+
+/-- info: the DAG peel did not run -/
+#guard_msgs in
+run_cmd peelDagHitsCheck false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.peelDagGateC -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``peelDagGateC
+
+-- (P7) ON, the tactic fails after its work (test seam): state restored, old peel, accepted, counter 0
+run_cmd Tools.VedMemS94Peel.peelDagHits.set 0
+run_cmd Tools.VedMemS94Peel.peelDagFailLate.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.s94EnvFreeze true in
+set_option ved.mem.s94PeelDag true in
+#ved_u1_mem peelDagGateD
+run_cmd Tools.VedMemS94Peel.peelDagFailLate.set false
+
+/-- info: the DAG peel did not run -/
+#guard_msgs in
+run_cmd peelDagHitsCheck false
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.peelDagGateD -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``peelDagGateD
 
 end Tests.Ved.VedMemCloseCheck
