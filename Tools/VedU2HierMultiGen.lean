@@ -557,15 +557,16 @@ def fuseShared (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Exp
     let tys ← deps.mapM fun d => inferType d
     let bodyS ← withFVars (deps.mapIdx fun i _ => Name.mkSimple s!"ved_d{i}") tys fun fvs => do
       let mut b := bargs[7]!
-      -- a circuit that reads another contains it: the circuit later in the post-order first
-      let key (i : Nat) : Nat := (ord.findIdx? (·.1 == deps[i]!)).getD 0
-      let order := (Array.range deps.size).qsort fun i i' => key i > key i'
-      for i in order do
-        b := (← kabstract b deps[i]!).instantiate1 fvs[i]!
+      -- syntactic replacement, one pass from the top (a circuit that reads another contains it, and is replaced whole): `kabstract`
+      -- compares candidates by `isDefEq`, which unfolds the circuits of two different calls of one definition
+      for d in deps do
+        unless (b.find? (· == d)).isSome do throwError "multiCircuit shared: a read circuit does not occur in the reader's body"
+      b := b.replace fun x => match deps.findIdx? (· == x) with | some i => some fvs[i]! | none => none
       let prs ← deps.mapM fun d => do
         let some i := ord.findIdx? (·.1 == d) | throwError "multiCircuit shared: a read circuit is not in the read graph"
         projOfTup tup j i
       pure ((b.abstract fvs).instantiateRev prs)
+    Tools.VedU2HierDbg.openTickE s!"fuseShared step {j}: reads replaced by projections" bodyS
     let Bt ← if isTop then pure (mkAppN B.getAppFn (bargs.set! 7 bodyS)) else do
       let .forallE _ regsTy circ _ ← whnf (← inferType bodyS) | throwError "multiCircuit shared: the body of runCircuitH has an unexpected type"
       let .forallE _ wTy _ _ ← whnf circ | throwError "multiCircuit shared: the Circuit type has an unexpected shape"
@@ -577,16 +578,19 @@ def fuseShared (decl : Name) (kids : Array Kid) (pw : Bool) (xs : Array Lean.Exp
       let ρ'' ← mkAppM ``Prod #[← inferType tup, bargs[2]!]
       let inst ← synthInstance (← mkAppM ``Sparkle.Core.HasDomain #[ρ'', bargs[0]!])
       pure (mkAppN B.getAppFn ((bargs.set! 2 ρ'').set! 3 inst |>.set! 7 body'))
+    Tools.VedU2HierDbg.openTickE s!"fuseShared step {j}: reader built" Bt
     let ty ← inferType tup
-    let absBt ← kabstract Bt tup
-    let f := Lean.mkLambda `r .default ty absBt
-    let cur := absBt.instantiate1 F
+    let f ← withLocalDeclD `r ty fun r => mkLambdaFVars #[r] (Bt.replace fun x => if x == tup then some r else none)
+    let cur := Bt.replace fun x => if x == tup then some F else none
+    Tools.VedU2HierDbg.openTick s!"fuseShared step {j}: kabstract done"
     let pfC ← mkAppM ``congrArg #[f, claim]
+    Tools.VedU2HierDbg.openTick s!"fuseShared step {j}: congrArg built"
     let k ← ctr.modifyGet fun n => (n, n + 1)
     Tools.VedU2HierDbg.openTick s!"fuseShared {k} begin (circuit {j + 1} of {ord.size + 1})"
     let (Fj, pf2) ← fuseOne decl kids pw xs cur F F id base (sfx ++ s!"_{k}") true
     Tools.VedU2HierDbg.openTickE s!"fuseShared {k} end" Fj
     let pfD ← mkAppM ``Eq.trans #[pf2, pfC]
+    Tools.VedU2HierDbg.openTick s!"fuseShared step {j}: Eq.trans built"
     F := Fj
     if isTop then claim ← mkExpectedTypeHint pfD (← mkEq Fj run)
     else
