@@ -240,7 +240,8 @@ partial def innerRuns (skip : Array Name) (e : Lean.Expr) (acc : Array (Lean.Exp
         if skip.contains n then return none
         if !(env.isProjectionFn n || Tools.VedU2HierStGen.userModule env n) then return none
         match ← (try findRun e 16 catch _ => pure none) with
-        | some (r, w) => if r.getAppNumArgs == 8 then return some (e, r, w) else return none
+        -- the circuit's own result (no projection around it): a field read of it contains it as the argument
+        | some (r, w) => if r.getAppNumArgs == 8 && w r == r then return some (e, r, w) else return none
         | none => return none
       | _ => return none
     else return none

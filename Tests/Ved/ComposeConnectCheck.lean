@@ -864,4 +864,97 @@ run_cmd do
   twoControls
   logInfo m!"compose connect two-circuit controls: 4 refused"
 
+/-! The same family: A returns a plain `Signal` read inside B (`nestTx`, the ToyNest shape: the child's argument mixes B's register and A's
+output), and A returns a struct two fields of which B reads, with a private inline helper in A (`three3Tx`, the shape of the ICMP
+responder: `Tools/DeepElab.lean` option `sparkle.deepExportState`, helpers unfolded before the state export). -/
+
+def nestParser (b : Signal defaultDomain (BitVec 4)) (v : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let r ← Signal.reg 0#4
+    let rS := (r : Signal defaultDomain (BitVec 4))
+    r <~ Signal.mux v b rS
+    return rS
+
+def nestTx (b : Signal defaultDomain (BitVec 4)) (v go : Signal defaultDomain Bool) : Signal defaultDomain (BitVec 4) :=
+  let p := nestParser b v
+  circuit do
+    let phase ← Signal.reg 0#4
+    let outR ← Signal.reg 0#4
+    let ph := (phase : Signal defaultDomain (BitVec 4))
+    let oS := (outR : Signal defaultDomain (BitVec 4))
+    phase <~ Signal.mux go (ph + (Signal.pure 1#4 : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4)) ph
+    outR <~ Signal.mux go (mkA (ph + p)) oS
+    return oS
+
+/-- info: compose connect chain OK: 3 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``nestTx [`Tests.Ved.ComposeConnectCheck.nestTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 3
+
+@[inline] private def twoHelp (acc : Signal defaultDomain (BitVec 4)) (b : Signal defaultDomain (BitVec 4)) :
+    Signal defaultDomain (BitVec 4) :=
+  (acc <<< (1#4 : BitVec 4)) ||| b
+
+structure Two3A (dom : DomainConfig) where
+  ph : Signal dom (BitVec 4)
+  en : Signal dom Bool
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (Two3A dom) dom := ⟨⟩
+
+def three3StageA (go : Signal defaultDomain Bool) (inp : Signal defaultDomain (BitVec 4)) : Two3A defaultDomain :=
+  circuit do
+    let phase ← Signal.reg 0#4
+    let dn ← Signal.reg false
+    let ph := (phase : Signal defaultDomain (BitVec 4))
+    phase <~ Signal.mux go (twoHelp ph inp) ph
+    dn <~ go
+    return ({ ph := (phase : Signal defaultDomain (BitVec 4)), en := (dn : Signal defaultDomain Bool) } : Two3A defaultDomain)
+
+def three3StageB (a : Two3A defaultDomain) : TwoB defaultDomain :=
+  circuit do
+    let outR ← Signal.reg 0#4
+    let o := (outR : Signal defaultDomain (BitVec 4))
+    outR <~ Signal.mux a.en (mkA a.ph) o
+    return ({ b := o } : TwoB defaultDomain)
+
+def three3P (go : Signal defaultDomain Bool) (inp : Signal defaultDomain (BitVec 4)) : TwoB defaultDomain :=
+  let a := three3StageA go inp
+  three3StageB a
+
+def three3Tx (go : Signal defaultDomain Bool) (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  (three3P go inp).b
+
+/-- info: compose connect chain OK: 3 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+run_cmd checkChain ``three3Tx [`Tests.Ved.ComposeConnectCheck.three3Tx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 3
+
+structure TwoD (dom : DomainConfig) where
+  b : Signal dom (BitVec 4)
+  v : Signal dom (BitVec 4)
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (TwoD dom) dom := ⟨⟩
+
+/-- A direct port (the child's output, no register read; the other field keeps the registers observable) of two wired circuits, with the
+private helper in A: needs `sparkle.deepExportState` and the helper unfolded before the state export. -/
+def twoDirStageB (a : Two3A defaultDomain) : TwoD defaultDomain :=
+  circuit do
+    let outR ← Signal.reg 0#4
+    let o := (outR : Signal defaultDomain (BitVec 4))
+    outR <~ Signal.mux a.en a.ph o
+    return ({ b := mkA (a.ph + o), v := o } : TwoD defaultDomain)
+
+def twoDirTx (go : Signal defaultDomain Bool) (inp : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  (twoDirStageB (three3StageA go inp)).b
+
+/-- info: compose connect chain OK: 3 registers by reg_connect, 1 port by out_connect, 1 child theorems, std3, type ==, same artifact -/
+#guard_msgs in
+set_option ved.compose.step true in
+set_option ved.compose.connect true in
+set_option ved.compose.multiCircuit true in
+set_option sparkle.deepExportState true in
+run_cmd checkChain ``twoDirTx [`Tests.Ved.ComposeConnectCheck.twoDirTx.ved_child.Tests.Ved.ComposeConnectCheck.mkA.ved_u1] 3
+
 end Tests.Ved.ComposeConnectCheck

@@ -4844,7 +4844,9 @@ elab "#verify_elab_deep" id:ident : command =>
       let routeB : Lean.TSyntax `tactic ← do
         let alts ← topBlocks.toArray.mapM fun b => do
           let (ex, tl) ← mkTopParts b
-          `(tactic| ($ex:tactic; $bigSimp:tactic; $appendFix:tactic; $tl:tactic))
+          -- the export statement is taken from the goal BEFORE `bigSimp`: the helpers (private inline functions of the circuit
+          -- body) are unfolded first, as on the first route, else the exported state theorem keeps them folded
+          `(tactic| ((try simp only [$[$helperIds:ident],*]); $ex:tactic; $bigSimp:tactic; $appendFix:tactic; $tl:tactic))
         let mut alt : Lean.TSyntax `tactic := alts.back!
         for a in alts.pop.reverse do
           alt ← `(tactic| first | $a:tactic | $alt:tactic)
