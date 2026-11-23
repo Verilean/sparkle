@@ -118,6 +118,52 @@ def topq3C1 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitV
     acc <~ (accS + (c.s - c.d) : Signal defaultDomain (BitVec 4))
     return accS
 
+/-- the PORT series: struct middle modules with 3 and 4 output ports (one register, an instance of `leafs`), parents over them -/
+structure P3 (dom : DomainConfig) where
+  s : Signal dom (BitVec 4)
+  d : Signal dom (BitVec 4)
+  e : Signal dom (BitVec 4)
+
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (P3 dom) dom := ⟨⟩
+
+@[hardware_module] def mid3 (x y : Signal defaultDomain (BitVec 4)) : P3 defaultDomain :=
+  circuit do
+    let r ← Signal.reg 0#4
+    let c := leafs x
+    r <~ r + c + y
+    return ({ s := r, d := c, e := r + c } : P3 defaultDomain)
+
+def top3 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := mid3 accS b
+    acc <~ (accS + (c.s - c.d) + c.e : Signal defaultDomain (BitVec 4))
+    return accS
+
+structure P4 (dom : DomainConfig) where
+  s : Signal dom (BitVec 4)
+  d : Signal dom (BitVec 4)
+  e : Signal dom (BitVec 4)
+  f : Signal dom (BitVec 4)
+
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (P4 dom) dom := ⟨⟩
+
+@[hardware_module] def mid4 (x y : Signal defaultDomain (BitVec 4)) : P4 defaultDomain :=
+  circuit do
+    let r ← Signal.reg 0#4
+    let c := leafs x
+    r <~ r + c + y
+    return ({ s := r, d := c, e := r + c, f := r - y } : P4 defaultDomain)
+
+def top4 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := mid4 accS b
+    acc <~ (accS + (c.s - c.d) + c.e + c.f : Signal defaultDomain (BitVec 4))
+    return accS
+
 def withBoth {α : Type} (act : CommandElabM α) : CommandElabM α :=
   withScope (fun sc => { sc with opts := (sc.opts.setBool `ved.compose.nested true).setBool `ved.compose.multiOut true }) act
 
@@ -163,6 +209,17 @@ set_option ved.compose.nested true in
 #ved_u2_hier topq3
 
 #eval acceptedS ``topq3 `Tests.Ved.RecStruct.midq2.ved_u1
+
+-- the PORT series (3 and 4 output ports)
+set_option ved.compose.multiOut true in
+set_option ved.compose.nested true in
+#ved_u2_hier top3
+#eval acceptedS ``top3 `Tests.Ved.RecStruct.mid3.ved_u2r
+
+set_option ved.compose.multiOut true in
+set_option ved.compose.nested true in
+#ved_u2_hier top4
+#eval acceptedS ``top4 `Tests.Ved.RecStruct.mid4.ved_u2r
 
 -- the middle module's OWN theorem: the struct result read as two ports, `U2HRStmtR` over the sub-design `[leafs]`
 #eval show CommandElabM Unit from do

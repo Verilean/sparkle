@@ -1036,6 +1036,9 @@ def scriptTextR (nm : HNames) (F : Name) (nDom : Nat) (tbl : DeclTable) (opn : O
     L := L.push s!"      all_goals simp (config := \{ maxSteps := 4000000 }) [{evalL}] at {locs} ⊢"
     L := L.push s!"      all_goals ved_fin_norm"
     L := L.push s!"      all_goals try simp (config := \{ maxSteps := 4000000 }) [{evalL}] at ⊢"
+    if !strPorts.isEmpty then
+      -- (the other ports' state recurrences can surface only after the evaluation above)
+      L := L.push s!"      all_goals try simp only [{", ".intercalate ((strPorts.filter fun q => toString (deepC opn.openName s!"_{q}_deep") != toString ODeep).map fun q => s!"hirs_{q}")}]"
     L := L.push s!"      all_goals try simp only [{hRs}]"
     L := L.push s!"      all_goals try simp only [{hMods}]"
     if dbg then L := L.push s!"      all_goals ved_eprint_state"
