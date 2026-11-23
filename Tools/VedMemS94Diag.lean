@@ -1976,6 +1976,15 @@ elab "ved_local_diag" : tactic => do
           pure s!"t={Tools.VedU1Loop.treeSizeVal tgt}/d={(Tools.VedU1WireShare.collectDag (fun _ => true) tgt).size}/ctx={n}"
       | none => pure "closed"
     line := line ++ s!" | {name}:{r} {ms}ms {hbk}k {info}"
+    -- `VED_LDIAG_SHOW=step` (s94t): the target after that step, shallow
+    if (← IO.getEnv "VED_LDIAG_SHOW") == some name then
+      if let some g := gs.head? then
+        g.withContext do
+          let tg ← instantiateMVars (← g.getType)
+          let nodes := Tools.VedU1WireShare.collectDag (fun _ => true) tg
+          let cnt (c : Name) : Nat := (nodes.filter fun x => x.isAppOf c).size
+          s94LdLog s!"LDIAG {tag} FEAT after {name}: or={cnt ``HOr.hOr} and={cnt ``HAnd.hAnd} xor={cnt ``HXor.hXor} shl={cnt ``HShiftLeft.hShiftLeft} shr={cnt ``HShiftRight.hShiftRight} ite={cnt ``ite} mod={cnt ``HMod.hMod} div={cnt ``HDiv.hDiv} mul={cnt ``HMul.hMul} add={cnt ``HAdd.hAdd} sub={cnt ``HSub.hSub} pow={cnt ``HPow.hPow} toNat={cnt ``BitVec.toNat} Eq={cnt ``Eq} Or={cnt ``Or} And={cnt ``And} Not={cnt ``Not}"
+          s94LdLog s!"LDIAG {tag} SHOW after {name}: {(progCut ((← IO.getEnv "VED_LDIAG_DEPTH").bind String.toNat? |>.getD 12) (← instantiateMVars (← g.getType))).take 3000}"
     if r != "ok" then failed := name; break
     if gs.isEmpty then break
   s94LdLog (line ++ s!" | first-failing={if failed == "" then "none (closed)" else failed}")
@@ -1984,6 +1993,11 @@ elab "ved_local_diag" : tactic => do
       g.withContext do
         let tgt ← instantiateMVars (← g.getType)
         s94LdLog s!"LDIAG {tag} target-at-failure: {(progShallow 5 tgt).take 400}"
+        -- (s94t) the target's own variables: a `let` value (the generalisation of a memory word) or a plain variable
+        for f in Tools.VedMemS94Local.fvarsOfDag tgt do
+          let dd ← f.getDecl
+          if dd.isLet then s94LdLog s!"LDIAG {tag}   tvar {dd.userName} := {(progCut 14 (← instantiateMVars dd.value)).take 1500}"
+          else s94LdLog s!"LDIAG {tag}   tvar {dd.userName} : {(progShallow 3 (← instantiateMVars dd.type)).take 80}"
         for d in ← getLCtx do
           unless d.isImplementationDetail do
             let t ← instantiateMVars d.type
@@ -2041,5 +2055,47 @@ elab "ved_hyp_diag" : tactic => withMainContext do
       let shape := if best.isAppOf ``OfNat.ofNat then s!" {(progShallow 3 best).take 40}" else ""
       s94LdLog s!"HDIAG   {head}/{best.getAppNumArgs} tree={ts.getD best 0}{shape}"
       cur := best
+
+/-- diagnosis (s94t): the `memState` atoms of the target: number, distinct keys (the eight port arguments, by hash), and per atom the address argument (`progCut`, depth `VED_MADDR_DEPTH`, default 12)
+and the number of `memState` atoms inside it (a read in an address) -/
+elab "ved_maddr_diag" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let dep := ((← IO.getEnv "VED_MADDR_DEPTH").bind String.toNat?).getD 12
+  let atoms := Tools.VedU1WireShare.collectDag Tools.VedMemS94Local.isMemAtom tgt
+  let keys := atoms.foldl (fun (acc : Array UInt64) a => let k := (mkAppN a.getAppFn (a.getAppArgs.extract 0 8)).hash; if acc.contains k then acc else acc.push k) #[]
+  s94LdLog s!"MADDR atoms={atoms.size} keys={keys.size}"
+  for a in atoms do
+    let ad := a.getAppArgs[8]!
+    let inner := (Tools.VedU1WireShare.collectDag Tools.VedMemS94Local.isMemAtom ad).size
+    let key := (mkAppN a.getAppFn (a.getAppArgs.extract 0 8)).hash
+    s94LdLog s!"MADDR key#{keys.idxOf key} inner-reads={inner} addr: {(progCut dep ad).take 1200}"
+
+/-- diagnosis (s94t): the first address pair (same key, two addresses) of the target as the goal `a = rep` of `ved_addr_eq_local2`, after its `toNat` lemmas, run through `ved_local_diag`
+(steps, heartbeats, target / hypotheses at the failure) -/
+elab "ved_maddr_pair_diag" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let occs := Tools.VedU1WireShare.collectDag Tools.VedMemS94Local.isMemAtom tgt
+  let mut groups : Array (Expr × Array Expr) := #[]
+  for o in occs do
+    if o.hasLooseBVars then continue
+    let args := o.getAppArgs
+    let key := mkAppN o.getAppFn (args.extract 0 8)
+    let a := args[8]!
+    match groups.findIdx? (fun g => g.1 == key) with
+    | some i => if !groups[i]!.2.contains a then groups := groups.set! i (key, groups[i]!.2.push a)
+    | none => groups := groups.push (key, #[a])
+  for (_, addrs) in groups do
+    if addrs.size < 2 then continue
+    let aS ← Term.exprToSyntax addrs[1]!
+    let repS ← Term.exprToSyntax addrs[0]!
+    try
+      evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
+                                 apply BitVec.eq_of_toNat_eq
+                                 simp only [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat, Nat.shiftRight_zero, apply_ite BitVec.toNat, BitVec.toNat_add, BitVec.toNat_mul, BitVec.toNat_sub,
+                                   BitVec.toNat_append, Nat.zero_shiftLeft, Nat.zero_or, Nat.reduceMod, Nat.reducePow, Nat.shiftRight_eq_div_pow]
+                                 ved_local_diag
+                                 sorry)))
+    catch _ => pure ()
+    return
 
 end Tools.VedMemS94Diag

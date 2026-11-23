@@ -492,7 +492,6 @@ macro_rules
          case hb => intro _; ved_mux)
       | ved_split_omega)
 
-
 /-! ## memState atoms abstracted (shared with `Tools.VedMemS94Opaque`): the keys of the target, and with `ved.mem.s94OpaqueH` also those of the kept hypotheses -/
 
 def isMemAtom (x : Expr) : Bool :=
@@ -543,7 +542,6 @@ def memOpaque (g : MVarId) : MetaM (MVarId × Nat) := g.withContext do
   g.assign (mkAppN g' keys)
   let (_, g'') ← g'.mvarId!.introN keys.size ((List.range keys.size).map fun i => Name.mkSimple s!"ved_M{i}")
   return (g'', keys.size)
-
 
 register_option ved.mem.s94OpaqueH : Bool := {
   defValue := false
@@ -604,7 +602,6 @@ elab "ved_local_goal" : tactic => do
     st.restore
     throwError "ved_local_goal: the goal is not closed from its cone"
 
-
 /-! ## class B: the address equalities of `ved_mem_addr` by the local lemmas
 
 Observed (s94q, goals 6 and 17 of the t3 checkpoint, `VED_DUMP_DIR` pair files): the first address equality `ved_mem_addr` asks for is
@@ -632,6 +629,8 @@ macro "ved_addr_eq_local2" : tactic =>
 def memCanonBudgetK : Nat := 500
 /-- the heartbeat budget (thousands) of all argument comparisons of one `memCanon` call -/
 def memCanonTotalK : Nat := 6000
+/-- the size of a target (tree nodes) from which `ved_mem_addr_l` replaces the address by `Expr.replace` and does not try `rw` (the `rw` of such a tree is a walk that cannot be interrupted) -/
+def rwMaxTree : Nat := 10000000
 /-- the heartbeat budget (thousands) of ONE address equality of `ved_mem_addr_l` (observed: the equalities that succeed need < 1M) -/
 def addrEqBudgetK : Nat := 12000
 initialize addrEqTimeouts : IO.Ref Nat ← IO.mkRef 0
@@ -763,7 +762,10 @@ elab "ved_mem_addr_l" : tactic => withMainContext do
                         if l == a && rr == rep then r := some d.toExpr
                 pure r
             let small := Tools.VedU1Loop.treeSizeVal tgt < Tools.VedMemLoop.addrReplaceMinTree
-            let hm? ← if small then pure none else hmFind
+            -- s94t: the `rw` of a goal of >= `rwMaxTree` nodes is not entered: `kabstract` walks the tree without polling the heartbeat limit (observed t3c goals 53 103: the
+            -- 12M budget of the `rw` below was exceeded by 24M hb before the timeout fired, then the whole step hit its 30M limit), the `Expr.replace` route takes it directly
+            let viaRw := small && Tools.VedU1Loop.treeSizeVal tgt < rwMaxTree
+            let hm? ← if viaRw then pure none else hmFind
             Tools.VedMemLoop.dbgT s!"addr: hm found={hm?.isSome} tgt-tree={Tools.VedU1Loop.treeSizeVal tgt}"
             let replaceRoute (hm : Expr) : TacticM Unit := do
               let g ← getMainGoal
@@ -777,6 +779,7 @@ elab "ved_mem_addr_l" : tactic => withMainContext do
                 replaceMainGoal [← g.replaceTargetEq newTgt (← mkCongrArg motive hm)]
             if let some hm := hm? then
               replaceRoute hm
+              Tools.VedMemLoop.dbgT "addr: replace route done"
             else if !small then
               evalTactic (← `(tactic| rw [hmaddr]))
             else
@@ -791,8 +794,9 @@ elab "ved_mem_addr_l" : tactic => withMainContext do
                   pure true)
                 (fun _ => do stR.restore; addrEqTimeouts.modify (· + 1); pure false)
               unless okR do
+                Tools.VedMemLoop.dbgT "addr: rw budget exhausted, Expr.replace route"
                 match ← hmFind with
-                | some hm => replaceRoute hm
+                | some hm => replaceRoute hm; Tools.VedMemLoop.dbgT "addr: replace route done"
                 | none => throwError "address rewrite: budget exhausted and no equation"
             -- the `rw` closes the goal by `rfl` when the two atoms were all there was (small cases; never on the R033 goals)
             if (← getGoals).isEmpty then return
