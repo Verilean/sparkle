@@ -239,4 +239,22 @@ theorem U2HRStmtR_of_S (c : Contract) (m : Module) (d : Design) (f : c.table.Ty)
     (hl : allLeafB d = true) (h : U2HRStmt c m d f) : U2HRStmtR c m d f :=
   (U2HRStmtR_iff_K c m d f hl).mpr (U2HRStmtK_of_U2HRStmt c m d f h)
 
+/-- Decidable form of `hrstnd` (the child's reset port is not one of its data ports). -/
+theorem rstnd_sound {ck : Contract}
+    (h : (match ck.clkRst with | some kr => ck.dataInputs.any (·.name == kr.2) | none => false) = false) :
+    ∀ kr, ck.clkRst = some kr → ck.dataInputs.any (·.name == kr.2) = false := by
+  intro kr hkr
+  rw [hkr] at h
+  exact h
+
+/-- Membership by value, from the decidable existential form (a module list has no lawful `BEq`). -/
+theorem mem_of_ex {α : Type} {l1 l2 : List α} (h : ∀ x ∈ l1, ∃ y ∈ l2, y = x) : ∀ x ∈ l1, x ∈ l2 := by
+  intro x hx
+  obtain ⟨y, hy, rfl⟩ := h x hx
+  exact hy
+
+theorem mem_of_ex1 {α : Type} {l : List α} {x : α} (h : ∃ y ∈ l, y = x) : x ∈ l := by
+  obtain ⟨y, hy, rfl⟩ := h
+  exact hy
+
 end Tools.VedU2HierRec

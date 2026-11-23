@@ -21,6 +21,7 @@ import Tools.VedU2HierLoopRw
 import Tools.VedComposeStep
 import Tools.VedComposeOrder
 import Tools.VedComposeConnectGen
+import Tools.VedU2HierRecEntry
 
 /-!
 # Stateful hierarchical entry, H2b: a parent WITH REGISTERS (`#ved_u2_hier decl`)
@@ -1712,6 +1713,13 @@ def checkU2HR (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.
   withScope (fun sc => { sc with opts := Tools.VedU2HierBudget.floorOpts sc.opts Tools.VedU2HierBudget.ved.u2.hierRecDepth Tools.VedU2HierBudget.ved.u2.hierHeartbeats })
     (checkU2HRCore decl stmt nDom m d clkRstOverride tamper)
 
+/-- Option `ved.compose.nested` (Tools/VedU2HierRecEntry.lean): the entry on a MIDDLE module, run first on its own
+declaration (its own synthesis, the H2b checker `checkU2HR`). -/
+def midEntryN (declName : Name) (cm : Sparkle.IR.AST.Module) (dC : Design) : CommandElabM Name := do
+  let (stmt, nDom) ← liftTermElabM <| try specialiseDomain declName catch e => refuse declName "table" e.toMessageData
+  let (thm, _, _) ← checkU2HR declName stmt nDom cm dC
+  return thm
+
 /-- The entry: ONE `synthesizeCombinational`; a register-free parent is H2a's `checkU2H`
 (statement `U2HStmt`), a parent with registers is `checkU2HR` (statement `U2HRStmt`). -/
 def vedU2HierEntryR (declName : Name) :
@@ -1727,6 +1735,10 @@ def vedU2HierEntryR (declName : Name) :
     catch e => refuse declName "synthesis" e.toMessageData
   let t1 ← IO.monoMsNow
   Tools.VedU2HierDbg.phaseLog "synthesis end"
+  -- option `ved.compose.nested` (default off): a design with a NON-LEAF module is proved by the nested route (statement `U2HRStmtR`)
+  if Tools.VedU2HierRecEntry.ved.compose.nested.get (← getOptions) && d.modules.any (fun x => !leafBody x.body) then
+    let (thm, childMs, proofMs) ← Tools.VedU2HierRecEntry.checkU2HN midEntryN declName stmt nDom m d
+    return (m, d, thm, nDom, { synthMs := t1 - t0, childMs, proofMs, peakKb := ← peakKb })
   -- option `ved.compose.multiOut`: a register-free parent with a k-output child is proved by `checkU2HR`'s machinery (statement `U2HStmtK`)
   if (regsOf m.body).isEmpty && !(ved.compose.multiOut.get (← getOptions) && d.modules.any (·.outputs.length > 1)) then
     let (thm, childMs, proofMs) ← liftTermElabM (checkU2H declName stmt nDom m d)
