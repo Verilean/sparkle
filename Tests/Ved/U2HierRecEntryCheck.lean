@@ -55,6 +55,14 @@ def topsC1 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVe
 def topsC2 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) := mids a b
 def topsC3 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) := mids a b
 def topsC4 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) := mids a b
+def topsC5 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) := mids a b
+def topsC7 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := mids a b
+    acc <~ (accS + c : Signal defaultDomain (BitVec 4))
+    return accS
 def topsOff (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) := mids a b
 
 /-- a parent WITH a register over the middle module (data inputs) -/
@@ -65,6 +73,28 @@ def topr1 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec
     let c := mids a b
     acc <~ (accS + c : Signal defaultDomain (BitVec 4))
     return accS
+
+/-- DEPTH 3: a middle module over a middle module (one register of its own, one instance of `mids`) -/
+@[hardware_module] def mids2 (x y : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let r ← Signal.reg 0#4
+    let c := mids x y
+    r <~ r + c
+    return r
+
+/-- depth 3, register-free parent -/
+def tops2 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) := mids2 a b
+
+/-- depth 3, a parent WITH a register -/
+def topr2 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) :=
+  circuit do
+    let acc ← Signal.reg 0#4
+    let accS := (acc : Signal defaultDomain (BitVec 4))
+    let c := mids2 a b
+    acc <~ (accS + c : Signal defaultDomain (BitVec 4))
+    return accS
+
+def topsC6 (a b : Signal defaultDomain (BitVec 4)) : Signal defaultDomain (BitVec 4) := mids2 a b
 
 def expectedR (decl : Name) (nDom : Nat) : Lean.Expr :=
   let nm := HNames.ofBase decl
@@ -79,8 +109,16 @@ set_option ved.compose.nested true in
 set_option ved.compose.nested true in
 #ved_u2_hier topr1
 
+-- DEPTH 3 through the entry, the same code: the register-free parent first (the middle module `mids2` is itself a register
+-- parent over the non-leaf `mids`: its own entry is the nested register route), then the parent with a register
+set_option ved.compose.nested true in
+#ved_u2_hier tops2
+
+set_option ved.compose.nested true in
+#ved_u2_hier topr2
+
 /-- the accepted theorem, read independently of the entry -/
-def acceptedN (decl kid : Name) (hit : Bool) : CommandElabM Unit := do
+def acceptedN (decl midThm : Name) (hit : Bool) : CommandElabM Unit := do
   let (m, d) ← synthOf decl
   let (_, nDom) ← liftTermElabM (specialiseDomain decl)
   let nm := HNames.ofBase decl
@@ -94,7 +132,6 @@ def acceptedN (decl kid : Name) (hit : Bool) : CommandElabM Unit := do
     std3Only nm.thm
     let axs ← collectAxioms nm.thm
     if axs.contains ``sorryAx then throwError "{nm.thm}: sorryAx"
-    let midThm := kid ++ `ved_u2r
     let used := ti.value.getUsedConstants
     unless used.contains midThm do throwError "{nm.thm}: the middle module's theorem {midThm} does not occur"
     -- the grandchild is not unfolded: none of its constants is a DIRECT constant of the proof
@@ -103,9 +140,12 @@ def acceptedN (decl kid : Name) (hit : Bool) : CommandElabM Unit := do
     discard <| Tools.VedStrictAudit.strictAudit nm.thm
     logInfo m!"ACCEPTED {decl}: U2HRStmtR type ==, same artifact, std3, kernel, {midThm} occurs ({if hit then "stored, checked" else "built"}), no grandchild constant among the {used.size} direct constants (NOT a closure audit)"
 
-#eval acceptedN ``tops `Tests.Ved.RecEntry.mids false
+#eval acceptedN ``tops `Tests.Ved.RecEntry.mids.ved_u2r false
 
-#eval acceptedN ``topr1 `Tests.Ved.RecEntry.mids true
+#eval acceptedN ``topr1 `Tests.Ved.RecEntry.mids.ved_u2r true
+
+#eval acceptedN ``tops2 `Tests.Ved.RecEntry.mids2.ved_u1 false
+#eval acceptedN ``topr2 `Tests.Ved.RecEntry.mids2.ved_u1 true
 
 def withNested {α : Type} (act : CommandElabM α) : CommandElabM α :=
   withScope (fun sc => { sc with opts := sc.opts.setBool `ved.compose.nested true }) act
@@ -119,7 +159,7 @@ def withNested {α : Type} (act : CommandElabM α) : CommandElabM α :=
   let mid := added.filter fun n => (n.toString.splitOn "RecEntry.mids").length > 1
   unless mid.isEmpty do throwError "the middle module's constants were rebuilt: {mid}"
   unless added.any (· == (HNames.ofBase ``tops3).thm) do throwError "tops3's theorem was not added"
-  acceptedN ``tops3 `Tests.Ved.RecEntry.mids true
+  acceptedN ``tops3 `Tests.Ved.RecEntry.mids.ved_u2r true
 
 -- the closed run of the parent's real design, evaluated, against a hand-written reference
 #eval show CommandElabM Unit from do
@@ -142,6 +182,28 @@ def withNested {α : Type} (act : CommandElabM α) : CommandElabM α :=
     let ref := refRun K 0 0
     unless outs == ref do throwError "run {outs} differs from the reference {ref}"
     logInfo m!"RUN tops (depth 2, runHSR on the real design): out = {outs} = reference {ref}"
+
+-- the closed run at DEPTH 3, evaluated, against a hand-written reference
+#eval show CommandElabM Unit from do
+  let (m, d) ← synthOf ``tops2
+  let arr : Sparkle.IR.AST.Module → List Stmt := fun c => orderBodyH d c.body
+  let K := 6
+  let a := [3, 1, 4, 1, 5, 9]
+  let b := [2, 7, 1, 8, 2, 8]
+  let ins : Nat → String → Nat := fun t n =>
+    if n == "_gen_a" then a.getD t 0 else if n == "_gen_b" then b.getD t 0 else 0
+  match runHSR d arr m (seedFwd m K ins) K (st0HR d m) with
+  | none => throwError "the closed run of the depth-3 design failed"
+  | some envs =>
+    let outs := envs.map (fun e => e "out")
+    let rec refRun : Nat → Nat → Nat → Nat → List Nat
+      | 0, _, _, _ => []
+      | k + 1, rl, rm, r2 =>
+        let t := K - (k + 1)
+        r2 :: refRun k ((rl + a.getD t 0) % 16) ((rm + rl + b.getD t 0) % 16) ((r2 + rm) % 16)
+    let ref := refRun K 0 0 0
+    unless outs == ref do throwError "run {outs} differs from the reference {ref}"
+    logInfo m!"RUN tops2 (depth 3, runHSR on the real design): out = {outs} = reference {ref}"
 
 /-! ## Controls through the checker on edited `(m, d)` (option-independent: `checkU2HN` itself) -/
 
@@ -196,6 +258,51 @@ def midName : String := "Tests.Ved.RecEntry.mids"
   let (m, d) ← synthOf ``topsC4
   let inst := m.body.filter fun s => match s with | .inst .. => true | _ => false
   ctlN "(d) duplicate instance name" ``topsC4 "hier-shape" "HierShapeR" { m with body := m.body ++ inst } d
+
+-- (f) the GRANDCHILD edited (same name, other register initial value): the middle module's stored design no longer
+-- lies in the parent's design (by value); the stored theorem is refused
+#eval show CommandElabM Unit from do
+  let (m, d) ← synthOf ``topsC5
+  let mods := d.modules.map fun x =>
+    if x.name == "Tests.Ved.RecEntry.leafs" then
+      { x with body := x.body.map fun s => match s with
+          | .register o c r e _ => .register o c r e 1
+          | s => s }
+    else x
+  ctlN "(f) same-name different GRANDCHILD (stored theorem refused)" ``topsC5 "child" "not a module of the parent's design"
+    m { d with modules := mods }
+
+-- (g) depth 3: the middle module of the middle module edited (same name): refused the same way
+#eval show CommandElabM Unit from do
+  let (m, d) ← synthOf ``topsC6
+  let mods := d.modules.map fun x =>
+    if x.name == midName then
+      { x with body := x.body.map fun s => match s with
+          | .register o c r e _ => .register o c r e 1
+          | s => s }
+    else x
+  ctlN "(g) depth 3: same-name different inner middle module" ``topsC6 "child" "not a module of the parent's design"
+    m { d with modules := mods }
+
+-- (h) a parent WITH a register, option on: the register's next-state expression changed (add -> sub): refused at [proof]
+#eval show CommandElabM Unit from do
+  let (m, d) ← synthOf ``topsC7
+  let (stmt, nDom) ← liftTermElabM (specialiseDomain ``topsC7)
+  let before ← localConsts
+  let b := m.body.map fun s => match s with
+    | .assign l (.op .add args) => .assign l (.op .sub args)
+    | s => s
+  let r ← try
+      discard <| withNested (checkU2HR ``topsC7 stmt nDom { m with body := b } d none)
+      pure none
+    catch e => pure (some (← liftTermElabM (e.toMessageData.toString)))
+  match r with
+  | none => throwError "(h): expected a refusal, the checker ACCEPTED"
+  | some msg =>
+    unless msg.startsWith "VED U1 REFUSED Tests.Ved.RecEntry.topsC7 [" do throwError "(h): unexpected: {msg.take 300}"
+    let added := (← localConsts).toList.filter (!before.contains ·)
+    unless added.isEmpty do throwError "(h): constants left: {added}"
+    logInfo m!"CONTROL (h) register parent, next-state expression changed: {msg.take 200}"
 
 -- (e) option OFF: the old refusal, text unchanged
 #eval show CommandElabM Unit from do

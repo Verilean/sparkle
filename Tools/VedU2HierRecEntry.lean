@@ -126,7 +126,8 @@ def ensureMid (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandE
     | some why => liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: the stored theorem {thmR} is not usable (cache refused): {why}"
   -- (2) the depth-1 theorem of the middle module, stored or produced by its entry run FIRST
   let thmS := nmC.thm
-  if !(← getEnv).contains thmS then
+  let storedBefore := (← getEnv).contains thmS
+  if !storedBefore then
     -- the entry on the middle module's OWN module (the parent's module value) and its sub-design
     discard <| midEntry cdecl cm (subDesignOf d cm)
   let env ← getEnv
@@ -154,7 +155,7 @@ def ensureMid (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandE
     liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: a module of its own design is not a module of the parent's design (by value)"
   if isR then
     -- the middle module's own entry is already recursive (its design has a non-leaf module)
-    return { kid := { kid with nm := { kid.nm with thm := thmS } }, dC := nmC.design, thmR := thmS, bodyC, hit := false }
+    return { kid := { kid with nm := { kid.nm with thm := thmS } }, dC := nmC.design, thmR := thmS, bodyC, hit := storedBefore }
   unless decide (Tools.VedU2HierRec.allLeafB dC = true) do
     liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: a depth-1 theorem over a design with a non-leaf module"
   -- (3) the recursive statement on the sub-design, from the stored depth-1 theorem
@@ -165,7 +166,7 @@ def ensureMid (midEntry : Name → Sparkle.IR.AST.Module → Design → CommandE
     liftTermElabM <| withOptions (fun o => o.setBool `Elab.async false) do
       addDecl (.thmDecl { name := thmR, levelParams := [], type := expectR, value := val })
   catch e => liftTermElabM <| refuse decl "child" m!"middle module {cm.name}: the kernel refused the recursive statement: {e.toMessageData}"
-  finish false
+  finish storedBefore
 
 /-- All non-leaf modules of the parent's design with the arrangement constants of their bodies in the PARENT's
 design (`OrderHS d x`, kernel `decide` on the real design). -/
