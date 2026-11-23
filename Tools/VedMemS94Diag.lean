@@ -1490,6 +1490,20 @@ elab "#ved_s95_replay " d:str : command => do
           pure "ok"
         catch ex => pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " ").take 400}"
       dbgLog s!"S95 step {no} {name}: {res} ms={(← IO.monoMsNow) - t0} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}; {← shape cur}; {← resid cur}"
+      -- `VED_S95_GOALDUMP=i,j,..` (s94s): after step 97 the complete context (all hypotheses except the `declWidth` equations) and the target of those goals, shallow
+      if no == 97 then
+        if let some ds := (← IO.getEnv "VED_S95_GOALDUMP") then
+          for ds1 in ds.splitOn "," do
+            let some gi := ds1.toNat? | continue
+            let some gq := cur[gi]? | continue
+            gq.withContext do
+              let tg ← instantiateMVars (← gq.getType)
+              dbgLog s!"S95 gdump goal {gi}: TARGET {(progShallow 8 tg).take 900}"
+              for d in ← getLCtx do
+                if d.isImplementationDetail then continue
+                let t ← instantiateMVars d.type
+                if (progShallow 2 t).startsWith "(Eq Nat (Tools.VedU1Contract.declWidth" then continue
+                dbgLog s!"S95 gdump goal {gi}: {d.userName} : {(progShallow 6 t).take 400}"
       if (← IO.getEnv "VED_S95_HYPHIST").isSome then dbgLog s!"S95 hist after {no} {name}: {← s94HypHist cur}"
       if let some nShow := (← IO.getEnv "VED_S95_HYPSHOW").bind String.toNat? then
         for l in ← s94HypShow cur nShow 300 do dbgLog s!"S95 show after {no} {name} {l}"

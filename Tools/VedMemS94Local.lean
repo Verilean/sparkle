@@ -629,7 +629,7 @@ elab "ved_mem_addr_l" : tactic => withMainContext do
             tryCatchRuntimeEx
               (withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then addrEqBudgetK * 1000 else min c.maxHeartbeats (addrEqBudgetK * 1000)), initHeartbeats := hbP }) do
                 evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
-                                           first | (with_reducible rfl) | ved_addr_eq_local | ved_addr_eq_local2 | rfl))))
+                                           first | rfl | ved_addr_eq_local | ved_addr_eq_local2))))
               (fun ex => do
                 stP.restore
                 addrEqTimeouts.modify (· + 1)
