@@ -174,6 +174,14 @@ register_option ved.sseq.zeta : Bool := {
   descr := "ved.sseq.zeta: non-recursive zeta of the source value before simp (default off)"
 }
 
+/-- Default off: the closing stage first tries the NORMAL FORM of the conditional-subtract helpers (`faddMod`/`fsubMod`: `mux (ule p s) (s - p) s`): `p ≤ t` as
+`¬ t < p`, `ite_not`, `Nat.add_comm` (ordered), then `done`; a leaf goal whose two sides are the same chain up to these is closed by `rfl` of the
+normalised sides instead of a case split per `ite` (4-level chain: `2^k` cases of `omega` over 257-bit literals, 8M hb on the 256-bit field toy). -/
+register_option ved.sseq.iteNorm : Bool := {
+  defValue := false
+  descr := "ved.sseq.iteNorm: closing stage tries the ite normal form (¬ t < p, ite_not, add_comm) first (default off)"
+}
+
 /-- The generated (untrusted) script for `U1Stmt C M f` where `f` is the statement TERM (the bundled
 lambda `fun xs => bundle2 (D xs).f₁ (bundle2 …)` of a structure / product result, or any term of the
 table's type) and `C`'s module has the registers `regs` (name, width) of `Signal.loop`s.  Every output
@@ -279,6 +287,11 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
         | ved_ss_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])))
     else if ved.sseq.dbg.get (← getOptions) == 99
     then `(tactic| all_goals (first | ved_ss_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod] | fail "ved_ss_loop_close failed here"))
+    else if ved.sseq.iteNorm.get (← getOptions)
+    then `(tactic| all_goals (first
+        | (simp only [← Nat.not_lt, ite_not, Nat.add_comm]; done)
+        | (ved_ss_leafwise <;> ved_ss_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
+        | ved_ss_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod]))
     else `(tactic| all_goals (first
         | (ved_ss_leafwise <;> ved_ss_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod])
         | ved_ss_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod]))

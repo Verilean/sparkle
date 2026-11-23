@@ -1179,6 +1179,11 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
           fun e => do
             if fbStamps then Tools.VedU1ScriptSeq.stageFail (Tools.VedU1ScriptSeq.stageReason e)
             refuse decl "proof" e.toMessageData
+    -- `VED_MS_LOG` (debugging only, default unset): the proof is elaborated; the kernel starts next
+    if let some path ← IO.getEnv "VED_MS_LOG" then
+      let h ← IO.FS.Handle.mk path .append
+      h.putStrLn s!"VED MS elaborated {← IO.monoMsNow} (kernel next)"
+      h.flush
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
       let first ← match errs.drop errsBefore with
@@ -1190,6 +1195,10 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
       if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageFail "open_term"
       refuse decl "proof" m!"proof term is not closed"
     if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageOk
+    if let some path ← IO.getEnv "VED_MS_LOG" then
+      let h ← IO.FS.Handle.mk path .append
+      h.putStrLn s!"VED MS kernel start {← IO.monoMsNow}"
+      h.flush
     -- the kernel, synchronously, with EXACTLY the expected type
     tryCatchRuntimeEx
       (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
