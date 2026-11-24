@@ -1188,7 +1188,7 @@ elab "ved_state_gate" : tactic => do
 
 /-- the closer of one branch of the state split (a small goal: the literal conditions are decided, the rest are linear `if`s of a few atoms): its own cone, the bounds of its variables, `ved_split_omega`;
 the bit operations on 0/1 flags by `split` and the literal simprocs -/
-macro "ved_state_branch" : tactic =>
+macro "ved_state_branch_body" : tactic =>
   `(tactic| (ved_cone_clear; (try ved_spell_unify); (try ved_read_lift); ved_bv_bounds_t
              first
              | (simp only [mux_mod]; done)
@@ -1198,6 +1198,23 @@ macro "ved_state_branch" : tactic =>
                 all_goals (try simp (disch := omega) only [Nat.mod_eq_of_lt, Nat.reducePow, Nat.reduceAdd, Nat.reduceMod])
                 all_goals omega)
              | ((repeat' split) <;> (try simp only [Nat.reduceAnd, Nat.reduceOr, Nat.reduceXor, Nat.reduceMod, Nat.reduceAdd, Nat.reducePow, Nat.reduceEqDiff, ↓reduceIte, true_and, and_true, false_and, and_false] at *) <;> omega)))
+
+/-- the heartbeat limit of ONE branch of the state split (thousands; option `ved.mem.s94Gates`): the branches that close cost 0.2 .. 5M on R033 (goals 23 26 35 46 48 49 54 57 64), a branch that does not
+close used up the whole attempt limit before (the timeouts of 33 34 53 62 at 20M) -/
+def branchCapK : Nat := 8000
+
+/-- `ved_branch_cap tac` (option `ved.mem.s94Gates`): `tac` under `min (what is left of the limit) branchCapK`; a branch over it is a failure of the attempt (the heartbeat exception goes up to
+`ved_local_goal`, which restores the goal); the option off: `tac` as it is -/
+elab "ved_branch_cap " t:tacticSeq : tactic => do
+  if !ved.mem.s94Gates.get (← getOptions) then evalTactic t
+  else
+    let hb0 ← IO.getNumHeartbeats
+    withTheReader Core.Context (fun c =>
+      let left := if c.maxHeartbeats == 0 then branchCapK * 1000 else (c.initHeartbeats + c.maxHeartbeats) - hb0
+      { c with maxHeartbeats := max 1 (min left (branchCapK * 1000)), initHeartbeats := hb0 }) do
+      evalTactic t
+
+macro "ved_state_branch" : tactic => `(tactic| ved_branch_cap (ved_state_branch_body))
 
 /-- `ved_local_close_state` (s94w; refused unless `ved.mem.s94StateSplit` is on): the fourth attempt of `ved_local_goal`, under its own limit `stateCapK` (the earlier ones did not close the goal): the cone, the
 conjunctions of bounds cut to the atoms of the target (`ved_conj_prune`), then the ite tower decided by ONE case split on the value of the state variable (`ved_state_split`, `ved_state_simp`) and one
@@ -1222,7 +1239,7 @@ macro "ved_local_close_mulshift" : tactic =>
   `(tactic| (ved_mul_gate; ved_pow_gate; ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); (try ved_atom_args)
              all_goals (ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *); (try ved_ite_div))
              (try ved_conj_prune)
-             (try ved_cond_norm); (try ved_spell_unify); (try ved_read_lift); (try ved_read_bounds); ved_bv_bounds; (try simp only [mux_mod])
+             (try ved_cond_norm); (try ved_read_bounds); ved_bv_bounds; (try simp only [mux_mod])
              (repeat' split)
              all_goals (try simp (disch := omega) only [Nat.mod_eq_of_lt, Nat.reducePow, Nat.reduceAdd, Nat.reduceMod])
              all_goals omega
