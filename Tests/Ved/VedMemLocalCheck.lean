@@ -330,4 +330,63 @@ run_cmd liftTermElabM do
   if !okD || !dOn then throwError "ite_div: ON: not closed"
   logInfo m!"hyp_split / atom_args / ite_div controls: OFF refused / unchanged, ON closes (counters +1), a false statement is refused, late failure restores the goal"
 
+/-! ## ved_if_read_share / ved_share99_one (option `ved.mem.s94Share99`, stage 99 across goals) -/
+
+set_option ved.mem.s94Share99 true in
+/-- kernel-checked: three goals, two of them with the same `(a + b).toNat` spine, simplified with one shared simp cache -/
+theorem share99_ok (a b c : BitVec 8) : (a + b).toNat < 300 ∧ (a + c).toNat < 300 ∧ (a + b).toNat + 0 < 400 := by
+  refine ⟨?_, ?_, ?_⟩
+  ved_if_read_share [Nat.add_zero]
+  all_goals omega
+
+/-- info: share99 controls: OFF refused, ON = plain route goal by goal (the spines of different goals are not mixed), cache filled, counters, late failure restores -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let stmt ← `(∀ (a b c : BitVec 8), (a + b).toNat < 300 ∧ (a + c).toNat < 300 ∧ (a + b).toNat < 7)
+  let goalsOf (tac : TSyntax `tactic) : TermElabM (Option (List String)) := do
+    let ty ← elabTerm stmt none
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      let mut out : List String := []
+      for g in gs do out := out ++ [(← g.withContext do ppExpr (← instantiateMVars (← g.getType))).pretty]
+      pure (some out)
+    catch _ => pure none
+  let withOpt (o : Name) (v : Bool) (x : TermElabM α) : TermElabM α := withOptions (fun os => os.setBool o v) x
+  let plain ← goalsOf (← `(tactic| (intro a b c; refine ⟨?_, ?_, ?_⟩; all_goals (try ved_loop_simp [Nat.add_zero]))))
+  let some plain := plain | throwError "share99: the plain route failed"
+  Tools.VedMemS94Gen.share99State.set none
+  -- OFF: refused
+  let k0 ← Tools.VedMemS94Gen.share99Hits.get
+  let off ← withOpt `ved.mem.s94Share99 false (goalsOf (← `(tactic| (intro a b c; refine ⟨?_, ?_, ?_⟩; ved_share99_one [Nat.add_zero]))))
+  if off.isSome then throwError "share99: OFF: the step ran"
+  unless (← Tools.VedMemS94Gen.share99Hits.get) == k0 do throwError "share99: OFF: counter moved"
+  -- ON, the stage tactic: the same goals as the plain route
+  let on ← withOpt `ved.mem.s94Share99 true (goalsOf (← `(tactic| (intro a b c; refine ⟨?_, ?_, ?_⟩; ved_if_read_share [Nat.add_zero]))))
+  let some on := on | throwError "share99: ON: failed"
+  unless on == plain do throwError "share99: ON: the goals differ from the plain route: {on} vs {plain}"
+  unless (← Tools.VedMemS94Gen.share99Hits.get) == k0 + 3 do throwError "share99: ON: counter"
+  unless (← Tools.VedMemS94Gen.share99State.get).isNone do throwError "share99: the state was not dropped at the end of the stage"
+  -- ON, three single steps without a reset: the cache is filled, the goals are still the plain route's
+  let on3 ← withOpt `ved.mem.s94Share99 true (goalsOf (← `(tactic| (intro a b c; refine ⟨?_, ?_, ?_⟩; all_goals (ved_share99_one [Nat.add_zero])))))
+  let some on3 := on3 | throwError "share99: ON (steps): failed"
+  unless on3 == plain do throwError "share99: ON (steps): the goals differ from the plain route"
+  let some st ← Tools.VedMemS94Gen.share99State.get | throwError "share99: no state after the steps"
+  if st.cache.size == 0 then throwError "share99: empty cache"
+  Tools.VedMemS94Gen.share99State.set none
+  -- late failure (seam): the goal is as it was, the state and the counter unchanged
+  let k1 ← Tools.VedMemS94Gen.share99Hits.get
+  Tools.VedMemS94Gen.share99FailLate.set true
+  let late ← withOpt `ved.mem.s94Share99 true (goalsOf (← `(tactic| (intro a b c; refine ⟨?_, ?_, ?_⟩; all_goals (first | ved_share99_one [Nat.add_zero] | skip)))))
+  Tools.VedMemS94Gen.share99FailLate.set false
+  let some late := late | throwError "share99: late: failed"
+  unless late.length == 3 && late.all (·.contains '+') && late.all (!·.contains '%') do throwError "share99: late failure did not restore the goals: {late}"
+  unless (← Tools.VedMemS94Gen.share99Hits.get) == k1 && (← Tools.VedMemS94Gen.share99State.get).isNone do throwError "share99: late failure changed the counter or the state"
+  -- the refuse seam
+  Tools.VedMemS94Gen.share99Refuse.set true
+  let ref ← withOpt `ved.mem.s94Share99 true (goalsOf (← `(tactic| (intro a b c; refine ⟨?_, ?_, ?_⟩; ved_share99_one [Nat.add_zero]))))
+  Tools.VedMemS94Gen.share99Refuse.set false
+  if ref.isSome then throwError "share99: the seam did not refuse"
+  logInfo m!"share99 controls: OFF refused, ON = plain route goal by goal (the spines of different goals are not mixed), cache filled, counters, late failure restores"
+
 end Tests.Ved.VedMemLocalCheck
