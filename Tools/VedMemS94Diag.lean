@@ -1993,6 +1993,14 @@ elab "ved_pp_ctx" : tactic => withMainContext do
     if d.userName.toString.startsWith "ved_bnd" then continue
     s94LdLog s!"PPCTX hyp {d.userName}: {← ppo t}"
 
+/-- diagnosis (s94w): every Prop hypothesis of the main goal with its tree / DAG size and head symbol (one line each, `PPSIZE`) -/
+elab "ved_ctx_sizes" : tactic => withMainContext do
+  for d in (← getLCtx).decls.toList.filterMap id do
+    if d.isImplementationDetail then continue
+    let t ← instantiateMVars d.type
+    if !(← isProp t) then continue
+    s94LdLog s!"PPSIZE {d.userName} tree={Tools.VedU1Loop.treeSizeVal t} dag={(Tools.VedU1WireShare.collectDag (fun _ => true) t).size} head={t.getAppFn.constName?.getD `none}"
+
 /-- diagnosis (s94u): the subterms `x / y` whose numerator is an `ite` in the context and target, raw (explicit) -/
 elab "ved_find_div" : tactic => withMainContext do
   let mut n := 0

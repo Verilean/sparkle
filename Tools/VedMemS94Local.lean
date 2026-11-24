@@ -130,6 +130,15 @@ theorem ite10_mod (p : Prop) [Decidable p] : (if p then 1 else 0) % 2 = (if p th
 theorem ite10_mod2 (p : Prop) [Decidable p] : ((if p then 1 else 0) % 2 = 1) ↔ p := by
   by_cases h : p <;> simp [h]
 
+theorem ite10_mod2_z (p : Prop) [Decidable p] : ((if p then 1 else 0) % 2 = 0) ↔ ¬p := by
+  by_cases h : p <;> simp [h]
+
+theorem ite10_eq1 (p : Prop) [Decidable p] : ((if p then 1 else 0 : Nat) = 1) ↔ p := by
+  by_cases h : p <;> simp [h]
+
+theorem ite10_eq0 (p : Prop) [Decidable p] : ((if p then 1 else 0 : Nat) = 0) ↔ ¬p := by
+  by_cases h : p <;> simp [h]
+
 theorem atom_div (x T Wm : Nat) (hT : T = 1) : x / T % Wm = x % Wm := by subst hT; rw [Nat.div_one]
 
 theorem mod_as_div (x Wm : Nat) : x % Wm = x / 1 % Wm := by rw [Nat.div_one]
@@ -858,6 +867,204 @@ elab "ved_mem_spell" : tactic => withMainContext do
   if (← spellFailLate.get) then throwError "ved_mem_spell: late failure (test seam)"
   spellHits.modify (· + facts.size)
 
+/-! ### `ved_conj_prune`: the conjunctions of bounds in the context, cut to the conjuncts about the atoms of the goal
+
+Observed (s94w, R033 goal 48 / 23 after `ved_cone_clear`): the context keeps `ck31 : env t "_gen_start" < 2 ∧ env t "_gen_frameWriteEn" < 2 ∧ ..` (~40 conjuncts, one per wire of the
+module) because every conjunct mentions the environment variables `ck2 ck4` of the target; `omega` reads the whole conjunction in EVERY leaf of `ved_mux` / `ved_split_omega`, the target
+needs `env t "_gen_start" < 2` only. Cause (a) of the closing cost: the local theorem the leaf needs (one bound) is buried in a 40-conjunct hypothesis. -/
+
+/-- an environment read `env t "wire"`: an application of a variable to a string literal -/
+def isEnvRead (x : Expr) : Bool :=
+  x.isApp && x.getAppFn.isFVar && x.appArg!.isStringLit
+
+/-- the atoms of a term: its environment reads and the variables that are not an argument of one -/
+def termAtoms (e : Expr) : Array Expr :=
+  let reads := collectDag isEnvRead e
+  let envFVs := reads.foldl (fun (acc : Std.HashSet FVarId) r => (fvarsOfDag r).foldl (·.insert ·) acc) {}
+  reads ++ ((fvarsOfDag e).filter (!envFVs.contains ·)).map Expr.fvar
+
+/-- the conjuncts of an `∧` tree with the projection proofs (`And.left` / `And.right`) -/
+partial def conjLeaves (t pr : Expr) : Array (Expr × Expr) :=
+  if t.isAppOfArity ``And 2 then
+    conjLeaves (t.getArg! 0) (mkApp3 (mkConst ``And.left) (t.getArg! 0) (t.getArg! 1) pr) ++
+    conjLeaves (t.getArg! 1) (mkApp3 (mkConst ``And.right) (t.getArg! 0) (t.getArg! 1) pr)
+  else #[(t, pr)]
+
+/-- fewest conjuncts of a hypothesis worth cutting -/
+def conjPruneMin : Nat := 6
+initialize conjPruneHits : IO.Ref Nat ← IO.mkRef 0
+initialize conjPruneDropped : IO.Ref Nat ← IO.mkRef 0
+
+/-- `ved_conj_prune`: each hypothesis that is an `∧` tree of >= `conjPruneMin` conjuncts is replaced by the conjuncts that share an atom with the target (closure over the kept conjuncts
+and the other small arithmetic hypotheses, three rounds); the others are dropped. Only hypotheses are removed: sound, and a goal that needed a dropped one stays open (the caller restores). -/
+elab "ved_conj_prune" : tactic => do
+  let g ← getMainGoal
+  let g' ← g.withContext do
+    let tgt ← instantiateMVars (← g.getType)
+    let mut big : Array (FVarId × Array (Expr × Expr)) := #[]
+    let mut T : Std.HashSet Expr := {}
+    for a in termAtoms tgt do T := T.insert a
+    for d in ← getLCtx do
+      if d.isImplementationDetail || d.isLet then continue
+      let t ← instantiateMVars d.type
+      unless (← isProp t) do continue
+      if t.isAppOfArity ``And 2 then
+        let ls := conjLeaves t d.toExpr
+        if ls.size ≥ conjPruneMin then
+          big := big.push (d.fvarId, ls)
+          continue
+      -- the small arithmetic hypotheses keep their atoms in the relevant set
+      if isArithHyp t && Tools.VedU1Loop.treeSizeVal t ≤ 400 then
+        for a in termAtoms t do T := T.insert a
+    if big.isEmpty then return g
+    let mut keep : Array (Array (Expr × Expr)) := big.map fun _ => #[]
+    let mut kept : Array (Array Bool) := big.map fun (_, ls) => ls.map fun _ => false
+    for _ in [0:3] do
+      for i in [0:big.size] do
+        for j in [0:big[i]!.2.size] do
+          if kept[i]![j]! then continue
+          let (c, _) := big[i]!.2[j]!
+          let at_ := termAtoms (← instantiateMVars c)
+          if at_.any T.contains then
+            kept := kept.set! i (kept[i]!.set! j true)
+            for a in at_ do T := T.insert a
+    let mut g1 := g
+    let mut dropped := 0
+    for i in [0:big.size] do
+      for j in [0:big[i]!.2.size] do
+        if kept[i]![j]! then
+          let (c, pr) := big[i]!.2[j]!
+          let (_, g2) ← (← g1.assert `ved_cj (← instantiateMVars c) pr).intro1P
+          g1 := g2
+        else dropped := dropped + 1
+    for (f, _) in big do g1 ← g1.tryClear f
+    conjPruneDropped.modify (· + dropped)
+    pure g1
+  if g'.name == g.name && g' == g then throwError "ved_conj_prune: no hypothesis to cut"
+  conjPruneHits.modify (· + 1)
+  replaceMainGoal [g']
+
+register_option ved.mem.s94StateSplit : Bool := {
+  defValue := false
+  descr := "ved_local_goal: a separate attempt (own limit stateCapK) for the ite towers over a small state variable: the 5-bit `x.toNat = k` conditions are decided by ONE case split on the value of x, then one omega per branch (ved_state_split); default false"
+}
+
+initialize stateSplitHits : IO.Ref Nat ← IO.mkRef 0
+initialize stateSplitBranches : IO.Ref Nat ← IO.mkRef 0
+initialize stateSplitRefuse : IO.Ref Bool ← IO.mkRef false
+initialize stateSplitFailLate : IO.Ref Bool ← IO.mkRef false
+
+/-- most values of the split variable (the state / phase fields have 3 .. 5 bits) -/
+def stateSplitMaxBits : Nat := 5
+/-- fewest comparisons `x.toNat = literal` of one variable that make a split worth it -/
+def stateSplitMinConds : Nat := 4
+
+/-- the `BitVec n` variable (n <= `stateSplitMaxBits`) with the most distinct comparisons `x.toNat = literal` in the TARGET (>= `stateSplitMinConds`; the context hypotheses are not scanned: their tree sizes cost 3.7M heartbeats on R033 goal 46) -/
+def stateSplitVar (g : MVarId) : MetaM (Option (Expr × Nat)) := g.withContext do
+  let isCmp (e : Expr) : Bool :=
+    e.isAppOfArity ``Eq 3 && (e.getArg! 2).isAppOfArity ``OfNat.ofNat 3 && (e.getArg! 1).isAppOfArity ``BitVec.toNat 2 && ((e.getArg! 1).getArg! 1).isFVar
+  let mut cnt : Std.HashMap FVarId Nat := {}
+  let tys := [← instantiateMVars (← g.getType)]
+  for t in tys do
+    for c in collectDag isCmp t do
+      let v := (c.getArg! 1).getArg! 1
+      cnt := cnt.insert v.fvarId! (cnt.getD v.fvarId! 0 + 1)
+  let mut best : Option (Expr × Nat) := none
+  for (f, n) in cnt.toList do
+    if n < stateSplitMinConds then continue
+    let ty ← whnfR (← instantiateMVars (← f.getType))
+    unless ty.isAppOf ``BitVec do continue
+    let some w := (← whnf ty.appArg!).rawNatLit? <|> (← instantiateMVars ty.appArg!).nat? | continue
+    if w > stateSplitMaxBits then continue
+    if best.all fun (_, m) => n > (cnt.getD (best.get!.1.fvarId!) 0) then best := some (.fvar f, w)
+  return best
+
+/-- `x = a ∨ x = a+1 ∨ .. ∨ x = n-1` with `OfNat` numerals -/
+def natCasesProp (x : Expr) (a n : Nat) : MetaM Expr := do
+  let natT := mkConst ``Nat
+  let rec go (k : Nat) (fuel : Nat) : MetaM Expr := do
+    let eq ← mkEq x (← mkNumeral natT k)
+    match fuel with
+    | 0 => return eq
+    | f + 1 => if k + 1 >= n then return eq else return mkApp2 (mkConst ``Or) eq (← go (k + 1) f)
+  go a n
+
+/-- a proof of `natCasesProp x a n` from `hlo : a ≤ x`, `hhi : x < n` (by `Nat.eq_or_lt_of_le`, no `omega`: 2.4M heartbeats for the 32 cases) -/
+partial def natCasesProof (x hlo hhi : Expr) (a n : Nat) : MetaM Expr := do
+  let natT := mkConst ``Nat
+  let la ← mkNumeral natT a
+  if a + 1 >= n then
+    -- x = a from a ≤ x and x < a+1
+    let hle ← mkAppM ``Nat.le_of_lt_succ #[hhi]
+    return ← mkAppM ``Nat.le_antisymm #[hle, hlo]
+  let rest ← natCasesProp x (a + 1) n
+  let eqP ← mkEq x la
+  let dis ← mkAppM ``Nat.eq_or_lt_of_le #[hlo]          -- a = x ∨ a < x
+  let hL ← withLocalDeclD `h (← mkEq la x) fun h => do mkLambdaFVars #[h] (← mkAppOptM ``Or.inl #[eqP, rest, ← mkEqSymm h])
+  let hR ← withLocalDeclD `h (← mkAppM ``LT.lt #[la, x]) fun h => do
+    let sub ← natCasesProof x h hhi (a + 1) n
+    mkLambdaFVars #[h] (← mkAppOptM ``Or.inr #[eqP, rest, sub])
+  mkAppM ``Or.elim #[dis, hL, hR]
+
+/-- `ved_state_split`: the variable `v` found by `stateSplitVar`; the goal splits into the cases `v.toNat = 0 .. 2^w - 1` (`Or` chain proved by `omega` from `v.isLt`), and in the case `k`
+the reads `v.toNat` of the TARGET are replaced by the literal `k` (the context is not touched: no `subst`, which reverts and re-introduces every hypothesis that mentions `v`, 260k heartbeats
+per case on R033 goal 48; the case hypothesis `v.toNat = k` stays for `omega`). No such variable: a refusal. -/
+elab "ved_state_split" : tactic => do
+  let g ← getMainGoal
+  let hb0 ← IO.getNumHeartbeats
+  let stage {α} (nm : String) (m : MetaM α) : MetaM α := do
+    let h ← IO.getNumHeartbeats
+    let r ← try m catch e => throwError "ved_state_split[{nm}]: {e.toMessageData}"
+    Tools.VedMemLoop.dbgLog s!"state_split {nm}: hb(k)={((← IO.getNumHeartbeats) - h) / 1000} total {((← IO.getNumHeartbeats) - hb0) / 1000}"
+    pure r
+  let some (v, w) ← stateSplitVar g | throwError "ved_state_split: no small variable with at least {stateSplitMinConds} comparisons x.toNat = k"
+  let n := 2 ^ w
+  let rd ← stage "rd" <| g.withContext (mkAppM ``BitVec.toNat #[v])
+  let natT := mkConst ``Nat
+  let cs ← natCasesProp rd 0 n
+  let (hcF, g3) ← stage "cases-prop" <| g.withContext do
+    let hhi ← mkAppM ``BitVec.isLt #[v]
+    let hlt ← mkAppM ``LT.lt #[rd, ← mkNumeral natT n]
+    unless ← isDefEq (← inferType hhi) hlt do throwError "bound: 2^w is not {n}"
+    let hhi' ← mkExpectedTypeHint hhi hlt
+    let pr ← natCasesProof rd (← mkAppM ``Nat.zero_le #[rd]) hhi' 0 n
+    unless ← isDefEq (← inferType pr) cs do throwError "bound has the wrong type"
+    (← g.assert `ved_sv_cs cs pr).intro1P
+  let tgt ← instantiateMVars (← g.getType)
+  let rec casesLoop (g : MVarId) (h : FVarId) (k : Nat) : MetaM (List MVarId) := do
+    let caseGoal (g : MVarId) (h : FVarId) : MetaM MVarId := g.withContext do
+      let lit ← mkNumeral natT k
+      let tgt' := tgt.replace fun e => if e == rd then some lit else none
+      let lam := Expr.lam `ved_x natT (tgt.replace fun e => if e == rd then some (.bvar 0) else none) .default
+      g.replaceTargetEq tgt' (← mkCongrArg lam (mkFVar h))
+    if k + 1 >= n then
+      return [← caseGoal g h]
+    else
+      let subs ← g.cases h
+      let some s1 := subs[0]? | throwError "ved_state_split: cases"
+      let some s2 := subs[1]? | throwError "ved_state_split: cases"
+      let g1' ← caseGoal s1.mvarId s1.fields[0]!.fvarId!
+      return g1' :: (← casesLoop s2.mvarId s2.fields[0]!.fvarId! (k + 1))
+  let gs ← stage "cases" <| g3.withContext <| casesLoop g3 hcF 0
+  stateSplitBranches.modify (· + gs.length)
+  replaceMainGoal gs
+
+/-- `ved_state_simp`: the target of EVERY goal simplified by the decide-able part of the case conditions (literal comparisons, `if` of a literal condition, the 0/1 flags `(if p then 1 else 0) % 2 = 1 / 0`, the bit operations on
+literals, `x % m` of an `if`): ONE simp context for all the goals (the context of the simp set is built once, not per branch: 100k+ heartbeats each); goals the simp does not change are kept. -/
+elab "ved_state_simp" : tactic => do
+  let stx ← `(tactic| simp only [Nat.reduceEqDiff, Nat.reduceMod, Nat.reduceAdd, Nat.reducePow, Nat.reduceAnd, Nat.reduceOr, Nat.reduceXor, ↓reduceIte, true_and, and_true, false_and, and_false,
+    false_or, or_false, true_or, or_true, and_self, not_true_eq_false, not_false_eq_true, if_true, if_false, ite10_mod2, ite10_mod2_z, ite10_eq1, ite10_eq0, Classical.not_not, mux_mod,
+    Nat.zero_and, Nat.and_zero, Nat.zero_or, Nat.or_zero, Nat.zero_xor, Nat.xor_zero, Nat.zero_mod])
+  let sc ← mkSimpContext stx (eraseLocal := false)
+  let mut out : Array MVarId := #[]
+  for g in ← getGoals do
+    let r ← try g.withContext (some <$> Meta.simpTarget g sc.ctx sc.simprocs (← sc.dischargeWrapper.with fun d? => pure d?)) catch _ => pure none
+    match r with
+    | some (some g', _) => out := out.push g'
+    | some (none, _) => pure ()
+    | none => out := out.push g
+  setGoals out.toList
+
 /-- `ved_local_new_gate`: refuses unless `ved.mem.s94Addr` or `ved.mem.s94HypSplit` is on (the second alternative of `ved_local_close` exists only for those) -/
 elab "ved_local_new_gate" : tactic => do
   unless ved.mem.s94Addr.get (← getOptions) || ved.mem.s94HypSplit.get (← getOptions) do throwError "ved_local_new_gate: no s94u option is on"
@@ -885,6 +1092,33 @@ macro "ved_local_close_spell" : tactic =>
              all_goals (ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *); (try ved_ite_div)
                         all_goals (ved_bv_bounds
                                    (try simp only [mux_mod]); first | ved_mux | ved_hyp_split_omega_g))))
+
+/-- `ved_state_gate`: refuses unless `ved.mem.s94StateSplit` is on (and the test seam `stateSplitRefuse` is off) -/
+elab "ved_state_gate" : tactic => do
+  unless ved.mem.s94StateSplit.get (← getOptions) do throwError "ved_state_gate: option ved.mem.s94StateSplit is off"
+  if ← stateSplitRefuse.get then throwError "ved_state_gate: refused (test seam)"
+
+/-- the closer of one branch of the state split (a small goal: the literal conditions are decided, the rest are linear `if`s of a few atoms): its own cone, the bounds of its variables, `ved_split_omega`;
+the bit operations on 0/1 flags by `split` and the literal simprocs -/
+macro "ved_state_branch" : tactic =>
+  `(tactic| (ved_cone_clear; ved_bv_bounds_t
+             first
+             | (simp only [mux_mod]; done)
+             | ((try simp only [mux_mod]); ved_split_omega)
+             | ((repeat' split) <;> (try simp only [Nat.reduceAnd, Nat.reduceOr, Nat.reduceXor, Nat.reduceMod, Nat.reduceAdd, Nat.reducePow, Nat.reduceEqDiff, ↓reduceIte, true_and, and_true, false_and, and_false] at *) <;> omega)))
+
+/-- `ved_local_close_state` (s94w; refused unless `ved.mem.s94StateSplit` is on): the fourth attempt of `ved_local_goal`, under its own limit `stateCapK` (the earlier ones did not close the goal): the cone, the
+conjunctions of bounds cut to the atoms of the target (`ved_conj_prune`), then the ite tower decided by ONE case split on the value of the state variable (`ved_state_split`, `ved_state_simp`) and one
+`omega` per remaining branch; with no state variable (fewer than `stateSplitMinConds` comparisons `x.toNat = k` in the target) only the pruned context is used (`ved_mux`) -/
+macro "ved_local_close_state" : tactic =>
+  `(tactic| (ved_state_gate; ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *)
+             (try ved_conj_prune)
+             first
+             | (ved_state_split; ved_state_simp; all_goals ved_state_branch)
+             | (ved_bv_bounds; first | (simp only [mux_mod]; done) | ((try simp only [mux_mod]); ved_mux))))
+
+/-- the heartbeat limit of the separate attempt `ved_local_close_state` (thousands; R033 goals 23 46 48 49 57: 7 .. 15M) -/
+def stateCapK : Nat := 16000
 
 /-- the heartbeat limit of the separate attempt `ved_local_close_spell` (thousands; the proof of the port equation 3M, the rewrite 0.1M, the closing arithmetic 6M on R033 goals 152 158) -/
 def spellCapK : Nat := 12000
@@ -915,6 +1149,17 @@ elab "ved_local_goal" : tactic => do
         withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then spellCapK * 1000 else min c.maxHeartbeats (spellCapK * 1000)), initHeartbeats := hb1 }) do
           withoutRecover (evalTactic (← `(tactic| ved_local_close_spell)))
         if ← localFailLate.get then throwError "ved_local_goal: failed after its work (test seam)"
+        pure true)
+      (fun _ => pure false)
+  -- the separate attempt of `ved.mem.s94StateSplit` (own limit), on the restored state
+  let r ← if r || !ved.mem.s94StateSplit.get (← getOptions) then pure r else do
+    st.restore
+    let hb2 ← IO.getNumHeartbeats
+    tryCatchRuntimeEx
+      (do
+        withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then stateCapK * 1000 else min c.maxHeartbeats (stateCapK * 1000)), initHeartbeats := hb2 }) do
+          withoutRecover (evalTactic (← `(tactic| ved_local_close_state)))
+        if ← stateSplitFailLate.get then throwError "ved_local_goal: failed after its work (test seam)"
         pure true)
       (fun _ => pure false)
   if r then localHits.modify (· + 1)
