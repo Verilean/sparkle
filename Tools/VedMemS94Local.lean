@@ -1182,6 +1182,16 @@ def decideIte (g : MVarId) (c hc : Expr) (pos : Bool) : MetaM MVarId := do
         g.replaceTargetEq T' (← mkExpectedTypeHint (← mkAppM ``congrArg #[motive, h]) (← mkEq tgt T'))
   return g
 
+/-- the fewest `ite` DAG nodes of a target for `ved_cond_split` (R033: the towers of 33 34 (85) 62 (54) 53 (> 40); the small branches that the old closers close have <= 25) -/
+def condSplitMinIte : Nat := 30
+
+/-- `ved_cond_gate`: refused unless `ved.mem.s94CondSplit` is on (no work before the refusal) -/
+elab "ved_cond_gate" : tactic => do
+  unless ved.mem.s94CondSplit.get (← getOptions) do throwError "ved_cond_gate: option ved.mem.s94CondSplit is off"
+  -- only a tower (at least `condSplitMinIte` distinct `if` nodes): a small goal is closed by the old closers for 0.1 .. 3M and must keep its budget
+  let tgt ← instantiateMVars (← (← getMainGoal).getType)
+  if (collectDag (fun x => x.isAppOfArity ``ite 5) tgt).size < condSplitMinIte then throwError "ved_cond_gate: fewer than {condSplitMinIte} if nodes"
+
 partial def condSplitGo (depth : Nat) : TacticM Unit := do
   let hc := mkIdent `ved_hc
   let g ← getMainGoal
@@ -1309,6 +1319,7 @@ macro "ved_state_leaf_body" : tactic =>
   `(tactic| (ved_cone_clear; (try ved_spell_unify); (try ved_read_lift); ved_bv_bounds_t
              first
              | (simp only [mux_mod]; done)
+             | (ved_cond_gate; (try simp only [mux_mod]); ved_cond_split 12)
              | ((try simp only [mux_mod]); ved_or_gate; ved_split_omega_o)
              | ((try simp only [mux_mod]); ved_split_omega)
              | (ved_mul_opt_gate; (try ved_cond_norm); (try ved_read_bounds); ved_bv_bounds; (try simp only [mux_mod]); (repeat' split)
