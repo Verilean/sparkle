@@ -48,11 +48,15 @@ def packRatioMin : Nat := 20000
 
 elab "ved_ss_pack_share" : tactic => do
   let gs ← Tactic.getGoals
+  -- `VED_MS_LOG` (diagnostics only): a failure to write the log never changes the outcome of the tactic
+  let logOn := (← IO.getEnv "VED_MS_LOG").isSome
   let log : String → Tactic.TacticM Unit := fun m => do
     if let some path ← IO.getEnv "VED_MS_LOG" then
-      let h ← IO.FS.Handle.mk path .append
-      h.putStrLn m
-      h.flush
+      try
+        let h ← IO.FS.Handle.mk path .append
+        h.putStrLn m
+        h.flush
+      catch _ => pure ()
   let local' : Nat → Tactic.TacticM Bool → Tactic.TacticM Bool := fun n x => do
     let hb ← IO.getNumHeartbeats
     withTheReader Core.Context (fun c =>
@@ -84,10 +88,10 @@ elab "ved_ss_pack_share" : tactic => do
           tryCatchRuntimeEx
             (local' packGoalHb (do Tactic.withoutRecover (Tactic.evalTactic (← `(tactic| ved_wire_bits))); pure true))
             fun e => do
-              log s!"VED PK goal {i} wire_bits-first runtime failure after {(← IO.monoMsNow) - t0}ms: {(← e.toMessageData.toString).take 600}"
+              if logOn then log s!"VED PK goal {i} wire_bits-first runtime failure after {(← IO.monoMsNow) - t0}ms: {(← e.toMessageData.toString).take 600}"
               if e.isRuntime then pure false else throw e
         catch e =>
-          log s!"VED PK goal {i} wire_bits-first failed after {(← IO.monoMsNow) - t0}ms: {(← e.toMessageData.toString).take 600}"
+          if logOn then log s!"VED PK goal {i} wire_bits-first failed after {(← IO.monoMsNow) - t0}ms: {(← e.toMessageData.toString).take 600}"
           pure false
       if ok0 then
         how := "ratio:wire_bits"

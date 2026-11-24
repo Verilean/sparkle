@@ -1265,7 +1265,9 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
             if fbStamps then Tools.VedU1ScriptSeq.stageFail (Tools.VedU1ScriptSeq.stageReason e)
             refuse decl "proof" e.toMessageData
     -- `VED_MS_LOG` (debugging only, default unset): the proof is elaborated; the kernel starts next
+    -- a failure to write this log is absorbed: it never refuses or changes a proof
     if let some path ← IO.getEnv "VED_MS_LOG" then
+     try
       let h ← IO.FS.Handle.mk path .append
       h.putStrLn s!"VED MS elaborated {← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000}k (kernel next)"
       let mut seen : Std.HashSet Lean.Expr := {}
@@ -1285,6 +1287,7 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
         | _ => pure ()
       h.putStrLn s!"VED MS proof dag={seen.size}"
       h.flush
+     catch _ => pure ()
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
       let first ← match errs.drop errsBefore with
@@ -1299,9 +1302,11 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     if let some path ← IO.getEnv "VED_KBISECT" then
       kBisect path ((← IO.getEnv "VED_KBISECT_DUMP").bind String.toNat?) pf
     if let some path ← IO.getEnv "VED_MS_LOG" then
-      let h ← IO.FS.Handle.mk path .append
-      h.putStrLn s!"VED MS kernel start {← IO.monoMsNow}"
-      h.flush
+      try
+        let h ← IO.FS.Handle.mk path .append
+        h.putStrLn s!"VED MS kernel start {← IO.monoMsNow}"
+        h.flush
+      catch _ => pure ()
     -- the kernel, synchronously, with EXACTLY the expected type
     tryCatchRuntimeEx
       (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do

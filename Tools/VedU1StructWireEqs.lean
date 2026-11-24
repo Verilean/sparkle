@@ -162,11 +162,15 @@ elab "ved_ss_wiresimp " h:ident " [" ls:Lean.Parser.Tactic.simpLemma,* "]" : tac
   let sig := rhs.getArg! 2
   let s := rhs.getArg! 3
   let t0 ← IO.monoMsNow
+  -- `VED_MS_LOG` (diagnostics only): nothing is formatted when it is unset, and a failure to write never changes the outcome
+  let logOn := (← IO.getEnv "VED_MS_LOG").isSome
   let logF : String → IO Unit := fun m => do
     if let some path ← IO.getEnv "VED_MS_LOG" then
-      let hd ← IO.FS.Handle.mk path .append
-      hd.putStrLn m
-      hd.flush
+      try
+        let hd ← IO.FS.Handle.mk path .append
+        hd.putStrLn m
+        hd.flush
+      catch _ => pure ()
   -- (1) `applyIns` unfolded: a closed signal term
   let sig1 ← if sig.isAppOfArity ``Tools.VedU1Contract.applyIns 5 then
       let a := sig.getAppArgs
@@ -211,14 +215,14 @@ elab "ved_ss_wiresimp " h:ident " [" ls:Lean.Parser.Tactic.simpLemma,* "]" : tac
         let f ← ppExpr (dd.value?.getD (mkConst ``True))
         pure (f.pretty.take 2500).toString
       logF s!"VED WIRES CUT {j}: {txt}"
-    let stats ← withMainContext do
+    let stats ← if !logOn then pure "" else withMainContext do
       let dd ← fv.getDecl
       let v := dd.value?.getD (mkConst ``True)
       let (dg, tr) := Tools.VedU1StructSlice.dagTree v
       pure s!"dag={dg} tree={tr} depth={((Tools.VedU1StructSlice.depthOf v).run' {})}"
     -- simplified by the stage's own set; a lemma the simp removes (or cannot change) is left out of the rewrite list
     tryCatchRuntimeEx (evalTactic (← `(tactic| ved_ss_core_simp_big [$ls,*] at $hid:ident)))
-      fun e => do logF s!"VED WIRES hV{j} ({stats}) simp failed: {(← e.toMessageData.toString).take 200}"
+      fun e => do if logOn then logF s!"VED WIRES hV{j} ({stats}) simp failed: {(← e.toMessageData.toString).take 200}"
     let has ← withMainContext do pure ((← getLCtx).findFromUserName? nm).isSome
     if has then hVs := hVs.push nm
     j := j + 1
@@ -230,7 +234,7 @@ elab "ved_ss_wiresimp " h:ident " [" ls:Lean.Parser.Tactic.simpLemma,* "]" : tac
     let hids : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
       (hVs.reverse.map mkIdent).mapM fun i => `(Lean.Parser.Tactic.simpLemma| $i:ident)
     tryCatchRuntimeEx (evalTactic (← `(tactic| simp (config := { maxSteps := 4000000 }) only [$hids,*] at $h:ident)))
-      fun e => do logF s!"VED WIRES atoms simp failed: {(← e.toMessageData.toString).take 200}"
+      fun e => do if logOn then logF s!"VED WIRES atoms simp failed: {(← e.toMessageData.toString).take 200}"
   let t4 ← IO.monoMsNow
   -- (5) the loops put back (`ved_ss_wit` looks for `Signal.loop F` in the value), the context as the unchanged stage leaves it
   for fv in st.loops do

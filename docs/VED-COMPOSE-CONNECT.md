@@ -344,7 +344,7 @@ Checks: `Tests/Ved/U1StructNamedCheck.lean` (appended): `chainN` with slice+zeta
 
 ## Unit 25: `wPointOp`'s first refusal is a looping `mux_val` rewrite, not nesting depth (`ved.sseq.muxCond`); per-wire value lemmas of the source value (`ved.sseq.wireEqs`) (observed, single runs; not a ledger row; coverage not updated; `U2HRStmtK` unchanged, reviewed-scope candidate only)
 
-Not claimed: DAG sharing / performance complete; `wPointOp` is NOT accepted; no real-IP row succeeded here. All new options default off.
+Not claimed: DAG sharing / performance complete; `wPointOp` is NOT accepted; no real-IP row succeeded here. The new options default off, with two exceptions: `ved.sseq.ratio` defaults to TRUE (= the previous behaviour; `false` is the new route), and `ved.sseq.fastOrder` is set on automatically for the struct children of the `ved.compose.multiOut` route (Tools/VedU2HierRegEntry.lean).
 
 **What the source value is.** After `ved_ss_zeta` the value of `hvsrc` is not a DAG of `Signal` nodes but the monadic program of `circuit do` applied to its register handles (`(fun _cdoRegs => Prod.casesOn .. (fun g0 _rest => .. (fun x b => ..) ((), v).fst ((), v).snd ..)) (mkRegList (Signal.loop F) ..) (mkHolds ..)).fst.o0`): the user's wires are inlined under lambdas with loose bound variables, and `simp` also enters `F`, the loop body.
 

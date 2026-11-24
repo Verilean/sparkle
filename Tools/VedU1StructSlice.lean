@@ -20,8 +20,9 @@ The local facts used here, all unconditional in the data (only literal side cond
 
 Applied from the innermost read outwards, a read of register `k` (any depth) becomes `x_k % 2^{w_k}` after `k` uses of
 `ved_slice_mod` / `ved_slice_modM` and one of `ved_slice_div`: the per-register slice fact
-`(pack x₀ … x_{K-1}) / 2^{a_k} % 2^{w_k} = x_k % 2^{w_k}` is the composite of these, proved by one generic induction, not
-once per register by `omega`/`simp` over the whole pack.
+`(pack x₀ … x_{K-1}) / 2^{a_k} % 2^{w_k} = x_k % 2^{w_k}` is the composite of these: it is obtained by applying the three
+local lemmas repeatedly (as simp lemmas, the literals matched by the unifier), not by one generic induction and not once per
+register by `omega`/`simp` over the whole pack.
 -/
 
 namespace Tools.VedU1StructSlice
@@ -224,9 +225,12 @@ elab "ved_ss_zeta " h:ident " [" ns:ident,* "]" : tactic => withMainContext do
     let (d1, tr1) := dagTree ty'
     let dp0 := ((depthOf ty).run' {})
     let dp1 := ((depthOf ty').run' {})
-    let hd ← IO.FS.Handle.mk path .append
-    hd.putStrLn s!"VED ZETA {h.getId}: lets={st.lets} deltas={st.deltas} before dag={d0} tree={tr0} depth={dp0}; after dag={d1} tree={tr1} depth={dp1}; {t1 - t0}ms"
-    hd.flush
+    -- diagnostics only: a failure to write the log never changes the outcome
+    try
+      let hd ← IO.FS.Handle.mk path .append
+      hd.putStrLn s!"VED ZETA {h.getId}: lets={st.lets} deltas={st.deltas} before dag={d0} tree={tr0} depth={dp0}; after dag={d1} tree={tr1} depth={dp1}; {t1 - t0}ms"
+      hd.flush
+    catch _ => pure ()
   let g ← getMainGoal
   replaceMainGoal [← g.replaceLocalDeclDefEq d.fvarId ty']
 
