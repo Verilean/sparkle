@@ -7,6 +7,7 @@ attempts, reuse only on identical identity, harness-error rows, COMPLETE /
 INCOMPLETE) with the U1 generator/classifier (u1_gen.py).  A row is run once
 per route; the route is the case's "setting": `u1`, `u1_deep`, `u1_deep_ns`, `u1_hier`,
 `u2_hier` (H2a, `#ved_u2_hier`; its own route and its own "standard + u2_hier" union),
+`u2_hier_compose` (u2_hier with four route options; own route and own "standard + u2_hier + u2_hier_compose" union),
 `u1_packed` (packed-port results, `#ved_u1_packed`; its own route and its own
 "standard + packed" union, never merged into the older unions).
 
@@ -46,7 +47,8 @@ import u1_gen  # noqa: E402
 UNION_COLUMNS = (["row", "file", "line", "command", "top"]
                  + [f"{rt}_strict" for rt in u1_gen.ROUTES]
                  + ["union_std_strict", "union_strict", "union_strict_routes", "union_std_hier_strict",
-                    "union_std_packed_strict", "union_std_packed_routes", "union_std_u2hier_strict"]
+                    "union_std_packed_strict", "union_std_packed_routes", "union_std_u2hier_strict",
+                    "union_std_u2hier_compose_strict"]
                  + [f"{rt}_first_cause" for rt in u1_gen.ROUTES]
                  + [f"{rt}_status" for rt in u1_gen.ROUTES]
                  + [f"{rt}_prep_status" for rt in u1_gen.DEEP_ROUTES] + ["invocation"])
@@ -61,6 +63,7 @@ STD_ROUTES = ("u1", "u1_deep")
 NS_UNION_ROUTES = ("u1", "u1_deep", "u1_deep_ns")
 STD_PACKED_ROUTES = STD_ROUTES + ("u1_packed",)
 STD_U2HIER_ROUTES = STD_ROUTES + ("u2_hier",)   # its own union; never merged into the others
+STD_U2HIER_COMPOSE_ROUTES = STD_U2HIER_ROUTES + ("u2_hier_compose",)   # standard + u2_hier + u2_hier_compose
 
 
 def tri(recs, ok_all, routes):
@@ -113,6 +116,8 @@ def union_rows(records):
              "union_std_packed_strict": tri(recs, ok_all, STD_PACKED_ROUTES), "union_std_packed_routes": ",".join(okp),
              # standard routes plus u2_hier (H2a), reported separately
              "union_std_u2hier_strict": tri(recs, ok_all, STD_U2HIER_ROUTES),
+             # standard routes plus u2_hier plus u2_hier_compose (the row rule with 8 routes), reported separately
+             "union_std_u2hier_compose_strict": tri(recs, ok_all, STD_U2HIER_COMPOSE_ROUTES),
              "invocation": base.get("invocation", "")}
         for rt in u1_gen.ROUTES:
             a = recs[rt]
@@ -158,6 +163,11 @@ def summary_lines(records, union):
                  f"distinct_rows={len(union)} returned_IR_strict_rows_std_plus_u2_hier={s2}{nd(s2_u)} "
                  f"{add_txt('union_std_u2hier_strict', 'u2_hier')} "
                  f"strict_by_u2_hier={sum(1 for u in union if u['u2_hier_strict'] == 'yes')}")
+    s3, s3_u = ycount(union, "union_std_u2hier_compose_strict")
+    lines.append(f"union (standard + u2_hier + u2_hier_compose; reported separately): "
+                 f"distinct_rows={len(union)} returned_IR_strict_rows_std_plus_u2_hier_plus_compose={s3}{nd(s3_u)} "
+                 f"{add_txt('union_std_u2hier_compose_strict', 'u2_hier_compose')} "
+                 f"strict_by_u2_hier_compose={sum(1 for u in union if u['u2_hier_compose_strict'] == 'yes')}")
     lines.append("  (not: main's ordinary command succeeds as is / production route / release; "
                  "u1_deep refusals caused by the name lookup stay recorded)")
     lines.append("first_cause cross table (records):")

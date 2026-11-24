@@ -122,7 +122,24 @@ from u0_gen import (INV_BLOB, INV_COMMIT, INV_PATH, INV_ROWS, die, git_show_inve
 # <ved_mod> <stmt>` and checks the slice map against the packing rule computed
 # from the declaration's TYPE.  Reported as its own route: the standard union
 # stays u1 + u1_deep, and "standard + packed" is a separate union.
-ROUTES = ("u1", "u1_deep", "u1_deep_ns", "u1_hier", "u1_packed", "u2_hier", "u1_mem_packed")
+# u2_hier_compose (measurement only): EXACTLY the u2_hier block (same entry `#ved_u2_hier`, imports, probe,
+# stages) with ROUTE_OPTIONS set after the row's own options (as `set_option ... in` lines before the entry).
+# It behaves as u2_hier everywhere (BASE_ROUTE); the route name and the option list enter every record
+# (setting/route and the lean_options column).  Never in a default ROUTES list of u1_full.sh.
+ROUTES = ("u1", "u1_deep", "u1_deep_ns", "u1_hier", "u1_packed", "u2_hier", "u1_mem_packed", "u2_hier_compose")
+BASE_ROUTE = {"u2_hier_compose": "u2_hier"}
+ROUTE_OPTIONS = {"u2_hier_compose": ["ved.compose.step true", "ved.compose.connect true",
+                                     "sparkle.deepExportState true", "ved.compose.multiCircuit true"]}
+
+
+def base_route(route):
+    """The route whose behaviour `route` has (a route that only adds options maps to its base)."""
+    return BASE_ROUTE.get(route, route)
+
+
+def route_lean_options(r, route):
+    """The Lean options of a case: the row's own, then the route's own (none for the 7 older routes)."""
+    return lean_option_lines(r["options"], "default") + ROUTE_OPTIONS.get(route, [])
 # u1_mem_packed (measurement only): `#ved_write_checked mem_packed <the #writeDesign arguments>` (the memory
 # entry Tools/VedMemEntry.lean through Tools/VedWriteChecked.lean).  Own probe (MEM_PROBE_DEF, independent
 # of the tool): statement `MemPackedStmt <ved_contract> <ved_mod> <stmt>` rebuilt, theorem `<decl>.ved_mem`,
@@ -130,19 +147,19 @@ ROUTES = ("u1", "u1_deep", "u1_deep_ns", "u1_hier", "u1_packed", "u2_hier", "u1_
 # regenerates from the registered `ved_mod`.  Never in a default ROUTES list.
 MEM_ROUTES = ("u1_mem_packed",)
 PACKED_LIKE = ("u1_packed", "u1_mem_packed")
-HIER_ROUTES = ("u1_hier", "u2_hier")
+HIER_ROUTES = ("u1_hier", "u2_hier", "u2_hier_compose")
 DEEP_ROUTES = ("u1_deep", "u1_deep_ns")
 STD_ROUTES = ("u1", "u1_deep", "u1_deep_ns")
 ENTRY_CMD = {"u1": "#ved_u1", "u1_deep": "#ved_u1_deep", "u1_deep_ns": "#ved_u1_deep",
              "u1_hier": "#ved_u1_hier", "u1_packed": "#ved_u1_packed", "u1_mem_packed": "#ved_u1_mem_packed",
-             "u2_hier": "#ved_u2_hier"}
+             "u2_hier": "#ved_u2_hier", "u2_hier_compose": "#ved_u2_hier"}
 # `#writeDesign decl "x.sv" "x_cppsim.h" [wires]` rows (inventory command `#writeDesign` with arguments)
 # are routed per setting to `#ved_write_checked KIND <the same arguments>` (Tools/VedWriteChecked.lean,
 # one synthesis, the entry's checker on it, the guard, then the writer).  u1_deep / u1_deep_ns stay
 # unsupported-invocation (they have no write form).  The command WRITES the .sv / _cppsim.h / _jit.c
 # files, so the two path arguments are rewritten to a case-local directory (`written/` next to the case
 # directory, outside the source tree); the declaration and the wires identifier are kept as written.
-WRITE_KIND = {"u1": "u1", "u1_packed": "packed", "u1_mem_packed": "mem_packed", "u1_hier": "u1_hier", "u2_hier": "u2_hier"}
+WRITE_KIND = {"u1": "u1", "u1_packed": "packed", "u1_mem_packed": "mem_packed", "u1_hier": "u1_hier", "u2_hier": "u2_hier", "u2_hier_compose": "u2_hier"}
 WRITE_CMD = "#writeDesign"
 WRITE_IMPORTS = ["Tools.VedWriteChecked", "Tools.VedStrictAudit"]
 WRITE_OK_PREFIX = "VED WRITE CHECKED OK "
@@ -152,7 +169,8 @@ IMPORTS = {"u1_packed": ["Tools.VedU1PackedEntry", "Tools.VedStrictAudit"],
            "u1_deep": ["Tools.VedU1Deep", "Tools.VedStrictAudit"],
            "u1_deep_ns": ["Tools.VedU1Deep", "Tools.VedStrictAudit"],
            "u1_hier": ["Tools.VedU1HierEntry", "Tools.VedStrictAudit"],
-           "u2_hier": ["Tools.VedU2HierRegEntry", "Tools.VedStrictAudit"]}
+           "u2_hier": ["Tools.VedU2HierRegEntry", "Tools.VedStrictAudit"],
+           "u2_hier_compose": ["Tools.VedU2HierRegEntry", "Tools.VedStrictAudit"]}
 STD3 = {"propext", "Classical.choice", "Quot.sound"}
 # pipeline order inside the entry, for "later stages not reached"
 PIPELINE = ["table", "multi-output", "synthesis", "artifact", "order", "type", "proof", "kernel", "audit"]
@@ -697,13 +715,13 @@ def write_command(route, args, wdir):
 def block_pieces(r, route, ns, write_cmd=None):
     """[(segment, text)] in order; segment is None for plumbing.  `write_cmd` replaces the entry
     command of the U1 step (a `#writeDesign` row routed to `#ved_write_checked`)."""
-    opts = lean_option_lines(r["options"], "default")
+    opts = route_lean_options(r, route)
     prefix = "".join(f"set_option {o} in\n" for o in ["Elab.async false"] + opts)
     top, q = r["top"], r["qualified"] or ""
     sub = lambda s: s.replace("@TOP@", top).replace("@Q@", q)
     hier = route in HIER_ROUTES
     p = [(None, f"-- ===== VED U1 BEGIN row {r['row']} route {route} (inventory {INV_COMMIT[:8]}) ====="),
-         (None, f"namespace {ns}"), (None, TIMER), ("pre", sub(PRE_PROBE_U2 if route == "u2_hier" else PRE_PROBE_HIER if hier else MEM_PRE_PROBE if route in MEM_ROUTES else PRE_PROBE))]
+         (None, f"namespace {ns}"), (None, TIMER), ("pre", sub(PRE_PROBE_U2 if base_route(route) == "u2_hier" else PRE_PROBE_HIER if hier else MEM_PRE_PROBE if route in MEM_ROUTES else PRE_PROBE))]
     if hier:
         p.append((None, EVAL_HELP))
     if route == "u1_deep_ns":
@@ -735,7 +753,7 @@ def block_pieces(r, route, ns, write_cmd=None):
     else:
         # the probe evaluates `toExpr` values back (`Meta.evalExpr` reads the OPTION maxRecDepth): a 256-entry
         # table module exceeds the default 512, so the probe (measurement only) gets a larger finite limit
-        probe = [("probe", PROBE_RECDEPTH + sub(PROBE_HIER_U2 if route == "u2_hier" else PROBE_HIER if hier else PROBE))]
+        probe = [("probe", PROBE_RECDEPTH + sub(PROBE_HIER_U2 if base_route(route) == "u2_hier" else PROBE_HIER if hier else PROBE))]
         if route in STD_ROUTES:
             probe.insert(0, ("probe", BUNDLE_DEF))
     p += probe + [("probe", '#vedu1_t "probe_end"'),
@@ -816,7 +834,7 @@ def cmd_gen(a):
     meta.update(inv_commit=a.commit, inv_blob=a.blob, setting=route, route=route, invocation=inv,
                 invocation_detail=detail, run=run, module=module_of(r["file"]),
                 base=r["top"].split(".")[-1], ns_suffix=f"VedU1Case_R{r['row']}",
-                lean_options=lean_option_lines(r["options"], "default"),
+                lean_options=route_lean_options(r, route),
                 scan_private=scan["private"], scan_decl_seen=scan["decl_seen"], kind="row",
                 async_false=True)
     if run:
@@ -890,7 +908,7 @@ def first_line(s, n=200):
 
 
 def later_stages(stage, route=""):
-    pipe = U2_HIER_PIPELINE if route == "u2_hier" else HIER_PIPELINE if route == "u1_hier" else PIPELINE_MEM if route in MEM_ROUTES else PIPELINE_PACKED if route == "u1_packed" else PIPELINE
+    pipe = U2_HIER_PIPELINE if base_route(route) == "u2_hier" else HIER_PIPELINE if route == "u1_hier" else PIPELINE_MEM if route in MEM_ROUTES else PIPELINE_PACKED if route == "u1_packed" else PIPELINE
     if stage in pipe:
         return ";".join(pipe[pipe.index(stage) + 1:])
     return ""
@@ -953,7 +971,7 @@ def hier_probe(row, ptext, okm, u1, route=""):
     row["probe_ports"] = m.group(1) if m else ""
     if row["probe_ports"] != "ok":
         bl.append(f"ports:{row['probe_ports'] or 'unknown'}")
-    if route == "u2_hier":
+    if base_route(route) == "u2_hier":
         m = g(r"VED U1P EXPSTMT (U2HR?Stmt) registers=(\w+)")
         row["probe_expected_stmt"] = f"{m.group(1)} registers={m.group(2)}" if m else ""
         if not m or m.group(2) not in ("true", "false"):
@@ -979,7 +997,7 @@ def classify_dir(d, sv_group=""):
     row["cleared_env"] = ";".join(ident.get("cleared_env", []))
     row["stdout_ref"] = os.path.join(d, "stdout.txt")
     row["stderr_ref"] = os.path.join(d, "stderr.txt")
-    row["prep_status"] = "n/a" if route in ("u1", "u1_hier", "u1_packed", "u1_mem_packed", "u2_hier") else "not-run"
+    row["prep_status"] = "n/a" if route in ("u1", "u1_hier", "u1_packed", "u1_mem_packed", "u2_hier", "u2_hier_compose") else "not-run"
     if not meta.get("run"):
         row.update(ran="no", strict_counted="no", strict_blockers=meta["invocation"],
                    first_cause=meta["invocation"], u1_status="not-reached(unsupported)",
@@ -1044,7 +1062,7 @@ def classify_dir(d, sv_group=""):
             row["ns_check"] = f"absent({len(wraps)} wraps)"
     else:
         row["ns_scope"] = row["ns_check"] = row["ns_detail"] = row["ns_mode"] = "n/a"
-    row["prep_command"] = ("n/a" if route in ("u1", "u1_hier", "u1_packed", "u1_mem_packed", "u2_hier") else
+    row["prep_command"] = ("n/a" if route in ("u1", "u1_hier", "u1_packed", "u1_mem_packed", "u2_hier", "u2_hier_compose") else
                            ("#vedu1_in_declns " if route == "u1_deep_ns" else "") + f"#verify_elab_deep {meta.get('top', '')}")
     write_cmd = meta.get("write_cmd", "")
     row["u1_command"] = write_cmd or (("#vedu1_in_declns " if route == "u1_deep_ns" else "") + f"{ENTRY_CMD[route]} {meta.get('top', '')}")
@@ -1091,7 +1109,7 @@ def classify_dir(d, sv_group=""):
     u1 = in_seg("u1")
     u1_errs = [t for ln, sev, t in u1 if sev == "error"]
     # u1_packed: the tool's own `VED U1 PACKED OK` line; a plain `VED U1 OK` is not accepted there
-    ok_prefix = (WRITE_OK_PREFIX if write_cmd else "VED U2 HIER OK " if route == "u2_hier" else "VED U1 HIER OK " if route == "u1_hier" else
+    ok_prefix = (WRITE_OK_PREFIX if write_cmd else "VED U2 HIER OK " if base_route(route) == "u2_hier" else "VED U1 HIER OK " if route == "u1_hier" else
                  "VED U1 PACKED OK " if route == "u1_packed" else "VED U1 MEM PACKED OK " if route in MEM_ROUTES else "VED U1 OK ")
     okm = next((re.match(re.escape(ok_prefix) + r"(\S+)( \(specialised at defaultDomain\))?:", t)
                 for ln, sev, t in u1 if t.startswith(ok_prefix)), None)
@@ -1359,7 +1377,7 @@ def main():
     sub.add_parser("header")
     g = sub.add_parser("gen")
     g.add_argument("--row", required=True)
-    g.add_argument("--setting", required=True, help="route: u1 | u1_deep | u1_deep_ns | u1_hier | u1_packed | u2_hier")
+    g.add_argument("--setting", required=True, help="route: u1 | u1_deep | u1_deep_ns | u1_hier | u1_packed | u2_hier | u1_mem_packed | u2_hier_compose")
     g.add_argument("--dir", required=True)
     c = sub.add_parser("classify")
     c.add_argument("case_dir")

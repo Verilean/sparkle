@@ -64,7 +64,7 @@ def main():
                     f"{'match' if qual == resolved else 'mismatch'}", pre)
         p = plan.get("pre", {})
         extra = ""
-        if m and m.group(2) in ("u1_hier", "u2_hier"):
+        if m and m.group(2) in ("u1_hier", "u2_hier", "u2_hier_compose"):
             extra = f" design={str(p.get('design', False)).lower()} child={str(p.get('child', False)).lower()}"
         msg("info", f"VED U1P PRE thm={str(p.get('thm', False)).lower()} mod={str(p.get('mod', False)).lower()} "
                     f"contract={str(p.get('contract', False)).lower()}{extra}", pre)
@@ -108,8 +108,8 @@ def main():
         spec = " (specialised at defaultDomain)" if plan.get("ok_specialised") else ""
         if wr:
             msg("info", f"VED WRITE CHECKED OK {plan.get('ok_thm', resolved + '.ved_u1')}: [{axs}]; wrote [{resolved}]", el)
-        elif m and m.group(2) in ("u1_hier", "u2_hier"):
-            msg("info", f"VED U{'2' if m.group(2) == 'u2_hier' else '1'} HIER OK {plan.get('ok_thm', resolved + '.ved_u1')}{spec}: [{axs}]\n"
+        elif m and m.group(2) in ("u1_hier", "u2_hier", "u2_hier_compose"):
+            msg("info", f"VED U{'2' if m.group(2) in ('u2_hier', 'u2_hier_compose') else '1'} HIER OK {plan.get('ok_thm', resolved + '.ved_u1')}{spec}: [{axs}]\n"
                         "children: [kidA, kidB]\nsynthesis 14 ms, children 9600 ms, parent proof 1200 ms, "
                         "peak 2590000 kB\n(Module body)", el)
         else:
@@ -130,7 +130,7 @@ def main():
             msg("info", f"VED U1P STMT domains={plan.get('domains', 0)}", pl)
         msg("info", f"VED U1P THM {q['thm']}", pl)
         if q["thm"] == "theorem":
-            if m and m.group(2) == "u2_hier" and plan.get("expstmt", "U2HStmt registers=false") is not None:
+            if m and m.group(2) in ("u2_hier", "u2_hier_compose") and plan.get("expstmt", "U2HStmt registers=false") is not None:
                 msg("info", f"VED U1P EXPSTMT {plan.get('expstmt', 'U2HStmt registers=false')}", pl)
             if plan.get("bundle"):
                 msg("info", f"VED U1P BUNDLE leaves={plan['bundle']}", pl)
@@ -141,7 +141,7 @@ def main():
             msg("info", f"VED U1P LEVELS {q['levels']}", pl)
             msg("info", f"VED U1P AXIOMS [{', '.join(q['axioms'])}]", pl)
         msg("info", f"VED U1P MOD {q['mod']}", pl)
-        h = dict(GOOD_HIER, **plan.get("hier", {})) if m and m.group(2) in ("u1_hier", "u2_hier") else None
+        h = dict(GOOD_HIER, **plan.get("hier", {})) if m and m.group(2) in ("u1_hier", "u2_hier", "u2_hier_compose") else None
         if h and h["design"] is not None:
             msg("info", f"VED U1P DESIGN {h['design']}", pl)
         msg("info", f"VED U1P CONTRACT {q['contract']}", pl)

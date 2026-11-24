@@ -881,6 +881,96 @@ class U1Harness(unittest.TestCase):
         self.assertIn("returned_IR_strict_rows_std_plus_u2_hier=1 u2_hier_adds_over_standard=1 strict_by_u2_hier=1", summ)
         self.assertIn("returned_IR_strict_rows_std_plus_hier=0 hier_adds_over_standard=0", summ)
 
+    # ------------------------------------------------------------ u2_hier_compose route
+    COMPOSE_OPTS = ["ved.compose.step true", "ved.compose.connect true", "sparkle.deepExportState true",
+                    "ved.compose.multiCircuit true"]
+
+    def gen_route_case(self, route, name, row="1"):
+        d = os.path.join(self.base, name)
+        sh([sys.executable, "-I", GEN, "--repo", self.fx.repo, "--commit", self.fx.commit, "--blob", self.fx.blob,
+            "gen", "--row", row, "--setting", route, "--dir", d])
+        return d, open(os.path.join(d, "Case.lean")).read()
+
+    def test_compose_route_listed_not_default_and_alias_of_u2_hier(self):
+        self.assertIn("u2_hier_compose", u1_gen.ROUTES)
+        self.assertEqual(len(u1_gen.ROUTES), 8)
+        self.assertEqual(u1_gen.base_route("u2_hier_compose"), "u2_hier")
+        self.assertEqual(u1_gen.base_route("u2_hier"), "u2_hier")
+        self.assertNotIn("u2_hier_compose",
+                         open(os.path.join(VED, "u1_full.sh")).read().split("ROUTES:-")[1].split("}")[0])
+        self.assertEqual(u1_gen.ENTRY_CMD["u2_hier_compose"], u1_gen.ENTRY_CMD["u2_hier"])
+        self.assertEqual(u1_gen.IMPORTS["u2_hier_compose"], u1_gen.IMPORTS["u2_hier"])
+
+    def test_compose_options_only_on_the_compose_route(self):
+        self.assertEqual(u1_gen.ROUTE_OPTIONS, {"u2_hier_compose": self.COMPOSE_OPTS})
+        for rt in u1_gen.ROUTES:
+            _, text = self.gen_route_case(rt, f"opt_{rt}")
+            for o in self.COMPOSE_OPTS:
+                if rt == "u2_hier_compose":
+                    self.assertIn(f"set_option {o} in\n", text, rt)
+                else:
+                    self.assertNotIn(o, text, rt)
+        # the route options come after the row's own and before the entry
+        _, text = self.gen_route_case("u2_hier_compose", "optorder")
+        self.assertLess(text.index("set_option Elab.async false in"), text.index("set_option ved.compose.step true in"))
+        self.assertLess(text.index("set_option ved.compose.multiCircuit true in"), text.index("#ved_u2_hier foo1"))
+
+    def test_compose_block_is_the_u2_hier_block_plus_options(self):
+        _, a = self.gen_route_case("u2_hier", "cmp_a")
+        _, b = self.gen_route_case("u2_hier_compose", "cmp_b")
+        la, lb = a.splitlines(), b.splitlines()
+        extra = [f"set_option {o} in" for o in self.COMPOSE_OPTS]
+        self.assertEqual([x for x in lb if x not in extra and "VED U1 BEGIN" not in x],
+                         [x for x in la if "VED U1 BEGIN" not in x])
+        self.assertEqual(len(lb), len(la) + 4)
+        self.assertIn("route u2_hier_compose", b)
+        self.assertIn("VED U1P EXPSTMT", b)          # the same independent probe, in the new route's own Case.lean
+
+    def test_compose_record_states_route_and_options(self):
+        r = self.one(1, "u2_hier_compose")
+        self.assertEqual(r["strict_counted"], "yes", r["strict_blockers"])
+        self.assertEqual((r["setting"], r["u1_command"]), ("u2_hier_compose", "#ved_u2_hier foo1"))
+        for o in self.COMPOSE_OPTS:
+            self.assertIn(o, r["lean_options"].split(";"))
+        r2 = self.one(1, "u2_hier")
+        self.assertEqual(r2["setting"], "u2_hier")
+        for o in self.COMPOSE_OPTS:
+            self.assertNotIn(o, r2["lean_options"])
+
+    def test_compose_probe_is_required_and_rejects(self):
+        r = self.one(1, "u2_hier_compose", expstmt=None)
+        self.assertEqual(r["strict_counted"], "no")
+        self.assertIn("expected-stmt:unknown", r["strict_blockers"])
+        r = self.one(1, "u2_hier_compose", probe={"type": "differs"})
+        self.assertEqual((r["u1_ok_line"], r["strict_counted"], r["first_cause"]), ("yes", "no", "probe-rejected"))
+        r = self.one(1, "u2_hier_compose", u1=["refused", "conns", "derived input"], probe={"thm": "absent"})
+        self.assertEqual(r["later_stages_not_reached"], "child;open;type;proof;kernel;audit")
+
+    def test_compose_union_standard_plus_u2_hier_plus_compose(self):
+        for rt, plan in (("u1", {"u1": ["refused", "synthesis", "x"], "probe": {"thm": "absent"}}),
+                         ("u1_deep", {"u1": ["refused", "proof", "x"], "probe": {"thm": "absent"}}),
+                         ("u2_hier", {"u1": ["refused", "conns", "x"], "probe": {"thm": "absent"}}),
+                         ("u2_hier_compose", {})):
+            self.plan[f"1:{rt}"] = plan
+        lst = os.path.join(self.base, "l3.txt")
+        open(lst, "w").write("1 u1\n1 u1_deep\n1 u2_hier\n1 u2_hier_compose\n")
+        r = self.run_u1("list", lst)
+        self.assertIn(r.returncode, (0, 3), r.stdout + r.stderr)
+        [u] = self.results("union.tsv")
+        self.assertEqual((u["u2_hier_strict"], u["u2_hier_compose_strict"], u["union_std_u2hier_strict"],
+                          u["union_std_u2hier_compose_strict"]), ("no", "yes", "no", "yes"))
+
+    def test_unknown_route_still_refused(self):
+        for rt in ("u2_hier_compos", "u2_hier_compose2", "bogus"):
+            p = subprocess.run([sys.executable, "-I", GEN, "--repo", self.fx.repo, "--commit", self.fx.commit,
+                                "--blob", self.fx.blob, "gen", "--row", "1", "--setting", rt, "--dir",
+                                os.path.join(self.base, "unk")], capture_output=True, text=True)
+            self.assertNotEqual(p.returncode, 0, rt)
+            self.assertIn("unknown route", p.stderr + p.stdout)
+        lst = os.path.join(self.base, "unk.txt")
+        open(lst, "w").write("1 u2_hier_compos\n")
+        self.assertEqual(self.run_u1("list", lst).returncode, 3)
+
     def test_hier_lean_control_embeds_the_harness_probe(self):
         """controls/U1HierControls.lean is generated from the harness's own probe text: no drift."""
         sys.path.insert(0, os.path.join(VED, "controls"))
@@ -970,3 +1060,4 @@ class UnionNotMeasuredTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
