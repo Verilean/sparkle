@@ -2477,4 +2477,16 @@ elab "ved_size_log" : tactic => withMainContext do
   let nh := (← getLCtx).decls.toList.filterMap id |>.filter (fun d => !d.isImplementationDetail) |>.length
   s94LdLog s!"SIZE tree={Tools.VedU1Loop.treeSizeVal tgt} dag={nodes.size} ctx={nh} ite={cnt ``ite} mod={cnt ``HMod.hMod} mul={cnt ``HMul.hMul} pow={cnt ``HPow.hPow} or={cnt ``HOr.hOr} div={cnt ``HDiv.hDiv} Eq={cnt ``Eq} And={cnt ``And}"
 
+open Lean Elab Tactic in
+/-- diagnosis (s94y): keep only goal number `n` -/
+elab "ved_pick " n:num : tactic => do
+  let gs ← getGoals
+  let some g := gs[n.getNat]? | throwError "ved_pick: no goal {n.getNat} (have {gs.length})"
+  setGoals [g]
+
+open Lean Elab Tactic in
+/-- diagnosis (s94y): logs the absolute heartbeat counter (thousands) with a label -/
+elab "ved_hb " l:str : tactic => do
+  s94LdLog s!"HB {l.getString}: {(← IO.getNumHeartbeats) / 1000}"
+
 end Tools.VedMemS94Diag
