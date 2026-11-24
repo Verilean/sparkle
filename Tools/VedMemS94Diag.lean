@@ -1953,6 +1953,20 @@ def s94LdLog (msg : String) : IO Unit := do
     h.putStrLn msg
   else IO.eprintln msg
 
+/-- diagnosis (s94u): the target and the context propositions of tree <= 30000 pretty-printed (default pp, deep terms on), first `VED_PP_LEN` characters (default 3500) each -/
+elab "ved_pp_ctx" : tactic => withMainContext do
+  let lim := ((← IO.getEnv "VED_PP_LEN").bind String.toNat?).getD 3500
+  let ppo (e : Expr) : MetaM String := do
+    return ((← withOptions (fun o => (o.setBool `pp.deepTerms true).setBool `pp.proofs false) (ppExpr e)).pretty.replace "\n" " " |>.take lim).toString
+  s94LdLog s!"PPCTX target: {← ppo (← instantiateMVars (← getMainTarget))}"
+  for d in (← getLCtx).decls.toList.filterMap id do
+    if d.isImplementationDetail then continue
+    let t ← instantiateMVars d.type
+    if !(← isProp t) then continue
+    if Tools.VedU1Loop.treeSizeVal t > 30000 then continue
+    if d.userName.toString.startsWith "ved_bnd" then continue
+    s94LdLog s!"PPCTX hyp {d.userName}: {← ppo t}"
+
 /-- diagnosis (s94u): the subterms `x / y` whose numerator is an `ite` in the context and target, raw (explicit) -/
 elab "ved_find_div" : tactic => withMainContext do
   let mut n := 0
@@ -2020,7 +2034,7 @@ elab "ved_local_diag" : tactic => do
             withTheReader Core.Context (fun c => { c with maxHeartbeats := altCap * 1000, initHeartbeats := hb0 }) do
               withoutRecover (evalTactic at_)
             pure (if (← getGoals).isEmpty then "CLOSED" else "ok-open"))
-          (fun ex => do pure s!"FAIL({((← ex.toMessageData.toString).replace "\n" " ").take 40})")
+          (fun ex => do pure s!"FAIL({((← ex.toMessageData.toString).replace "\n" " ").take (((← IO.getEnv "VED_LDIAG_ALTLEN").bind String.toNat?).getD 40)})")
         line := line ++ s!" | alt {an}:{r} {(← IO.monoMsNow) - t0}ms {((← IO.getNumHeartbeats) - hb0) / 1000}k"
         stA.restore
       s94LdLog (line ++ " | (alts)")
