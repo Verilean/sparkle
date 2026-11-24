@@ -24,6 +24,63 @@ open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.VedU1Contract Tools.VedU1Loop
 
+section
+open Lean Meta Elab Tactic
+
+/-- Default off (sparkle-ved-multiout unit 14): the stage simp sets use the proof-carrying wrappers `Tools.VedU1StructSlice.nr.<n>` of core's `rfl`
+lemmas (`kshapeNames`: `BitVec.toNat_add`, `extractLsb'_toNat`, `Option.getD_some`, …), which `simp` applies without a proof term; see
+`Tools/VedU1StructSlice.lean` (kernel cost of a large literal added to a symbolic operand). -/
+register_option ved.sseq.kshape : Bool := {
+  defValue := false
+  descr := "ved.sseq.kshape: extractLsb' toNat steps with a proof term, not by rfl (kernel cost, default off)"
+}
+
+/-- `stx` mentions the identifier `old` -/
+partial def hasIdent (old : Name) (stx : Lean.Syntax) : Bool :=
+  match stx with
+  | .ident _ _ n _ => n.eraseMacroScopes == old
+  | .node _ _ args => args.any (hasIdent old)
+  | _ => false
+
+/-- every occurrence of the identifier `old` in `stx` replaced by `new` -/
+partial def swapIdent (old new : Name) (stx : Lean.Syntax) : Lean.Syntax :=
+  match stx with
+  | .ident info _ n _ => if n.eraseMacroScopes == old then Lean.mkIdentFrom stx new else stx
+  | .node info k args => .node info k (args.map (swapIdent old new))
+  | _ => stx
+
+/-- `ved.sseq.kshape`: core's `rfl` lemmas (`Tools.VedU1StructSlice.kshapeNames`; `simp` records no proof term for them) are replaced in the
+`simp` call `stx` by the proof-carrying wrappers `nr.<n>`: swapped where the call names them, added where it does not, erased from the
+default simp set.  Identity when the option is off. -/
+def kshapeFix (stx : Lean.Syntax) : Lean.Elab.Tactic.TacticM Lean.Syntax := do
+  if !ved.sseq.kshape.get (← getOptions) then return stx
+  let names := Tools.VedU1StructSlice.kshapeNames
+  let mut stx'' := stx
+  let mut adds : Array (Lean.Syntax) := #[]
+  let defaults ← Lean.Meta.getSimpTheorems
+  for n in names do
+    let w := Tools.VedU1StructSlice.nrName n
+    if hasIdent n stx'' then stx'' := swapIdent n w stx''
+    else adds := adds.push (← `(tactic| simp [$(mkCIdent w):term])).raw
+    if defaults.isLemma (.decl n) then
+      let er ← `(tactic| simp [-$(mkIdent n):ident])
+      adds := adds.push er.raw
+  let lemOpt := stx''.getArg 4
+  let mut arr := if lemOpt.getNumArgs == 0 then #[] else (lemOpt.getArg 1).getArgs
+  for a in adds do
+    if !arr.isEmpty then arr := arr.push (Lean.mkAtom ",")
+    arr := arr ++ ((a.getArg 4).getArg 1).getArgs
+  let lemOpt' := if lemOpt.getNumArgs == 0
+    then Lean.mkNullNode #[Lean.mkAtom "[", Lean.mkNullNode arr, Lean.mkAtom "]"]
+    else lemOpt.setArg 1 ((lemOpt.getArg 1).setArgs arr)
+  return stx''.setArg 4 lemOpt'
+
+/-- `ved_kfix (simp …)`: the `simp` call through `kshapeFix` (option `ved.sseq.kshape`, default off: unchanged) -/
+elab "ved_kfix " "(" t:tactic ")" : tactic => do
+  Lean.Elab.Tactic.evalTactic (← kshapeFix t.raw)
+
+end
+
 syntax (name := vedSsCoreSimp) "ved_ss_core_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
 
 macro_rules
@@ -50,14 +107,14 @@ syntax (name := vedSsWideSimp) "ved_ss_wide_simp " "[" Lean.Parser.Tactic.simpLe
 
 macro_rules
   | `(tactic| ved_ss_wide_simp [$ex,*] $[$loc]?) =>
-    `(tactic| simp [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
+    `(tactic| ved_kfix (simp [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?))
 
 
 syntax (name := vedSsLoopWideSimp) "ved_ss_loopw_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
 
 macro_rules
   | `(tactic| ved_ss_loopw_simp [$ex,*] $[$loc]?) =>
-    `(tactic| simp -implicitDefEqProofs (maxSteps := 4000000) [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
+    `(tactic| ved_kfix (simp -implicitDefEqProofs (maxSteps := 4000000) [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?))
 
 
 syntax (name := vedSsLoopClose) "ved_ss_loop_close " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
@@ -264,13 +321,6 @@ register_option ved.sseq.muxCond : Bool := {
   descr := "ved.sseq.muxCond: stage simp sets use the cond form of Signal.mux (default off)"
 }
 
-/-- every occurrence of the identifier `old` in `stx` replaced by `new` -/
-partial def swapIdent (old new : Name) (stx : Lean.Syntax) : Lean.Syntax :=
-  match stx with
-  | .ident info _ n _ => if n.eraseMacroScopes == old then Lean.mkIdentFrom stx new else stx
-  | .node info k args => .node info k (args.map (swapIdent old new))
-  | _ => stx
-
 /-- `ved_ss_core_simp_big [lemmas] (at loc)?`: `ved_core_simp` with the simp step budget raised
 (`maxSteps`): a packed result with registers unfolds the whole body of every register and every
 projection in one `simp`. -/
@@ -300,6 +350,7 @@ elab "ved_ss_core_simp_big " "[" ex:Lean.Parser.Tactic.simpLemma,* "]" loc:(Lean
   let tmpl ← `(tactic| simp (config := { maxSteps := 2000000 }) [Nat.add_zero])
   -- the `simp` node's second argument is its (empty) `optConfig`: put the raised one there
   let stx' := stx.setArg 1 (tmpl.raw.getArg 1)
+  let stx' ← kshapeFix stx'
   evalTactic stx'
 
 /-- `ved_ss_unfold [defs] t`: `ved_loop_unfold` for a loop whose body is a named definition

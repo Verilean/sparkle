@@ -37,6 +37,36 @@ theorem ved_mux_val_cond {dom : Sparkle.Core.Domain.DomainConfig} {α : Type}
     (Signal.mux c a b).val s = cond (c.val s) (a.val s) (b.val s) := by
   rw [Tools.VedU1Lemmas.mux_val]; cases c.val s <;> rfl
 
+/-! ## `ved.sseq.kshape` (sparkle-ved-multiout unit 14): `rfl` lemmas with a proof term
+
+Core states `BitVec.toNat_add`, `BitVec.extractLsb'_toNat`, `Option.getD_some`, … by `rfl`.  `simp` treats such a theorem as a `dsimp`
+step and records NO proof term, so the elaborated proof types the congruence against the pre-step term and the KERNEL must prove the
+difference by definitional unfolding: it whnf's `Nat.mod`/`BitVec.toNat` of the operand, whose `ite` condition `p ≤ x + p` (a large literal
+added to a symbolic operand) it then evaluates one successor at a time.  Cost grows with the LITERAL (field toy, 2 wires: 29 s at
+`p = 12345`; killed above 4 GB at `p = 2^17 + 12345` and above 12.6 GB at `2^24 + 12345`).  The same sides compared syntactically are free.
+
+`Tools.VedU1StructSlice.nr.<n>` has the type of the core theorem `n` and the value `n` itself (a constant applied to nothing, not an
+`Eq.refl` term), so `isRflTheorem` is false and `simp` emits `n x₁ … xₖ` as the proof of the step: the kernel then compares the two sides
+syntactically.  No new axiom, no new proposition (the type is copied). -/
+
+/-- the core `rfl` theorems the stage simp sets use on arithmetic of the module -/
+def kshapeNames : List Lean.Name :=
+  [`BitVec.toNat_add, `BitVec.toNat_sub, `BitVec.toNat_mul, `BitVec.toNat_and, `BitVec.toNat_or, `BitVec.toNat_xor,
+   `BitVec.toNat_append, `BitVec.toNat_ushiftRight, `BitVec.extractLsb'_toNat, `BitVec.extractLsb_toNat,
+   `Option.getD_some, `Option.getD_none, `Option.bind_some]
+
+/-- the wrapper of `n` -/
+def nrName (n : Lean.Name) : Lean.Name := `Tools.VedU1StructSlice.nr ++ n
+
+open Lean Elab Command in
+run_cmd do
+  for n in kshapeNames do
+    let some ci := (← getEnv).find? n | throwError "kshape: {n} not found"
+    let tv : TheoremVal :=
+      { name := nrName n, levelParams := ci.levelParams, type := ci.type,
+        value := mkConst n (ci.levelParams.map mkLevelParam) }
+    liftCoreM <| addDecl (Declaration.thmDecl tv)
+
 theorem ved_slice_div (A B m₁ m₂ : Nat) (h : 0 < m₂) : (A % m₁ * m₂ + B % m₂) / m₂ = A % m₁ := by
   have hb : B % m₂ < m₂ := Nat.mod_lt _ h
   rw [Nat.add_comm, Nat.add_mul_div_right _ _ h, Nat.div_eq_of_lt hb, Nat.zero_add]

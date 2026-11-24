@@ -125,6 +125,13 @@ register_option ved.sseq.fastOrder : Bool := {
   descr := "ved.sseq.fastOrder: struct script proves OrderOk via orderOkLeafFast_sound (default off)"
 }
 
+/-- Debugging/controls only (default off): the debug stop (`ved.sseq.dbg` k) ends the script with `sorry` (kernel runs on the
+partial proof; the entry's strict audit then refuses) instead of failing, so the KERNEL cost of the stages up to `k` can be measured. -/
+register_option ved.sseq.dbgSorry : Bool := {
+  defValue := false
+  descr := "ved.sseq.dbgSorry: the debug stop closes the goals with sorry (kernel cost of the partial proof; debugging only)"
+}
+
 /-- Default off: the packing stage (`all_goals (try ved_pack_simp)`) is `ved_pack_wire_all` as in the single-register loop
 script (`Tools/VedU1Entry.lean`, `Tools/VedU1Wire.lean`): a goal below `shareMinTree` nodes read as a TREE keeps
 `try ved_pack_simp`, a larger one is wired (`ved_wire`, equalities per shared wire) and its failure is the failure of the
@@ -194,6 +201,7 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
       ``Tools.VedU1StructSlice.ved_slice_modM] else helpers
   let hsA : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
     helpers.mapM fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
+  -- `ved.sseq.kshape`: the wrappers of core's `rfl` lemmas are added/swapped in `ved_ss_core_simp_big` (`Tools/VedU1StructSeqTac.lean`)
   let C := mkCIdent contractN
   let M := mkCIdent modN
   let O := mkCIdent outsN
@@ -333,7 +341,8 @@ def structLoopScript (contractN modN outsN bodyN : Name) (F : Name) (fStx : Term
   let dbg := ved.sseq.dbg.get (← getOptions)
   if dbg == 50 then
     tacs := tacs.push (← `(tactic| ved_ss_unfold1 [$exHelp,*] ($sI + 1)))
-  let stop ← `(tactic| (trace_state; fail "stopped at debug stage"))
+  let stop ← if ved.sseq.dbgSorry.get (← getOptions) then `(tactic| all_goals sorry)
+    else `(tactic| (trace_state; fail "stopped at debug stage"))
   if dbg == 1 || (dbg ≥ 50 && dbg < 96 && !(dbg ≥ 91 && dbg ≤ 94)) then tacs := tacs.push stop
   else
     for k in [0:stages.size] do

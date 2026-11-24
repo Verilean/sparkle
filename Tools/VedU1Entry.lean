@@ -1022,6 +1022,91 @@ def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) (stamps : Option Name :
 def isRefusal (e : Exception) : MetaM Bool := do
   return (← e.toMessageData.toString).startsWith "VED U1 REFUSED"
 
+/-- Debugging only (env `VED_KBISECT=file`, default unset; nothing else uses it): walk the closed proof term `pf` (DAG, binders
+entered with fresh locals), and for every application argument whose Meta-inferred type differs structurally from the binder type
+(the checks the kernel must make by definitional unfolding) run `Lean.Kernel.isDefEq` and log `#n size ms` lines (flushed BEFORE the
+check, so the last line of a killed run names the expensive one).  With `VED_KBISECT_DUMP=n` the two sides of check `n` are printed
+(truncated). -/
+partial def kBisect (path : String) (dump : Option Nat) (pf : Lean.Expr) : MetaM Unit := do
+  let h ← IO.FS.Handle.mk path .append
+  let seen ← IO.mkRef (∅ : Std.HashSet Lean.Expr)
+  let cnt ← IO.mkRef (0 : Nat)
+  let rec go (e : Lean.Expr) : MetaM Unit := do
+    if (← seen.get).contains e then return
+    seen.modify (·.insert e)
+    match e with
+    | .app .. =>
+      let f := e.getAppFn
+      let args := e.getAppArgs
+      go f
+      for a in args do go a
+      unless f.isLambda || f.isMVar do
+        let mut fty ← try inferType f catch _ => pure f
+        for a in args do
+          let fty' ← if fty.isForall then pure fty else (try whnf fty catch _ => pure fty)
+          match fty' with
+          | .forallE _ d b _ =>
+            let aty ← try inferType a catch _ => pure d
+            if !(aty == d) then
+              let n ← cnt.modify (· + 1) *> cnt.get
+              let hd (x : Lean.Expr) : String := toString (x.getAppFn.constName?.getD (if x.isProj then `proj else if x.isLambda then `lam else `_))
+              let sides := match d.eq?, aty.eq? with
+                | some (_, l1, r1), some (_, l2, r2) => s!" L={hd l1}~{hd l2} R={hd r1}~{hd r2}"
+                | _, _ => s!" T={hd d}~{hd aty}"
+              let heavy := if (d.find? (·.isAppOf ``ite)).isSome then " HEAVY" else ""
+              h.putStrLn s!"#{n} head={f.constName?.getD `_} sizeA={aty.approxDepth} sizeB={d.approxDepth}{sides}{heavy}"
+              h.flush
+              if dump == some n then
+                let sh (x : Lean.Expr) : MetaM String := withOptions
+                  (fun o => ((o.setBool `pp.deepTerms false).set `pp.deepTerms.threshold (4 : Nat)).setBool `pp.explicit true)
+                  do return ((toString (← ppExpr x)).take 6000).toString
+                h.putStrLn s!"DUMP expected(binder)= {← sh d}"
+                h.putStrLn s!"DUMP inferred(arg)  = {← sh aty}"
+                h.putStrLn s!"DUMP arg head = {(a.getAppFn.constName?.getD `_)} nargs={a.getAppNumArgs}; f = {f}"
+                h.putStrLn s!"DUMP arg = {← sh a}"
+                for (j, b) in a.getAppArgs.toList.zipIdx.map (fun (x, i) => (i, x)) do
+                  h.putStrLn s!"DUMP arg[{j}] type = {(← try sh (← inferType b) catch _ => pure "?")}"
+                -- drill down: the two sides of the `Eq`, then the left side delta-unfolded step by step
+                if let (some (_, l1, r1), some (_, l2, r2)) := (d.eq?, aty.eq?) then
+                  let tryK (lbl : String) (x y : Lean.Expr) : MetaM Unit := do
+                    h.putStrLn s!"DRILL {lbl} start"; h.flush
+                    let t0 ← IO.monoMsNow
+                    let r := Lean.Kernel.isDefEq (← getEnv) (← getLCtx) x y
+                    h.putStrLn s!"DRILL {lbl} {(← IO.monoMsNow) - t0} ms {match r with | .ok b => toString b | .error _ => "kernel-error"}"; h.flush
+                  tryK "rhs=rhs" r1 r2
+                  let mut x := l1
+                  for i in [0:10] do
+                    h.putStrLn s!"DRILL left[{i}] head={x.getAppFn.constName?.getD `_}: {(← sh x).take 400}"
+                    if ((← IO.getEnv "VED_KBISECT_RIGHT").bind String.toNat?) == some i then tryK s!"left[{i}]=right" x l2
+                    let xc ← whnfCore x
+                    let nx? ← if xc != x then pure (some xc) else unfoldDefinition? x
+                    match nx? with
+                    | some x' => tryK s!"left[{i}]=left[{i+1}]" x x'; x := x'
+                    | none => break
+                h.flush
+              let t0 ← IO.monoMsNow
+              let r := Lean.Kernel.isDefEq (← getEnv) (← getLCtx) aty d
+              let t1 ← IO.monoMsNow
+              h.putStrLn s!"#{n} done {t1 - t0} ms {match r with | .ok b => toString b | .error _ => "kernel-error"}"
+              h.flush
+            fty := b.instantiate1 a
+          | _ => break
+    | .lam n t b bi =>
+      go t
+      withLocalDecl n bi t fun x => go (b.instantiate1 x)
+    | .forallE n t b bi =>
+      go t
+      withLocalDecl n bi t fun x => go (b.instantiate1 x)
+    | .letE n t v b _ =>
+      go t; go v
+      withLetDecl n t v fun x => go (b.instantiate1 x)
+    | .mdata _ b => go b
+    | .proj _ _ b => go b
+    | _ => pure ()
+  go pf
+  h.putStrLn s!"VED KBISECT finished {← cnt.get} checks"
+  h.flush
+
 /-- The checker under the entry.  `decl` names the refusal; `stmt` is the
 term put into the statement (the entry: `decl` itself, or `@decl defaultDomain`); `m` is the module
 (the entry: the value `synthesizeCombinational` returned).  Returns the theorem name.
@@ -1211,6 +1296,8 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
       if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageFail "open_term"
       refuse decl "proof" m!"proof term is not closed"
     if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageOk
+    if let some path ← IO.getEnv "VED_KBISECT" then
+      kBisect path ((← IO.getEnv "VED_KBISECT_DUMP").bind String.toNat?) pf
     if let some path ← IO.getEnv "VED_MS_LOG" then
       let h ← IO.FS.Handle.mk path .append
       h.putStrLn s!"VED MS kernel start {← IO.monoMsNow}"
@@ -1220,6 +1307,10 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
       (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
         addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
       fun e => refuse decl "kernel" e.toMessageData
+    if let some path ← IO.getEnv "VED_MS_LOG" then
+      let h ← IO.FS.Handle.mk path .append
+      h.putStrLn s!"VED MS kernel end {← IO.monoMsNow}"
+      h.flush
     let some (.thmInfo ti) := (← getEnv).find? nm.thm
       | refuse decl "kernel" m!"{nm.thm} is not a theorem in the environment"
     unless ti.type == expected do refuse decl "type" m!"stored type differs from the expected statement"
