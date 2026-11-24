@@ -1224,7 +1224,25 @@ partial def condSplitGo (depth : Nat) : TacticM Unit := do
     if (← IO.getEnv "VED_CONDDBG").isSome then
       IO.eprintln s!"cond_split[{depth}]: leaf start: {((← g.withContext (ppExpr (← instantiateMVars (← g.getType)))).pretty.replace "\n" " ").take 3000}"
     try
-      evalTactic (← `(tactic| ((try ved_spell_unify); (try ved_or_bounds); (try ved_orb_mod); (try (ved_or_bounds; ved_orb_mod)); all_goals omega)))
+      -- the steps one after the other (the same sequence as one `;` chain); the heartbeat marks are printed only under `VED_CONDDBG`
+      let hbl (nm : String) : IO Unit := do
+        if (← IO.getEnv "VED_CONDDBG").isSome then IO.eprintln s!"cond_split[{depth}]: leaf {nm}: hb(k) since start {((← IO.getNumHeartbeats) - hb0) / 1000}"
+      evalTactic (← `(tactic| (try ved_spell_unify)))
+      hbl "unify"
+      evalTactic (← `(tactic| (try ved_or_bounds)))
+      hbl "or_bounds"
+      evalTactic (← `(tactic| (try ved_orb_mod)))
+      hbl "orb_mod"
+      evalTactic (← `(tactic| (try (ved_or_bounds; ved_orb_mod))))
+      hbl "or_bounds2"
+      if (← IO.getEnv "VED_CONDDBG").isSome && !(← getGoals).isEmpty then
+        let g1 ← getMainGoal
+        IO.eprintln s!"cond_split[{depth}]: leaf before omega, target: {((← g1.withContext (ppExpr (← instantiateMVars (← g1.getType)))).pretty.replace "\n" " ").take 3000}"
+        g1.withContext do
+          for d in ← getLCtx do
+            if d.userName == `ved_orb || d.userName == `ved_hc then IO.eprintln s!"cond_split[{depth}]: leaf before omega, {d.userName}: {((← ppExpr d.type).pretty.replace "\n" " ").take 500}"
+      evalTactic (← `(tactic| all_goals omega))
+      hbl "omega"
     catch e =>
       if (← IO.getEnv "VED_CONDDBG").isSome then
         IO.eprintln s!"cond_split[{depth}]: leaf FAILED after hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}"

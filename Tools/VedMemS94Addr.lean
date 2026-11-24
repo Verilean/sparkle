@@ -320,6 +320,15 @@ def trimmedMVar (P : Expr) : MetaM Expr := do
   let insts := (← getLocalInstances).filter fun i => keep.contains i.fvar.fvarId!
   mkFreshExprMVarAt lctx' insts P
 
+/-- option `ved.mem.s94PairCache`: `proveProp` keeps the proofs of the propositions it proved and reuses one (same statement, its free variables still in the context) instead of proving the statement again -/
+register_option ved.mem.s94PairCache : Bool := {
+  defValue := false
+  descr := "ved_spell_unify / ved_or_bounds: a pair proposition proved before is reused, not proved again (default false)"
+}
+
+initialize pairCache : IO.Ref (Std.HashMap Expr Expr) ← IO.mkRef {}
+initialize pairCacheHits : IO.Ref Nat ← IO.mkRef 0
+
 /-- the heartbeat limit of one pair proof (thousands) -/
 def pairCapK : Nat := 1500
 /-- most pair proofs tried by one `ved_spell_unify` -/
@@ -327,18 +336,36 @@ def pairMax : Nat := 24
 
 /-- a proof of the proposition `P` by `tac` (the bounds of the variables of `es` in the context) under the pair limit, or none -/
 def proveProp (P : Expr) (es : Array Expr) (tac : TacticM Unit) : TacticM (Option Expr) := do
-  let mv ← if ved.mem.s94PairCtx.get (← getOptions) then trimmedMVar P else mkFreshExprMVar P
-  let hb0 ← IO.getNumHeartbeats
-  if (← IO.getEnv "VED_UNIFYDBG").isSome then IO.eprintln s!"unify: pair context has {(← mv.mvarId!.getDecl).lctx.size} entries (option PairCtx {ved.mem.s94PairCtx.get (← getOptions)})"
-  -- a heartbeat timeout of the pair limit is a failure of this pair (a runtime exception: `tryCatchRuntimeEx`), not of the caller
-  tryCatchRuntimeEx
-    (do
-      let gs ← withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then pairCapK * 1000 else min c.maxHeartbeats (pairCapK * 1000)), initHeartbeats := hb0 }) do
-        Tactic.run mv.mvarId! (withoutRecover (withBounds es tac))
-      if gs.isEmpty then return some (← instantiateMVars mv) else return none)
-    (fun ex => do
-      if (← IO.getEnv "VED_UNIFYDBG").isSome then IO.eprintln s!"unify: prove failed: {((← ex.toMessageData.toString).replace "\n" " | ").take 600}"
-      return none)
+  let cacheOn := ved.mem.s94PairCache.get (← getOptions)
+  let P ← instantiateMVars P
+  -- option `ved.mem.s94PairCache`: a proposition proved before (another leaf of the same branch) is not proved again: its proof term is reused when every free variable of it is still in the context
+  if cacheOn then
+    if let some pf := (← pairCache.get).get? P then
+      let lctx ← getLCtx
+      if (Lean.collectFVars {} pf).fvarIds.all (lctx.contains ·) then
+        pairCacheHits.modify (· + 1)
+        if (← IO.getEnv "VED_UNIFYDBG").isSome then IO.eprintln "unify: pair proof reused (cache)"
+        return some pf
+  let r ← proveProp' P es tac
+  if cacheOn then
+    if let some pf := r then
+      let m ← pairCache.get
+      pairCache.set ((if m.size > 256 then {} else m).insert P pf)
+  return r
+where
+  proveProp' (P : Expr) (es : Array Expr) (tac : TacticM Unit) : TacticM (Option Expr) := do
+    let mv ← if ved.mem.s94PairCtx.get (← getOptions) then trimmedMVar P else mkFreshExprMVar P
+    let hb0 ← IO.getNumHeartbeats
+    if (← IO.getEnv "VED_UNIFYDBG").isSome then IO.eprintln s!"unify: pair context has {(← mv.mvarId!.getDecl).lctx.size} entries (option PairCtx {ved.mem.s94PairCtx.get (← getOptions)})"
+    -- a heartbeat timeout of the pair limit is a failure of this pair (a runtime exception: `tryCatchRuntimeEx`), not of the caller
+    tryCatchRuntimeEx
+      (do
+        let gs ← withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then pairCapK * 1000 else min c.maxHeartbeats (pairCapK * 1000)), initHeartbeats := hb0 }) do
+          Tactic.run mv.mvarId! (withoutRecover (withBounds es tac))
+        if gs.isEmpty then return some (← instantiateMVars mv) else return none)
+      (fun ex => do
+        if (← IO.getEnv "VED_UNIFYDBG").isSome then IO.eprintln s!"unify: prove failed: {((← ex.toMessageData.toString).replace "\n" " | ").take 600}"
+        return none)
 
 /-- a proof of `l = r` by `tac` under the pair limit, or none -/
 def prove (l r : Expr) (tac : TacticM Unit) : TacticM (Option Expr) := do
