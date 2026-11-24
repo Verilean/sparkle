@@ -795,4 +795,153 @@ run_cmd do
   if (← getEnv).contains `Tests.Ved.VedMemLocalCheck.pairFsmB.ved_mem then throwError "pair fix: OFF: the entry accepted the design with the wrong pairing"
   logInfo m!"pair fix controls: ON accepted (theorem stored, one component re-paired), OFF refused (nothing stored)"
 
+/-! ### s94aa: `rewriteAll` (the bug), `ved.mem.s94PairCache`, `ved.mem.s94BitArgs`, `ved.mem.s94PairCtx`, `ved_orb_mod`, `ved.mem.s94CondSplit`, `ved.mem.s94StateSplit2`, `ved.mem.s94CondAbsurd` -/
+
+/-- the `rewriteAll` of 91d04a03 (before the fix), kept here as the control of the bug: the hypotheses are visited by the identifiers of one snapshot of the context and the proof `h` is used as given, while
+`replaceLocalDecl` re-introduces every later hypothesis with a new identifier -/
+def oldRewriteAll (g : MVarId) (a b h : Expr) : MetaM (MVarId × Nat) := do
+  let aTy ← g.withContext (inferType a)
+  let rw (T : Expr) : MetaM (Option (Expr × Expr)) := do
+    if (T.find? (· == a)).isNone then return none
+    withLocalDeclD `ved_x aTy fun x => do
+      let Tabs := T.replace fun e => if e == a then some x else none
+      let motive ← mkLambdaFVars #[x] Tabs
+      let T' := Tabs.replaceFVar x b
+      let pf ← mkExpectedTypeHint (← mkAppM ``congrArg #[motive, h]) (← mkEq T T')
+      return some (T', pf)
+  let mut g := g
+  let mut n := 0
+  for d in ← g.withContext getLCtx do
+    if d.isImplementationDetail || d.isLet then continue
+    let t ← instantiateMVars d.type
+    unless (← g.withContext (isProp t)) do continue
+    if let some (t', pf) ← g.withContext (rw t) then
+      let r ← g.replaceLocalDecl d.fvarId t' pf
+      g := r.mvarId
+      n := n + 1
+  let tgt ← instantiateMVars (← g.getType)
+  if let some (t', pf) ← g.withContext (rw tgt) then
+    g ← g.replaceTargetEq t' pf
+    n := n + 1
+  return (g, n)
+
+set_option ved.mem.s94AddrNorm true in
+/-- kernel-checked: two hypotheses and the target carry the later spelling of one exponent (`rewriteAll` replaces it in all three; the old code threw `unknown free variable` at the second hypothesis) -/
+theorem unify_two_hyps_ok (x : BitVec 3) (h1 : 2 ^ ((x.toNat + 7) % 8) ≤ 200) (h2 : 2 ^ ((7 + x.toNat) % 8) ≤ 300)
+    (h3 : 2 ^ ((7 + x.toNat) % 8) ≥ 1) : 2 ^ ((7 + x.toNat) % 8) ≤ 200 := by
+  ved_spell_unify
+  exact h1
+
+set_option ved.mem.s94OrDisj true in
+/-- kernel-checked: `ved_orb_mod` rewrites `(x ||| y) % 256` by the bound `ved_or_bounds` proved (no discharger) and `simp only` closes the equation -/
+theorem orb_mod_ok (x y : BitVec 8) : (x.toNat ||| y.toNat) % 256 = x.toNat ||| y.toNat := by
+  ved_or_bounds
+  ved_orb_mod
+
+/-- info: s94aa controls: rewriteAll (old code loses its work on two hypotheses, new code keeps it, no change when the term does not occur), PairCache (hit counter, OFF no hit), BitArgs / PairCtx (ON closes, OFF refused, false refused), ved_orb_mod, CondSplit (ON closes, OFF refused, false refused, a closed condition is evaluated not split), StateSplit2 (counter), CondAbsurd (ON closes a contradiction, OFF refused, consistent hypotheses refused) -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryT (stmt : Term) (tac : TSyntax `tactic) : TermElabM (Bool × Bool) := do
+    let ty ← elabTerm stmt none
+    Term.synthesizeSyntheticMVarsNoPostponing
+    let ty ← instantiateMVars ty
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      pure (gs.isEmpty, true)
+    catch _ => pure (false, false)
+  let withOpts (os : List (Name × Bool)) (x : TermElabM (Bool × Bool)) : TermElabM (Bool × Bool) :=
+    withOptions (fun o => os.foldl (fun o (n, v) => o.setBool n v) o) x
+  -- 1. rewriteAll: the old code throws on two hypotheses that carry the term, the new one replaces it in both and in the target; nothing occurs: the goal is returned untouched
+  let ty ← elabTerm (← `(∀ (x : BitVec 3), 2 ^ ((x.toNat + 7) % 8) ≤ 200 → 2 ^ ((7 + x.toNat) % 8) ≤ 300 → 2 ^ ((7 + x.toNat) % 8) ≥ 1 → 2 ^ ((7 + x.toNat) % 8) ≤ 200)) none
+  Term.synthesizeSyntheticMVarsNoPostponing
+  let mkCase : TermElabM (MVarId × Expr × Expr × Expr) := do
+    let mv ← mkFreshExprMVar ty
+    let (_, g) ← mv.mvarId!.introN 4 [`x, `h1, `h2, `h3]
+    g.withContext do
+      -- the two spellings are read off the hypotheses `h1 : a ≤ 200`, `h2 : b ≤ 300`
+      let hTy (n : Name) : MetaM Expr := do
+        let some d := (← getLCtx).findFromUserName? n | throwError "{n}"
+        instantiateMVars d.type
+      let a := (← hTy `h1).getArg! 2
+      let b := (← hTy `h2).getArg! 2
+      let eq ← mkEq b a
+      let h ← mkFreshExprMVar eq
+      let gs ← Tactic.run h.mvarId! (Tactic.evalTactic (← `(tactic| simp only [Nat.add_comm])))
+      unless gs.isEmpty do throwError "rewriteAll control: the equation of the two spellings was not proved"
+      pure (g, b, a, ← instantiateMVars h)
+  let lbl {α} (nm : String) (x : TermElabM α) : TermElabM α := try x catch e => throwError "{nm}: {e.toMessageData}"
+  let (g0, b0, a0, h0) ← lbl "mkCase0" mkCase
+  let oldRes ← try let _ ← (oldRewriteAll g0 b0 a0 h0).run'; pure true catch _ => pure false
+  if oldRes then throwError "rewriteAll control: the OLD code did not lose its work on two hypotheses (the control measures nothing)"
+  let (g1, b1, a1, h1) ← lbl "mkCase1" mkCase
+  let (g1', k1) ← lbl "new rewriteAll" (Tools.VedMemS94Addr.rewriteAll g1 b1 a1 h1)
+  unless k1 == 3 do throwError "rewriteAll control: expected 3 propositions replaced (2 hypotheses and the target), got {k1}"
+  let (g2, _, _, _) ← lbl "mkCase2" mkCase
+  let (e2, r2) ← g2.withContext do
+    let c ← elabTerm (← `($(mkIdent `x))) none
+    let e ← mkAppM ``Nat.succ #[← mkAppM ``BitVec.toNat #[c]]
+    pure (e, ← mkEqRefl e)
+  let (g2', k2) ← Tools.VedMemS94Addr.rewriteAll g2 e2 e2 r2
+  unless k2 == 0 && g2' == g2 do throwError "rewriteAll control: a term that does not occur changed the goal (k = {k2})"
+  -- 2. PairCache: two goals of one context carry the same pair: the second proof is the first one (hit counter); OFF: no hit
+  let pcS ← `(∀ (x : BitVec 3), 2 ^ ((x.toNat + 7) % 8) = 2 ^ ((7 + x.toNat) % 8) ∧ 2 ^ ((x.toNat + 7) % 8) = 2 ^ ((7 + x.toNat) % 8))
+  let pcT ← `(tactic| (intro x; constructor; all_goals (ved_spell_unify; rfl)))
+  let pc (v : Bool) : TermElabM (Bool × Bool) := withOpts [(`ved.mem.s94AddrNorm, true), (`ved.mem.s94PairCache, v)] (tryT pcS pcT)
+  let n0 ← Tools.VedMemS94Addr.pairCacheHits.get
+  let (pOff, _) ← pc false
+  unless pOff do throwError "pair cache: OFF: not closed"
+  unless (← Tools.VedMemS94Addr.pairCacheHits.get) == n0 do throwError "pair cache: OFF: a hit"
+  let (pOn, _) ← pc true
+  unless pOn do throwError "pair cache: ON: not closed"
+  unless (← Tools.VedMemS94Addr.pairCacheHits.get) == n0 + 1 do throwError "pair cache: ON: expected one hit"
+  -- 3. BitArgs / PairCtx: the arguments of `|||` that are two spellings of one number
+  let ba (k : Nat) : TermElabM Term := `(∀ (a : Nat), ((a + 3) % 8 ||| 1) = ((3 + a + $(Syntax.mkNumLit (toString k))) % 8 ||| 1))
+  let baTac ← `(tactic| (intro a; ved_spell_unify; rfl))
+  let (bOff, _) ← withOpts [(`ved.mem.s94AddrNorm, true), (`ved.mem.s94BitArgs, false)] (tryT (← ba 0) baTac)
+  if bOff then throwError "bit args: OFF closed"
+  let (bOn, _) ← withOpts [(`ved.mem.s94AddrNorm, true), (`ved.mem.s94BitArgs, true)] (tryT (← ba 0) baTac)
+  unless bOn do throwError "bit args: ON not closed"
+  let (bCtx, _) ← withOpts [(`ved.mem.s94AddrNorm, true), (`ved.mem.s94BitArgs, true), (`ved.mem.s94PairCtx, true)] (tryT (← ba 0) baTac)
+  unless bCtx do throwError "pair ctx: ON not closed"
+  let (bBad, _) ← withOpts [(`ved.mem.s94AddrNorm, true), (`ved.mem.s94BitArgs, true), (`ved.mem.s94PairCtx, true)] (tryT (← ba 1) baTac)
+  if bBad then throwError "bit args: a false statement was closed"
+  -- 4. CondSplit: the conditions are decided one at a time
+  let cs (k : Nat) : TermElabM Term := `(∀ (x : Nat), x < 4 → ((if x = 0 then 1 else 2) + (if x = 0 then 3 else 4)) = (if x = 0 then 4 else $(Syntax.mkNumLit (toString k))))
+  let csTac ← `(tactic| (intro x hx; ved_cond_split 4))
+  let (cOff, _) ← withOpts [(`ved.mem.s94CondSplit, false)] (tryT (← cs 6) csTac)
+  if cOff then throwError "cond split: OFF closed"
+  let sp0 ← Tools.VedMemS94Local.condSplits.get
+  let (cOn, _) ← withOpts [(`ved.mem.s94CondSplit, true)] (tryT (← cs 6) csTac)
+  unless cOn do throwError "cond split: ON not closed"
+  unless (← Tools.VedMemS94Local.condSplits.get) == sp0 + 1 do throwError "cond split: expected one split"
+  let (cBad, _) ← withOpts [(`ved.mem.s94CondSplit, true)] (tryT (← cs 7) csTac)
+  if cBad then throwError "cond split: a false statement was closed"
+  -- a closed condition is evaluated, not split (the false branch of `(1 ^^^ 1) % 2 = 0`... is decided by `decide`)
+  let sp1 ← Tools.VedMemS94Local.condSplits.get
+  let (gOn, _) ← withOpts [(`ved.mem.s94CondSplit, true)] (tryT (← `(∀ (x : Nat), (if (1 ^^^ 1) % 2 = 0 then x else x + 1) = x)) (← `(tactic| (intro x; ved_cond_split 4))))
+  unless gOn do throwError "cond split: a closed condition: not closed"
+  unless (← Tools.VedMemS94Local.condSplits.get) == sp1 do throwError "cond split: a closed condition was split"
+  -- 5. StateSplit2: a second split on a variable with one comparison (counter), refused when the option is off
+  let ss2 ← `(∀ (x : BitVec 2), (if x.toNat = 1 then 5 else 6) ≤ 6)
+  let ssTac ← `(tactic| (intro x; ved_state_split2; all_goals simp))
+  let (sOff, _) ← withOpts [(`ved.mem.s94StateSplit2, false)] (tryT ss2 ssTac)
+  if sOff then throwError "state split 2: OFF closed"
+  let ns0 ← Tools.VedMemS94Local.nestedSplits.get
+  let (sOn, _) ← withOpts [(`ved.mem.s94StateSplit2, true)] (tryT ss2 ssTac)
+  unless sOn do throwError "state split 2: ON not closed"
+  unless (← Tools.VedMemS94Local.nestedSplits.get) == ns0 + 1 do throwError "state split 2: counter"
+  -- 6. CondAbsurd: contradictory case hypotheses close any goal; consistent ones do not
+  let hcI := mkIdent `ved_hc
+  let ab (stmt : Term) (tac : TSyntax `tactic) (v : Bool) : TermElabM (Bool × Bool) := withOpts [(`ved.mem.s94CondAbsurd, v)] (tryT stmt tac)
+  let abTac ← `(tactic| (intro x $hcI:ident $hcI:ident; ved_hc_absurd))
+  let abS ← `(∀ (x : Nat), x % 8 = 3 → x % 8 = 4 → 1 = 2)
+  let (aOff, _) ← ab abS abTac false
+  if aOff then throwError "cond absurd: OFF closed"
+  let (aOn, _) ← ab abS abTac true
+  unless aOn do throwError "cond absurd: ON not closed"
+  let (aBad, _) ← ab (← `(∀ (x : Nat), x % 8 = 3 → x % 8 ≤ 4 → 1 = 2)) abTac true
+  if aBad then throwError "cond absurd: consistent hypotheses closed a false goal"
+  logInfo m!"s94aa controls: rewriteAll (old code loses its work on two hypotheses, new code keeps it, no change when the term does not occur), PairCache (hit counter, OFF no hit), BitArgs / PairCtx (ON closes, OFF refused, false refused), ved_orb_mod, CondSplit (ON closes, OFF refused, false refused, a closed condition is evaluated not split), StateSplit2 (counter), CondAbsurd (ON closes a contradiction, OFF refused, consistent hypotheses refused)"
+
 end Tests.Ved.VedMemLocalCheck

@@ -96,8 +96,8 @@ returns the new goal and the number of propositions changed -/
 def rewriteAll (g : MVarId) (a b h : Expr) : MetaM (MVarId × Nat) := do
   let aTy ← g.withContext (inferType a)
   -- the proof `h` may use hypotheses of the context that this very call replaces (and clears): it is made a hypothesis of its own first.  `replaceLocalDecl` reverts and re-introduces every
-  -- hypothesis after the replaced one (new free variables): the hypotheses are visited by POSITION and `h` is found again by its name each time (R033 goal 33: `unknown free variable` after
-  -- the first replacement made the later ones stale, the whole `ved_spell_unify` was discarded by the caller's `try`)
+  -- hypothesis after the replaced one (new free variables): each round looks the next hypothesis up in the CURRENT context and `h` is found again by its name (R033 goal 33: `unknown free variable`
+  -- after the first replacement made the later ones stale, the whole `ved_spell_unify` was discarded by the caller's `try`)
   -- nothing to replace: the goal is returned untouched (the caller keeps using it; `assert` would assign it)
   let occurs ← g.withContext do
     let mut f := ((← instantiateMVars (← g.getType)).find? (· == a)).isSome
@@ -106,7 +106,8 @@ def rewriteAll (g : MVarId) (a b h : Expr) : MetaM (MVarId × Nat) := do
       if d.isImplementationDetail || d.isLet then continue
       f := (← instantiateMVars d.type).find? (· == a) |>.isSome
     pure f
-  if !occurs then return (g, 0)
+  -- `b` carrying `a` would be rewritten again and again
+  if !occurs || (b.find? (· == a)).isSome then return (g, 0)
   let hTy ← g.withContext (inferType h)
   let (_, g) ← (← g.assert `ved_req hTy h).intro1P
   let rw (h T : Expr) : MetaM (Option (Expr × Expr)) := do
@@ -122,17 +123,23 @@ def rewriteAll (g : MVarId) (a b h : Expr) : MetaM (MVarId × Nat) := do
     return d.toExpr
   let mut g := g
   let mut n := 0
-  let size := (← g.withContext getLCtx).decls.size
-  for k in [0:size] do
-    let some d := (← g.withContext getLCtx).decls[k]! | continue
-    if d.isImplementationDetail || d.isLet || d.userName == `ved_req then continue
-    let t ← instantiateMVars d.type
-    unless (← g.withContext (isProp t)) do continue
+  -- `replaceLocalDecl` moves the new hypothesis behind the equation (which it uses): every round takes the first hypothesis that still carries `a` (at most as many rounds as there were such hypotheses)
+  let carrying (g : MVarId) : MetaM (Array FVarId) := g.withContext do
+    let mut r := #[]
+    for d in ← getLCtx do
+      if d.isImplementationDetail || d.isLet || d.userName == `ved_req then continue
+      let t ← instantiateMVars d.type
+      if (t.find? (· == a)).isSome && (← isProp t) then r := r.push d.fvarId
+    pure r
+  let rounds := (← carrying g).size
+  for _ in [0:rounds] do
+    let some f := (← carrying g)[0]? | break
+    let t ← g.withContext (do instantiateMVars (← f.getDecl).type)
     let hE ← hOf g
-    if let some (t', pf) ← g.withContext (rw hE t) then
-      let r ← g.replaceLocalDecl d.fvarId t' pf
-      g := r.mvarId
-      n := n + 1
+    let some (t', pf) ← g.withContext (rw hE t) | break
+    let r ← g.replaceLocalDecl f t' pf
+    g := r.mvarId
+    n := n + 1
   let tgt ← instantiateMVars (← g.getType)
   if let some (t', pf) ← g.withContext (rw (← hOf g) tgt) then
     g ← g.replaceTargetEq t' pf
