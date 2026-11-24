@@ -2199,7 +2199,9 @@ elab "ved_maddr_diag" : tactic => withMainContext do
     s94LdLog s!"MADDR key#{keys.idxOf key} inner-reads={inner} addr: {(progCut dep ad).take 1200}"
     if (← IO.getEnv "VED_MADDR_PORTS").isSome && a.getAppArgs[8]! == ad then
       for k in [0:8] do
-        s94LdLog s!"MADDR    key#{keys.idxOf key} arg{k}: {(progCut 14 a.getAppArgs[k]!).take 700}"
+        let pl := ((← IO.getEnv "VED_MADDR_PLEN").bind String.toNat?).getD 700
+        let pd := ((← IO.getEnv "VED_MADDR_PDEPTH").bind String.toNat?).getD 14
+        s94LdLog s!"MADDR    key#{keys.idxOf key} arg{k}: {(progCut pd a.getAppArgs[k]!).take pl}"
 
 /-- diagnosis (s94t): the first address pair (same key, two addresses) of the target as the goal `a = rep` of `ved_addr_eq_local2`, after its `toNat` lemmas, run through `ved_local_diag`
 (steps, heartbeats, target / hypotheses at the failure) -/

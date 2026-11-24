@@ -352,7 +352,7 @@ run_cmd liftTermElabM do
       for g in gs do out := out ++ [(← g.withContext do ppExpr (← instantiateMVars (← g.getType))).pretty]
       pure (some out)
     catch _ => pure none
-  let withOpt (o : Name) (v : Bool) (x : TermElabM α) : TermElabM α := withOptions (fun os => os.setBool o v) x
+  let withOpt (o : Name) (v : Bool) (x : TermElabM (Option (List String))) : TermElabM (Option (List String)) := withOptions (fun os => os.setBool o v) x
   let plain ← goalsOf (← `(tactic| (intro a b c; refine ⟨?_, ?_, ?_⟩; all_goals (try ved_loop_simp [Nat.add_zero]))))
   let some plain := plain | throwError "share99: the plain route failed"
   Tools.VedMemS94Gen.share99State.set none
@@ -372,7 +372,7 @@ run_cmd liftTermElabM do
   let some on3 := on3 | throwError "share99: ON (steps): failed"
   unless on3 == plain do throwError "share99: ON (steps): the goals differ from the plain route"
   let some st ← Tools.VedMemS94Gen.share99State.get | throwError "share99: no state after the steps"
-  if st.cache.size == 0 then throwError "share99: empty cache"
+  if (st.cache.fold (fun n _ _ => n + 1) 0) == 0 then throwError "share99: empty cache"
   Tools.VedMemS94Gen.share99State.set none
   -- late failure (seam): the goal is as it was, the state and the counter unchanged
   let k1 ← Tools.VedMemS94Gen.share99Hits.get
