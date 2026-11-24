@@ -277,8 +277,8 @@ def childRunV (child : Name) (n : Nat) (top : Name) (tag : String) (opts : List 
         return (none, some thm)
       catch e => return (some (← e.toMessageData.toString), none)
 
-def acceptedV (child : Name) (n : Nat) (top : Name) (tag : String) : CommandElabM Unit := do
-  let (msg, thm?) ← childRunV child n top tag u12Opts
+def acceptedV (child : Name) (n : Nat) (top : Name) (tag : String) (opts := u12Opts) : CommandElabM Unit := do
+  let (msg, thm?) ← childRunV child n top tag opts
   let some thm := thm? | throwError "{child} (wireEqs+muxCond) refused: {msg.getD ""}"
   liftTermElabM do
     let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
@@ -288,8 +288,8 @@ def acceptedV (child : Name) (n : Nat) (top : Name) (tag : String) : CommandElab
     if axs.contains ``sorryAx then throwError "{thm}: sorryAx"
     logInfo m!"CHILD THEOREM {child} (wireEqs K=3 + muxCond + slice+zeta+wires): {thm} U1Stmt, std3, no sorryAx"
 
-def refusedV (top : Name) (tag : String) (what : String) : CommandElabM Unit := do
-  let (msg?, thm?) ← childRunV ``chainN 7 top tag u12Opts
+def refusedV (top : Name) (tag : String) (what : String) (opts := u12Opts) : CommandElabM Unit := do
+  let (msg?, thm?) ← childRunV ``chainN 7 top tag opts
   if thm?.isSome then throwError "control ({what}): the checker ACCEPTED a wrong module"
   let some msg := msg? | throwError "control ({what}): neither refused nor accepted"
   unless msg.startsWith s!"VED U1 REFUSED {``chainN} [proof]" do
@@ -307,5 +307,29 @@ example {dom : Sparkle.Core.Domain.DomainConfig} (c : Sparkle.Core.Signal.Signal
 
 /-- the `cond` form is not symmetric in its branches: a lemma with the branches swapped is false -/
 example : ¬ (∀ (c a b : Bool), cond c a b = cond c b a) := by decide
+
+/-! ## Unit 13: `ved.sseq.iteNorm` (closing stage tries the ite normal form first) and `ved_ss_R2` with the DAG loop walk
+
+`iteNorm` on, together with the unit-12 options: the accepted children are still accepted (the normal-form step either closes a leaf or
+falls back to the unchanged closing), the two wrong modules are still refused at `[proof]`. -/
+
+def u13Opts : List (Name × Bool) := u12Opts ++ [(`ved.sseq.iteNorm, true)]
+
+#eval acceptedV ``chainN 7 ``topN "ved_u13a" u13Opts
+#eval acceptedV ``chainW 3 ``topW "ved_u13w" u13Opts
+#eval refusedV ``topNR "ved_u13R" "wrong register update (iteNorm on)" u13Opts
+#eval refusedV ``topNO "ved_u13O" "wrong output wire (iteNorm on)" u13Opts
+
+/-- the two local facts `ved.sseq.iteNorm` rewrites with, on the shape of `faddMod` / `fsubMod` (`mux (ule p s) (s - p) s`): the flipped condition and the
+operand order (`Nat.add_comm`, ordered) make the spec side and the module side the same term -/
+example (x y p K M N : Nat) :
+    (if p ≤ x + y then (K + (x + y)) % M else x + y) % N = (if x + y < p then x + y else (x + y + K) % M) % N := by
+  simp only [← Nat.not_lt, ite_not, Nat.add_comm]
+
+/-- control: the rewriting does not identify different branches -/
+example : ¬ (∀ (x p K M N : Nat), (if p ≤ x then (K + x) % M else x) % N = (if x < p then (x + K) % M else x) % N) := by
+  intro h
+  have := h 5 1 3 100 1000
+  simp at this
 
 end Tests.Ved.U1StructNamedCheck
