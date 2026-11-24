@@ -1451,6 +1451,47 @@ elab "#ved_s95_replay " d:str : command => do
       -- `VED_S95_PEELDBG`: the DAG peel alone on each MemInv goal (error text, ms, heartbeats), the first goals only; the goals stay as they are
       -- `VED_S95_PREMDBG=1` (s94s): the stage-99 step goal by goal (the same result as `ved_if_read`: `try` on each goal, the goals concatenated); for a goal whose result has
       -- a premise (`P → ..`) in its target, the shallow target before and after, and the premises
+      -- `VED_S95_PROF99=1` (s94u): the stage-99 step goal by goal as `ved_if_read` does (`try` on each goal), one line per goal: ms, heartbeats, tree and DAG of the target before / after,
+      -- the number of distinct loop values (DAG) in the target; the totals at the end; the result is the same as the plain step's
+      if no == 99 && (← IO.getEnv "VED_S95_PROF99").isSome then
+        let curBefore := cur
+        let mut out : List MVarId := []
+        let mut i := 0
+        let mut hbSum := 0
+        for gq in cur do
+          let before ← gq.withContext do instantiateMVars (← gq.getType)
+          let nB := Tools.VedU1Loop.treeSizeVal before
+          let dB := (Tools.VedU1WireShare.collectDag (fun _ => true) before).size
+          let t1 ← IO.monoMsNow
+          let h1 ← IO.getNumHeartbeats
+          let gsR ← Tactic.run gq (Tactic.evalTactic (← `(tactic| try ($tac:tactic))))
+          let hbG := ((← IO.getNumHeartbeats) - h1) / 1000
+          hbSum := hbSum + hbG
+          out := out ++ gsR
+          let after ← match gsR.head? with
+            | some g2 => g2.withContext do instantiateMVars (← g2.getType)
+            | none => pure before
+          dbgLog s!"S95 p99 goal {i}: {(← IO.monoMsNow) - t1}ms {hbG}k before tree={nB} dag={dB} after tree={Tools.VedU1Loop.treeSizeVal after} dag={(Tools.VedU1WireShare.collectDag (fun _ => true) after).size} goals={gsR.length}"
+          i := i + 1
+        cur := out
+        dbgLog s!"S95 p99 done: goals {i} -> {cur.length}, per-goal heartbeats sum {hbSum}k"
+        -- sharing between the goals: the DAG nodes of all targets before / after, summed per goal and as a union (structural equality)
+        let mut unB : Std.HashSet Expr := {}
+        let mut sumB := 0
+        for gq in curBefore do
+          let t ← gq.withContext do instantiateMVars (← gq.getType)
+          let d := Tools.VedU1WireShare.collectDag (fun _ => true) t
+          sumB := sumB + d.size
+          for x in d do unB := unB.insert x
+        let mut unA : Std.HashSet Expr := {}
+        let mut sumA := 0
+        for gq in cur do
+          let t ← gq.withContext do instantiateMVars (← gq.getType)
+          let d := Tools.VedU1WireShare.collectDag (fun _ => true) t
+          sumA := sumA + d.size
+          for x in d do unA := unA.insert x
+        dbgLog s!"S95 p99 sharing: before sum of DAGs {sumB} union {unB.size}; after sum of DAGs {sumA} union {unA.size}"
+        break
       if no == 99 && (← IO.getEnv "VED_S95_PREMDBG").isSome then
         let mut out : List MVarId := []
         let mut i := 0
@@ -1944,6 +1985,7 @@ elab "ved_local_diag" : tactic => do
         ("omega_nobnd", ← `(tactic| all_goals ((try (repeat clear ved_bnd2)); (try (repeat clear ved_bnd)); omega))),
         ("splitall_omega", ← `(tactic| ((repeat' split); all_goals omega))),
         ("enum", ← `(tactic| ved_bv_enum)),
+        ("cong", ← `(tactic| all_goals ved_cong)),
         ("mux", ← `(tactic| all_goals ved_mux))]
       for (an, at_) in alts do
         let stA ← saveState
@@ -1988,7 +2030,7 @@ elab "ved_local_diag" : tactic => do
           s94LdLog s!"LDIAG {tag} FEAT after {name}: or={cnt ``HOr.hOr} and={cnt ``HAnd.hAnd} xor={cnt ``HXor.hXor} shl={cnt ``HShiftLeft.hShiftLeft} shr={cnt ``HShiftRight.hShiftRight} ite={cnt ``ite} mod={cnt ``HMod.hMod} div={cnt ``HDiv.hDiv} mul={cnt ``HMul.hMul} add={cnt ``HAdd.hAdd} sub={cnt ``HSub.hSub} pow={cnt ``HPow.hPow} toNat={cnt ``BitVec.toNat} Eq={cnt ``Eq} Or={cnt ``Or} And={cnt ``And} Not={cnt ``Not}"
           for o in (nodes.filter fun x => x.isAppOf ``HOr.hOr).toList.take 4 do
             s94LdLog s!"LDIAG {tag} OR node: {(progCut 8 o).take 500}"
-          s94LdLog s!"LDIAG {tag} SHOW after {name}: {(progCut ((← IO.getEnv "VED_LDIAG_DEPTH").bind String.toNat? |>.getD 12) (← instantiateMVars (← g.getType))).take 3000}"
+          s94LdLog s!"LDIAG {tag} SHOW after {name}: {(progCut ((← IO.getEnv "VED_LDIAG_DEPTH").bind String.toNat? |>.getD 12) (← instantiateMVars (← g.getType))).take ((← IO.getEnv "VED_LDIAG_LEN").bind String.toNat? |>.getD 3000)}"
     if r != "ok" then failed := name; break
     if gs.isEmpty then break
   s94LdLog (line ++ s!" | first-failing={if failed == "" then "none (closed)" else failed}")
@@ -2081,6 +2123,9 @@ elab "ved_maddr_diag" : tactic => withMainContext do
     let inner := (Tools.VedU1WireShare.collectDag Tools.VedMemS94Local.isMemAtom ad).size
     let key := (mkAppN a.getAppFn (a.getAppArgs.extract 0 8)).hash
     s94LdLog s!"MADDR key#{keys.idxOf key} inner-reads={inner} addr: {(progCut dep ad).take 1200}"
+    if (← IO.getEnv "VED_MADDR_PORTS").isSome && a.getAppArgs[8]! == ad then
+      for k in [0:8] do
+        s94LdLog s!"MADDR    key#{keys.idxOf key} arg{k}: {(progCut 14 a.getAppArgs[k]!).take 700}"
 
 /-- diagnosis (s94t): the first address pair (same key, two addresses) of the target as the goal `a = rep` of `ved_addr_eq_local2`, after its `toNat` lemmas, run through `ved_local_diag`
 (steps, heartbeats, target / hypotheses at the failure) -/

@@ -221,4 +221,47 @@ run_cmd liftTermElabM do
   unless (← Tools.VedMemS94Local.coneOpaqueHits.get) == h0 + 1 do throwError "opaqueH: counter moved without an atom"
   logInfo m!"cone2 / opaqueH controls: OFF clears the premise and keeps the atoms (counters unchanged), ON keeps the small premise (counter +1) and abstracts the hypothesis atom (counter +1), an unrelated entry is still cleared, a goal without atoms is left alone"
 
+/-! ## ved_addr_eq_bv (`ved.mem.s94Addr`) and ved_cong (s94u) -/
+
+set_option ved.mem.s94Addr true in
+/-- kernel-checked: an address equality of the shape of R033 goal 139 (an `if` over a state field, `*` / `++` on one side, `ofNat` of a `%` / `/` form on the other) is closed by the toNat
+translation, the `if` split and `decide +kernel` over the BitVec variables of each leaf -/
+theorem addr_bv_ok (a b c : BitVec 5) :
+    (if a.toNat = 13 then 16#8 * (0#3 ++ b) + (0#3 ++ c) else 0#8) =
+    BitVec.ofNat 8 (if a.toNat = 13 then (b.toNat % 32 * 16 + c.toNat % 32) % 256 else 0) := by
+  ved_addr_eq_bv
+
+/-- info: addr_bv controls: OFF refused, ON closes (leaf counter moves), a WRONG address equality is refused (also with the late-failure `first`: the goal is as it was), more than 12 bits are refused -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryT (stmt : Term) (tac : TSyntax `tactic) : TermElabM (Bool × Bool) := do
+    let ty ← elabTerm stmt none
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      pure (gs.isEmpty, true)
+    catch _ => pure (false, false)
+  let withOpt (o : Name) (v : Bool) (x : TermElabM (Bool × Bool)) : TermElabM (Bool × Bool) := withOptions (fun os => os.setBool o v) x
+  let good ← `(∀ (a b : BitVec 5), (if a.toNat = 13 then 16#8 * (0#3 ++ b) else 0#8) = BitVec.ofNat 8 (if a.toNat = 13 then b.toNat % 32 * 16 % 256 else 0))
+  let tac ← `(tactic| (intro a b; ved_addr_eq_bv))
+  let l0 ← Tools.VedMemS94Local.bvEnumLeaves.get
+  let (cOff, _) ← withOpt `ved.mem.s94Addr false (tryT good tac)
+  if cOff then throwError "addr_bv: OFF: the equality was closed"
+  unless (← Tools.VedMemS94Local.bvEnumLeaves.get) == l0 do throwError "addr_bv: OFF: counter moved"
+  let (cOn, okOn) ← withOpt `ved.mem.s94Addr true (tryT good tac)
+  if !okOn || !cOn then throwError "addr_bv: ON: the equality was not closed"
+  unless (← Tools.VedMemS94Local.bvEnumLeaves.get) > l0 do throwError "addr_bv: ON: counter"
+  -- a wrong equality (8 * b instead of 16 * b on the right)
+  let bad ← `(∀ (a b : BitVec 5), (if a.toNat = 13 then 16#8 * (0#3 ++ b) else 0#8) = BitVec.ofNat 8 (if a.toNat = 13 then b.toNat % 32 * 8 % 256 else 0))
+  let (cBad, _) ← withOpt `ved.mem.s94Addr true (tryT bad tac)
+  if cBad then throwError "addr_bv: a WRONG address equality was closed"
+  -- late failure: the first alternative fails after its work (split, reverts), the goal is the original BitVec equality again
+  let (cLate, okLate) ← withOpt `ved.mem.s94Addr true (tryT bad (← `(tactic| (intro a b; (first | ved_addr_eq_bv | skip); apply BitVec.eq_of_toNat_eq))))
+  if !okLate || cLate then throwError "addr_bv: late failure did not restore the goal"
+  -- too many bits in one leaf (two 8-bit variables = 16 > 12): refused
+  let wide ← `(∀ (x y : BitVec 8), x + y = y + x)
+  let (cW, _) ← withOpt `ved.mem.s94Addr true (tryT wide (← `(tactic| (intro x y; ved_addr_eq_bv))))
+  if cW then throwError "addr_bv: 16 bits were enumerated"
+  logInfo m!"addr_bv controls: OFF refused, ON closes (leaf counter moves), a WRONG address equality is refused (also with the late-failure `first`: the goal is as it was), more than 12 bits are refused"
+
 end Tests.Ved.VedMemLocalCheck

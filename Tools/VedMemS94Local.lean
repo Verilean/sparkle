@@ -492,6 +492,28 @@ macro_rules
          case hb => intro _; ved_mux)
       | ved_split_omega)
 
+/-- `ved_cong` (option-free; used by the new route only): `ved_mux` with one more alternative, the congruence step `congr 1` for two applications of the same head (`+ * % / ^ -`):
+the sides that are two spellings of one arithmetic term (observed R033 goal 6: `(a * b + c) % 2^32 / 2^(m % 32)` on both sides, only the inner `ite`s and `% 65536` spelled differently)
+are compared argument by argument, so that `omega` sees the same nonlinear atoms (`a * b`, `2 ^ (m % 32)`) on both sides -/
+syntax "ved_cong" : tactic
+macro_rules
+  | `(tactic| ved_cong) => `(tactic| first
+      | with_reducible rfl
+      | omega
+      | (rw [mux_mod]; ved_cong)
+      | (refine mux_cong _ _ _ _ _ _ ?hc ?ha ?hb
+         case hc => first | exact Iff.rfl | ved_split_omega
+         case ha => intro _; ved_cong
+         case hb => intro _; ved_cong)
+      | (refine mux_l _ _ _ _ ?ha ?hb
+         case ha => intro _; ved_cong
+         case hb => intro _; ved_cong)
+      | (refine mux_r _ _ _ _ ?ha ?hb
+         case ha => intro _; ved_cong
+         case hb => intro _; ved_cong)
+      | (congr 1 <;> ved_cong)
+      | ved_split_omega)
+
 /-! ## memState atoms abstracted (shared with `Tools.VedMemS94Opaque`): the keys of the target, and with `ved.mem.s94OpaqueH` also those of the kept hypotheses -/
 
 def isMemAtom (x : Expr) : Bool :=
