@@ -1,5 +1,6 @@
 import Lean
 import Tools.VedMemLoop
+import Tools.VedMemS94Addr
 
 /-!
 # Local route for the tail goals (`ved.mem.s94Local`)
@@ -486,6 +487,15 @@ elab "ved_local_small" : tactic => withMainContext do
 syntax "ved_split_omega" : tactic
 macro_rules
   | `(tactic| ved_split_omega) => `(tactic| first | omega | (split <;> ved_split_omega))
+
+/-- `ved_or_gate`: refuses unless `ved.mem.s94OrDisj` is on -/
+elab "ved_or_gate" : tactic => do
+  unless Tools.VedMemS94Addr.ved.mem.s94OrDisj.get (← getOptions) do throwError "ved_or_gate: option ved.mem.s94OrDisj is off"
+
+/-- `ved_split_omega_o` (option `ved.mem.s94OrDisj`): `ved_split_omega` whose leaves also try the bounds `x ||| y < 2 ^ k` of the bit-field terms the splitting produced (`ved_or_bounds`) -/
+syntax "ved_split_omega_o" : tactic
+macro_rules
+  | `(tactic| ved_split_omega_o) => `(tactic| first | omega | (ved_or_bounds; omega) | (split <;> ved_split_omega_o))
 
 /-- `ved_mux`: an equation of two `ite` chains branch by branch (`mux_mod` pushes `% m` into the chain, `mux_cong` pairs the conditions, `mux_l` / `mux_r` when only one
 side is a chain), the leaves by `ved_split_omega`; no `split` on the chain itself -/
@@ -987,6 +997,11 @@ initialize stateSplitBranches : IO.Ref Nat ← IO.mkRef 0
 initialize stateSplitRefuse : IO.Ref Bool ← IO.mkRef false
 initialize stateSplitFailLate : IO.Ref Bool ← IO.mkRef false
 
+register_option ved.mem.s94StateMinConds : Nat := {
+  defValue := 4
+  descr := "ved_state_split: fewest comparisons `x.toNat = k` of one variable in the target that make a split worth it (default 4, the value of s94w)"
+}
+
 /-- most values of the split variable (the state / phase fields have 3 .. 5 bits) -/
 def stateSplitMaxBits : Nat := 5
 /-- fewest comparisons `x.toNat = literal` of one variable that make a split worth it -/
@@ -1004,7 +1019,7 @@ def stateSplitVar (g : MVarId) : MetaM (Option (Expr × Nat)) := g.withContext d
       cnt := cnt.insert v.fvarId! (cnt.getD v.fvarId! 0 + 1)
   let mut best : Option (Expr × Nat) := none
   for (f, n) in cnt.toList do
-    if n < stateSplitMinConds then continue
+    if n < ved.mem.s94StateMinConds.get (← getOptions) then continue
     let ty ← whnfR (← instantiateMVars (← f.getType))
     unless ty.isAppOf ``BitVec do continue
     let some w := (← whnf ty.appArg!).rawNatLit? <|> (← instantiateMVars ty.appArg!).nat? | continue
@@ -1086,7 +1101,7 @@ elab "ved_state_split" : tactic => do
 literals, `x % m` of an `if`): ONE simp context for all the goals (the context of the simp set is built once, not per branch: 100k+ heartbeats each); goals the simp does not change are kept. -/
 elab "ved_state_simp" : tactic => do
   let stx ← `(tactic| simp only [Nat.reduceEqDiff, Nat.reduceMod, Nat.reduceAdd, Nat.reducePow, Nat.reduceAnd, Nat.reduceOr, Nat.reduceXor, ↓reduceIte, true_and, and_true, false_and, and_false,
-    false_or, or_false, true_or, or_true, and_self, not_true_eq_false, not_false_eq_true, if_true, if_false, ite10_mod2, ite10_mod2_z, ite10_eq1, ite10_eq0, Classical.not_not, mux_mod,
+    false_or, or_false, true_or, or_true, and_self, not_true_eq_false, not_false_eq_true, if_true, if_false, true_imp_iff, false_imp_iff, Tools.VedMemS94Addr.or_eq_zero_iff', ite10_mod2, ite10_mod2_z, ite10_eq1, ite10_eq0, Classical.not_not, mux_mod,
     Nat.zero_and, Nat.and_zero, Nat.zero_or, Nat.or_zero, Nat.zero_xor, Nat.xor_zero, Nat.zero_mod])
   let sc ← mkSimpContext stx (eraseLocal := false)
   let mut out : Array MVarId := #[]
@@ -1131,6 +1146,10 @@ of the two sides are different atoms for `omega` / `split` otherwise, R033 goal 
 macro "ved_cond_norm" : tactic =>
   `(tactic| simp only [ite10_mod2, ite10_mod2_z, ite10_eq1, ite10_eq0, Nat.mod_two_ne_one, Nat.mod_two_ne_zero, Nat.reducePow, Nat.reduceAdd, Nat.reduceMod] at *)
 
+/-- `ved_mul_opt_gate`: refuses unless `ved.mem.s94MulShift` is on (the multiply-shift closing as an alternative of the state branch closer) -/
+elab "ved_mul_opt_gate" : tactic => do
+  unless ved.mem.s94MulShift.get (← getOptions) do throwError "ved_mul_opt_gate: option ved.mem.s94MulShift is off"
+
 /-- `ved_state_late` / `ved_mul_late`: the test seams "the attempt failed after its work" (the caller restores the goal) -/
 elab "ved_state_late" : tactic => do
   if ← stateSplitFailLate.get then throwError "ved_state_late: failed after its work (test seam)"
@@ -1145,10 +1164,14 @@ elab "ved_state_gate" : tactic => do
 /-- the closer of one branch of the state split (a small goal: the literal conditions are decided, the rest are linear `if`s of a few atoms): its own cone, the bounds of its variables, `ved_split_omega`;
 the bit operations on 0/1 flags by `split` and the literal simprocs -/
 macro "ved_state_branch" : tactic =>
-  `(tactic| (ved_cone_clear; ved_bv_bounds_t
+  `(tactic| (ved_cone_clear; (try ved_spell_unify); (try ved_read_lift); ved_bv_bounds_t
              first
              | (simp only [mux_mod]; done)
+             | ((try simp only [mux_mod]); ved_or_gate; ved_split_omega_o)
              | ((try simp only [mux_mod]); ved_split_omega)
+             | (ved_mul_opt_gate; (try ved_cond_norm); (try ved_read_bounds); ved_bv_bounds; (try simp only [mux_mod]); (repeat' split)
+                all_goals (try simp (disch := omega) only [Nat.mod_eq_of_lt, Nat.reducePow, Nat.reduceAdd, Nat.reduceMod])
+                all_goals omega)
              | ((repeat' split) <;> (try simp only [Nat.reduceAnd, Nat.reduceOr, Nat.reduceXor, Nat.reduceMod, Nat.reduceAdd, Nat.reducePow, Nat.reduceEqDiff, ↓reduceIte, true_and, and_true, false_and, and_false] at *) <;> omega)))
 
 /-- `ved_local_close_state` (s94w; refused unless `ved.mem.s94StateSplit` is on): the fourth attempt of `ved_local_goal`, under its own limit `stateCapK` (the earlier ones did not close the goal): the cone, the
@@ -1159,7 +1182,7 @@ macro "ved_local_close_state" : tactic =>
              (try ved_conj_prune)
              first
              | (ved_state_split; ved_state_simp; all_goals ved_state_branch; ved_state_late)
-             | ((try ved_atom_args); all_goals ((try ved_ite_div); (try ved_cond_norm); (try ved_read_bounds); ved_bv_bounds; first | (simp only [mux_mod]; done) | ((try simp only [mux_mod]); ved_mux)))))
+             | ((try ved_atom_args); all_goals ((try ved_ite_div); (try ved_cond_norm); (try ved_spell_unify); (try ved_read_lift); (try ved_read_bounds); ved_bv_bounds; first | (simp only [mux_mod]; done) | ((try simp only [mux_mod]); ved_mux)))))
 
 /-- `ved_mul_gate`: refuses unless `ved.mem.s94MulShift` is on -/
 elab "ved_mul_gate" : tactic => do
@@ -1174,7 +1197,7 @@ macro "ved_local_close_mulshift" : tactic =>
   `(tactic| (ved_mul_gate; ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); (try ved_atom_args)
              all_goals (ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *); (try ved_ite_div))
              (try ved_conj_prune)
-             (try ved_cond_norm); (try ved_read_bounds); ved_bv_bounds; (try simp only [mux_mod])
+             (try ved_cond_norm); (try ved_spell_unify); (try ved_read_lift); (try ved_read_bounds); ved_bv_bounds; (try simp only [mux_mod])
              (repeat' split)
              all_goals (try simp (disch := omega) only [Nat.mod_eq_of_lt, Nat.reducePow, Nat.reduceAdd, Nat.reduceMod])
              all_goals omega

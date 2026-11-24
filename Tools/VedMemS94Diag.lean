@@ -2386,4 +2386,71 @@ elab "ved_maddr_pair_diag" : tactic => withMainContext do
     catch _ => pure ()
     return
 
+open Lean Elab Tactic in
+/-- diagnosis (s94x): run the tactic sequence; on failure log its error (first `VED_OMEGA_LEN` characters) and restore the state (the goal stays as it was) -/
+elab "ved_try_log " t:tacticSeq : tactic => do
+  let st ← saveState
+  try evalTactic t
+  catch ex =>
+    s94LdLog s!"TRYLOG failed: {((← ex.toMessageData.toString).replace "\n" " | ").take (((← IO.getEnv "VED_OMEGA_LEN").bind String.toNat?).getD 1500)}"
+    st.restore
+
+open Lean Elab Tactic in
+/-- diagnosis (s94x): logs the number of goals -/
+elab "ved_ngoals" : tactic => do
+  let gs ← getGoals
+  let mut asg := 0
+  for g in gs do
+    if ← g.isAssigned then asg := asg + 1
+  s94LdLog s!"NGOALS {gs.length} assigned {asg}"
+
+open Lean Elab Tactic in
+/-- diagnosis (s94x): the tactic on each goal in turn (one line per goal: ok / failed, goals left); failed goals are kept as they were -/
+elab "ved_each " t:tacticSeq : tactic => do
+  let gs ← getGoals
+  let mut out : Array MVarId := #[]
+  let mut i := 0
+  for g in gs do
+    if ← g.isAssigned then
+      s94LdLog s!"EACH {i}: assigned"
+      i := i + 1
+      continue
+    setGoals [g]
+    let st ← saveState
+    let hb0 ← IO.getNumHeartbeats
+    try
+      evalTactic t
+      let r ← getGoals
+      s94LdLog s!"EACH {i}: ok left={r.length} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}"
+      out := out ++ r
+    catch ex =>
+      s94LdLog s!"EACH {i}: hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000} FAILED {((← ex.toMessageData.toString).replace "\n" " | ").take (((← IO.getEnv "VED_OMEGA_LEN").bind String.toNat?).getD 150)}"
+      st.restore
+      out := out.push g
+    i := i + 1
+  setGoals out.toList
+
+open Lean Elab Tactic in
+/-- diagnosis (s94x): the tactic sequence under its own heartbeat limit (thousands); logs ok / failure (also a timeout) with the heartbeats used and restores the state on failure -/
+elab "ved_cap " k:num t:tacticSeq : tactic => do
+  let hb0 ← IO.getNumHeartbeats
+  let st ← saveState
+  let r ← tryCatchRuntimeEx
+    (do
+      withTheReader Core.Context (fun c => { c with maxHeartbeats := k.getNat * 1000, initHeartbeats := hb0 }) do
+        withoutRecover (evalTactic t)
+      pure "ok")
+    (fun ex => do pure s!"FAILED {((← ex.toMessageData.toString).replace "\n" " | ").take (((← IO.getEnv "VED_OMEGA_LEN").bind String.toNat?).getD 150)}")
+  s94LdLog s!"CAP {k.getNat}k: hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000} {r}"
+  if r != "ok" then st.restore
+
+open Lean Meta Elab Tactic in
+/-- diagnosis (s94x): tree / DAG size of the target, number of hypotheses, number of `ite` / `HMod` / `HMul` / `HPow` / `HOr` DAG nodes (one line) -/
+elab "ved_size_log" : tactic => withMainContext do
+  let tgt ← instantiateMVars (← getMainTarget)
+  let nodes := Tools.VedU1WireShare.collectDag (fun _ => true) tgt
+  let cnt (c : Name) : Nat := (nodes.filter fun x => x.isAppOf c).size
+  let nh := (← getLCtx).decls.toList.filterMap id |>.filter (fun d => !d.isImplementationDetail) |>.length
+  s94LdLog s!"SIZE tree={Tools.VedU1Loop.treeSizeVal tgt} dag={nodes.size} ctx={nh} ite={cnt ``ite} mod={cnt ``HMod.hMod} mul={cnt ``HMul.hMul} pow={cnt ``HPow.hPow} or={cnt ``HOr.hOr} div={cnt ``HDiv.hDiv} Eq={cnt ``Eq} And={cnt ``And}"
+
 end Tools.VedMemS94Diag
