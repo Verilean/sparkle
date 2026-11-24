@@ -50,6 +50,8 @@ structure DeepInfo where
   noFastWidth : Bool := false
   /-- measurement only (`VED_COMPOSE_NOFASTWR`): `WOKb` / `RegsOk` by the list-scanning `Bool`s, not the map-based ones -/
   noFastWR : Bool := false
+  /-- option `ved.compose.multiCircuit`: the normalised register / port comparison (`RegsOkNF`) -/
+  normN : Bool := false
   /-- VED compose: the indices of the body that give the arrangement (`Tools.VedCompose.permBy`) -/
   perm : List Nat := []
 

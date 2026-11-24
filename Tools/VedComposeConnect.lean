@@ -950,6 +950,183 @@ theorem outSpecF_sound {Γr Γi : List Nat} {wOut : Nat} {deep : Cdo Γr Γi wOu
   simp only [specOkLe, slowLk, Bool.and_eq_true] at h1
   exact ⟨h1.1.1.1, h1.1.1.2, h1.1.2, eqE_sound _ _ h1.2⟩
 
+/-! ## The normalised comparison (option `ved.compose.multiCircuit`; the route above is unchanged and stays the default)
+
+The fidelity literal of a deep register (`CExpr.compile`) has every `cat` as a 2-element `concat`, so `{a, b, c}` of the elaborated
+Verilog cone is `concat [a, concat [b, c]]` there (`Tools/ConcatNorm.lean`), while `flat` flattens the cone side only.  The
+normalised check compares `flat n3` of BOTH sides.  Its soundness is `flat_sound` (for every width environment, environment, fuel
+and expression: `evalExpr we E (flat n e) = evalExpr we E e` and the same for `widthOf`); the connection lemmas below take the
+equation `flat n3 (renE .. cone) = flat n3 L` instead of `renE .. cone = L` and conclude exactly what `connect_value` /
+`reg_connect` / `out_connect` conclude.  Nothing else changes (same facts `hneed`, `hl0`, `hTW`, same fidelity `hfid`). -/
+
+theorem connect_valueN {n : Nat} (nm : Fin n → String) (hinj : ∀ i j, nm i = nm j → i = j)
+    (Γ : List Nat) (hn : Γ.length = n)
+    (V : Fin n → Nat)
+    (d : Design) (m : Module) (b0 : List Stmt)
+    (Ow : (Nat → String → Nat) → String → Nat → Nat)
+    (hwi : ∀ n ∈ wrsH d b0, n ∉ inNames m) (hri : ∀ n ∈ regOuts b0, n ∉ inNames m)
+    (hwr : ∀ n ∈ wrsH d b0, n ∉ regOuts b0)
+    (hW : WOKb (declWidth m) m b0 = true)
+    (ins : Nat → String → Nat) (t : Nat) (p : String → Nat) (E : Env)
+    (hasg : ∀ l r, asgOf b0 l = some r → evalExpr (declWidth m) E r = some (E l))
+    (hEin : ∀ x ∈ inNames m, E x = ins t x)
+    (hEreg : ∀ r ∈ regOuts b0, E r = p r)
+    (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ b0 → ∀ y ∈ instOuts d mn cs, E y = Ow ins y t)
+    (e : Expr) (x : String) (he : evalExpr (declWidth m) E e = some (E x))
+    (nIn n2 n3 : Nat) (needed : List String)
+    (hrangeN : ∀ y ∈ needed, E y < 2 ^ declWidth m y)
+    (hneed : neededOk needed (inl (Atab m b0) nIn e) = true)
+    (hl0 : leafOk (cutNames d m b0) (inl (Atab m b0) nIn e) = true)
+    (tab : List (String × Nat)) (L : Expr)
+    (hren : flat n3 (renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e)))) = flat n3 L)
+    (hTW : tabW Γ (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e))) = true)
+    (hV : ∀ q ∈ tab, ∀ hq : q.2 < n, leafEnv m b0 ins t p Ow q.1 = V ⟨q.2, hq⟩) :
+    evalExpr (weOfC nm (fun j : Fin n => Γ.getD j.val 0)) (envOfC nm V) L = some (E x) := by
+  have hcc := cone_connect_bnf d m b0 Ow hwi hri hwr hW ins t p E hasg hEin hEreg hEorc nIn n2 n3 e
+    (needed_range _ E needed _ hrangeN hneed) hl0
+  rw [he] at hcc
+  have h1 := cone_deep_eval nm hinj (fun j : Fin n => Γ.getD j.val 0) V (declWidth m) (leafEnv m b0 ins t p Ow) tab
+    (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e))) _ rfl
+    (tabW_sound _ Γ (fun _ => rfl) hn _ tab _ hTW) hV
+  have h2 : evalExpr (weOfC nm (fun j : Fin n => Γ.getD j.val 0)) (envOfC nm V) L
+      = evalExpr (weOfC nm (fun j : Fin n => Γ.getD j.val 0)) (envOfC nm V)
+        (renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e)))) := by
+    rw [← (flat_sound (weOfC nm (fun j : Fin n => Γ.getD j.val 0)) (envOfC nm V) n3 L).1, ← hren,
+      (flat_sound (weOfC nm (fun j : Fin n => Γ.getD j.val 0)) (envOfC nm V) n3 _).1]
+  rw [h2, h1]
+  exact hcc.symm
+
+/-- `reg_connect` with the normalised equation. -/
+theorem reg_connectN {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut)
+    (nm : Fin (Γr ++ Γi).length → String) (hinj : ∀ i j, nm i = nm j → i = j)
+    (inp : Nat → CEnv Γi) (t : Nat) (i : Fin Γr.length) (L : Expr)
+    (hfid : CExpr.compile nm (deep.next i) = L)
+    (d : Design) (m : Module) (b0 : List Stmt)
+    (Ow : (Nat → String → Nat) → String → Nat → Nat)
+    (hwi : ∀ n ∈ wrsH d b0, n ∉ inNames m) (hri : ∀ n ∈ regOuts b0, n ∉ inNames m)
+    (hwr : ∀ n ∈ wrsH d b0, n ∉ regOuts b0)
+    (hW : WOKb (declWidth m) m b0 = true)
+    (ins : Nat → String → Nat) (p : String → Nat) (E : Env)
+    (hasg : ∀ l r, asgOf b0 l = some r → evalExpr (declWidth m) E r = some (E l))
+    (hEin : ∀ x ∈ inNames m, E x = ins t x)
+    (hEreg : ∀ r ∈ regOuts b0, E r = p r)
+    (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ b0 → ∀ y ∈ instOuts d mn cs, E y = Ow ins y t)
+    (x : String) (nIn n2 n3 : Nat) (needed : List String)
+    (hrangeN : ∀ y ∈ needed, E y < 2 ^ declWidth m y)
+    (hneed : neededOk needed (inl (Atab m b0) nIn (.ref x)) = true)
+    (hl0 : leafOk (cutNames d m b0) (inl (Atab m b0) nIn (.ref x)) = true)
+    (tab : List (String × Nat))
+    (hren : flat n3 (renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn (.ref x))))) = flat n3 L)
+    (hTW : tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn (.ref x)))) = true)
+    (hV : VOk deep nm inp t m b0 ins p Ow tab) :
+    deep.irState nm inp (t + 1) i = E x := by
+  have hv := connect_valueN nm hinj (Γr ++ Γi) rfl
+    (natJoin (deep.irState nm inp t) (fun j => (inp t j).toNat)) d m b0 Ow hwi hri hwr hW ins t p E
+    hasg hEin hEreg hEorc (.ref x) x rfl nIn n2 n3 needed hrangeN hneed hl0 tab L hren hTW hV
+  show (evalExpr (weOfC nm (fun j => (Γr ++ Γi).get j)) (envOfC nm (natJoin (deep.irState nm inp t)
+      (fun j => (inp t j).toNat))) ((deep.next i).compile nm)).getD 0 = E x
+  rw [hfid]
+  have hw : (fun j : Fin (Γr ++ Γi).length => (Γr ++ Γi).getD j.val 0) = fun j => (Γr ++ Γi).get j := by
+    funext j; simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem j.isLt]
+  rw [hw] at hv
+  rw [hv]
+  rfl
+
+/-- `out_connect` with the normalised equation. -/
+theorem out_connectN {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut)
+    (nm : Fin (Γr ++ Γi).length → String) (hinj : ∀ i j, nm i = nm j → i = j)
+    (inp : Nat → CEnv Γi) (t : Nat) (L : Expr)
+    (hfid : CExpr.compile nm deep.out = L)
+    (d : Design) (m : Module) (b0 : List Stmt)
+    (Ow : (Nat → String → Nat) → String → Nat → Nat)
+    (hwi : ∀ n ∈ wrsH d b0, n ∉ inNames m) (hri : ∀ n ∈ regOuts b0, n ∉ inNames m)
+    (hwr : ∀ n ∈ wrsH d b0, n ∉ regOuts b0)
+    (hW : WOKb (declWidth m) m b0 = true)
+    (ins : Nat → String → Nat) (p : String → Nat) (E : Env)
+    (hasg : ∀ l r, asgOf b0 l = some r → evalExpr (declWidth m) E r = some (E l))
+    (hEin : ∀ x ∈ inNames m, E x = ins t x)
+    (hEreg : ∀ r ∈ regOuts b0, E r = p r)
+    (hEorc : ∀ mn i cs, Stmt.inst mn i cs ∈ b0 → ∀ y ∈ instOuts d mn cs, E y = Ow ins y t)
+    (e : Expr) (x : String) (he : evalExpr (declWidth m) E e = some (E x))
+    (nIn n2 n3 : Nat) (needed : List String)
+    (hrangeN : ∀ y ∈ needed, E y < 2 ^ declWidth m y)
+    (hneed : neededOk needed (inl (Atab m b0) nIn e) = true)
+    (hl0 : leafOk (cutNames d m b0) (inl (Atab m b0) nIn e) = true)
+    (tab : List (String × Nat))
+    (hren : flat n3 (renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e)))) = flat n3 L)
+    (hTW : tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e))) = true)
+    (hV : VOk deep nm inp t m b0 ins p Ow tab) :
+    E x = (evalExpr (weOfC nm (fun j => (Γr ++ Γi).get j)) (envOfC nm (natJoin (deep.irState nm inp t)
+      (fun j => (inp t j).toNat))) (CExpr.compile nm deep.out)).getD 0 := by
+  have hv := connect_valueN nm hinj (Γr ++ Γi) rfl
+    (natJoin (deep.irState nm inp t) (fun j => (inp t j).toNat)) d m b0 Ow hwi hri hwr hW ins t p E
+    hasg hEin hEreg hEorc e x he nIn n2 n3 needed hrangeN hneed hl0 tab L hren hTW hV
+  rw [hfid]
+  have hw : (fun j : Fin (Γr ++ Γi).length => (Γr ++ Γi).getD j.val 0) = fun j => (Γr ++ Γi).get j := by
+    funext j; simp [List.getD_eq_getElem?_getD, List.getElem?_eq_getElem j.isLt]
+  rw [hw] at hv
+  rw [hv]
+  rfl
+
+/-- One cone compared after `flat n3` on both sides (the lookup maps of `fastLk`). -/
+def specOkLeN (lk : Lk) (Γ : List Nat) (τ : String → String) (nIn n2 n3 : Nat) (e : Expr) (L : Expr) : Bool :=
+  (refs (inl lk.A nIn e)).all lk.needS && (refs (inl lk.A nIn e)).all lk.cutS &&
+    tabWL Γ lk.we lk.tabL (bn lk.we n2 (flat n3 (inl lk.A nIn e))) &&
+    eqE (flat n3 (renE τ (bn lk.we n2 (flat n3 (inl lk.A nIn e))))) (flat n3 L)
+
+theorem specOkLeN_sound {Γ : List Nat} {n : Nat} {nm : Fin n → String}
+    {d : Design} {m : Module} {b0 : List Stmt} {needed : List String} {tab : List (String × Nat)} {nIn n2 n3 : Nat}
+    {e : Expr} {L : Expr}
+    (h : specOkLeN (fastLk d m b0 needed tab) Γ (tauOfL nm (smGet (smOf tab))) nIn n2 n3 e L = true) :
+    neededOk needed (inl (Atab m b0) nIn e) = true ∧
+    leafOk (cutNames d m b0) (inl (Atab m b0) nIn e) = true ∧
+    tabW Γ (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e))) = true ∧
+    flat n3 (renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e)))) = flat n3 L := by
+  have e' : tauOfL nm (smGet (smOf tab)) = tauOf nm tab := by
+    funext y; unfold tauOfL tauOf; rw [smGet_smOf]
+  have h1 : specOkLeN (slowLk d m b0 needed tab) Γ (tauOf nm tab) nIn n2 n3 e L = true := by
+    rw [← fastLk_eq, ← e']; simpa only [fastLk] using h
+  simp only [specOkLeN, slowLk, Bool.and_eq_true] at h1
+  exact ⟨h1.1.1.1, h1.1.1.2, h1.1.2, eqE_sound _ _ h1.2⟩
+
+/-- `RegsOkL` with the normalised comparison. -/
+def RegsOkNL {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut) (nm : Fin (Γr ++ Γi).length → String) (lk : Lk)
+    (nIn n2 n3 : Nat) (xs : List String) : Bool :=
+  (List.finRange Γr.length).all fun i =>
+    specOkLeN lk (Γr ++ Γi) (tauOfL nm lk.tabL) nIn n2 n3 (.ref (xs.getD i.val "")) (CExpr.compile nm (deep.next i))
+
+/-- `RegsOkF` with the normalised comparison. -/
+def RegsOkNF {Γr Γi : List Nat} {wOut : Nat} (deep : Cdo Γr Γi wOut) (nm : Fin (Γr ++ Γi).length → String)
+    (d : Design) (m : Module) (b0 : List Stmt) (needed : List String) (tab : List (String × Nat)) (nIn n2 n3 : Nat)
+    (xs : List String) : Bool :=
+  RegsOkNL deep nm (fastLk d m b0 needed tab) nIn n2 n3 xs
+
+/-- The four closed facts of register slot `i` from the ONE normalised check (the fourth: `flat` of both sides equal). -/
+theorem regs_specN {Γr Γi : List Nat} {wOut : Nat} {deep : Cdo Γr Γi wOut} {nm : Fin (Γr ++ Γi).length → String}
+    {d : Design} {m : Module} {b0 : List Stmt} {needed : List String} {tab : List (String × Nat)} {nIn n2 n3 : Nat}
+    {xs : List String} (h : RegsOkNF deep nm d m b0 needed tab nIn n2 n3 xs = true)
+    (i : Fin Γr.length) (x : String) (hx : xs.getD i.val "" = x) (L : Expr) (hfid : CExpr.compile nm (deep.next i) = L) :
+    neededOk needed (inl (Atab m b0) nIn (.ref x)) = true ∧
+    leafOk (cutNames d m b0) (inl (Atab m b0) nIn (.ref x)) = true ∧
+    tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn (.ref x)))) = true ∧
+    flat n3 (renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn (.ref x))))) = flat n3 L := by
+  simp only [RegsOkNF, RegsOkNL, List.all_eq_true] at h
+  have h1 := h i (List.mem_finRange i)
+  rw [hx, hfid] at h1
+  exact specOkLeN_sound h1
+
+/-- The four closed facts of the port cone from ONE normalised `specOkLeN`. -/
+theorem outSpecNF_sound {Γr Γi : List Nat} {wOut : Nat} {deep : Cdo Γr Γi wOut} {nm : Fin (Γr ++ Γi).length → String}
+    {d : Design} {m : Module} {b0 : List Stmt} {needed : List String} {tab : List (String × Nat)} {nIn n2 n3 : Nat}
+    {x : String} {e : Expr} {L : Expr} (_hA : asgOf b0 x = some e) (hfid : CExpr.compile nm deep.out = L)
+    (h : specOkLeN (fastLk d m b0 needed tab) (Γr ++ Γi) (tauOfL nm (smGet (smOf tab))) nIn n2 n3 e (CExpr.compile nm deep.out) = true) :
+    neededOk needed (inl (Atab m b0) nIn e) = true ∧
+    leafOk (cutNames d m b0) (inl (Atab m b0) nIn e) = true ∧
+    tabW (Γr ++ Γi) (declWidth m) tab (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e))) = true ∧
+    flat n3 (renE (tauOf nm tab) (bn (declWidth m) n2 (flat n3 (inl (Atab m b0) nIn e)))) = flat n3 L := by
+  subst hfid
+  exact specOkLeN_sound h
+
 /-! ## The bundle-slice chain as ONE closed `Bool`
 
 The generated prelude proves, per slice step of the register-bundle reads, six closed shape facts (`asgOf` of the wire and of the

@@ -234,8 +234,9 @@ def checkRow (decl : Name) (kidThm : Name) (nRegs : Nat) : CommandElabM Unit := 
     std3Only thm
     -- the child's REAL theorem is in the proof
     unless ti.value.getUsedConstants.contains kidThm do throwError "{thm}: the child theorem {kidThm} does not occur"
-    let nr := countApps ti.value ``Tools.VedComposeConnect.reg_connect
-    let no := countApps ti.value ``Tools.VedComposeConnect.out_connect
+    -- `reg_connectN` / `out_connectN`: the normalised comparison selected under `ved.compose.multiCircuit`
+    let nr := countApps ti.value ``Tools.VedComposeConnect.reg_connect + countApps ti.value ``Tools.VedComposeConnect.reg_connectN
+    let no := countApps ti.value ``Tools.VedComposeConnect.out_connect + countApps ti.value ``Tools.VedComposeConnect.out_connectN
     unless nr == nRegs && no == 1 do throwError "{decl}: reg_connect sites {nr} (expected {nRegs}), out_connect sites {no} (expected 1)"
     logInfo m!"compose connect OK: {nRegs} registers by reg_connect, 1 port by out_connect, child theorem {kidThm}, std3, type ==, same artifact"
 
@@ -588,8 +589,9 @@ def checkChain (decl : Name) (kidThms : List Name) (nRegs : Nat) : CommandElabM 
     std3Only thm
     for k in kidThms do
       unless ti.value.getUsedConstants.contains k do throwError "{thm}: the child theorem {k} does not occur"
-    let nr := countApps ti.value ``Tools.VedComposeConnect.reg_connect
-    let no := countApps ti.value ``Tools.VedComposeConnect.out_connect
+    -- `reg_connectN` / `out_connectN`: the normalised comparison selected under `ved.compose.multiCircuit`
+    let nr := countApps ti.value ``Tools.VedComposeConnect.reg_connect + countApps ti.value ``Tools.VedComposeConnect.reg_connectN
+    let no := countApps ti.value ``Tools.VedComposeConnect.out_connect + countApps ti.value ``Tools.VedComposeConnect.out_connectN
     unless nr == nRegs && no == 1 do throwError "{decl}: reg_connect sites {nr} (expected {nRegs}), out_connect sites {no} (expected 1)"
     logInfo m!"compose connect chain OK: {nRegs} registers by reg_connect, 1 port by out_connect, {kidThms.length} child theorems, std3, type ==, same artifact"
 
@@ -1532,5 +1534,156 @@ def reachItemsControls : CommandElabM Unit := do
 run_cmd do
   reachItemsControls
   logInfo m!"compose connect reach candidates: default-on under connect, explicit false honoured, connect off unchanged"
+
+/-! ## Controls of the multi-circuit trace closer (`ved_bv_close3`, used by `#verify_elab_deep` under `sparkle.deepRepre`, i.e. under
+`ved.compose.multiCircuit`): the register-step goals of the real chain (txSequencer, slipFramer, uartTx; the atoms are the loop-state
+components) are closed by the normalise-then-interleaved-split closer; a goal with one constant changed is refused. -/
+
+theorem closerFsm (b : Bool) (o : BitVec 8) (d : BitVec 16) (g0 : BitVec 1) (g1 : BitVec 7) (g2 : BitVec 2) (g3 g4 : BitVec 8) (g5 : BitVec 1) (g6 : BitVec 10) (g7 : BitVec 4) (g8 : BitVec 16) (g9 : BitVec 1) :
+    (if g2 = 2#2 then 1#2
+    else
+      if
+          ((g2 = 0#2 ∨ g2 = 1#2) ∧
+              g0 = 1#1 ∧ ¬g1 = 74#7 ∧ ¬g1 = 75#7 ∧ ¬g1 = 76#7 ∧ ¬g1 = 77#7 ∧ ¬g1 = 78#7 ∧ ¬g1 = 79#7) ∧
+            (o = 192#8 ∨ o = 219#8) then
+        2#2
+      else
+        if
+            ((g2 = 0#2 ∨ g2 = 1#2) ∧
+                g0 = 1#1 ∧ ¬g1 = 74#7 ∧ ¬g1 = 75#7 ∧ ¬g1 = 76#7 ∧ ¬g1 = 77#7 ∧ ¬g1 = 78#7 ∧ ¬g1 = 79#7) ∧
+              ¬o = 192#8 ∧ ¬o = 219#8 then
+          1#2
+        else if g2 = 1#2 ∧ g0 = 1#1 ∧ g1 = 74#7 then 0#2 else g2) =
+    if (if g2 = 2#2 then 1#1 else 0#1) = 1#1 then 1#2
+    else
+      if
+          ((if g2 = 0#2 then 1#1 else 0#1) ||| if g2 = 1#2 then 1#1 else 0#1) &&&
+                (g0 &&&
+                  ((~~~if g1 = 74#7 then 1#1 else 0#1) &&&
+                    ~~~((if g1 = 75#7 then 1#1 else 0#1) |||
+                        ((if g1 = 76#7 then 1#1 else 0#1) |||
+                          ((if g1 = 77#7 then 1#1 else 0#1) |||
+                            ((if g1 = 78#7 then 1#1 else 0#1) ||| if g1 = 79#7 then 1#1 else 0#1)))))) &&&
+              ((if o = 192#8 then 1#1 else 0#1) ||| if o = 219#8 then 1#1 else 0#1) =
+            1#1 then
+        2#2
+      else
+        if
+            ((if g2 = 0#2 then 1#1 else 0#1) ||| if g2 = 1#2 then 1#1 else 0#1) &&&
+                  (g0 &&&
+                    ((~~~if g1 = 74#7 then 1#1 else 0#1) &&&
+                      ~~~((if g1 = 75#7 then 1#1 else 0#1) |||
+                          ((if g1 = 76#7 then 1#1 else 0#1) |||
+                            ((if g1 = 77#7 then 1#1 else 0#1) |||
+                              ((if g1 = 78#7 then 1#1 else 0#1) ||| if g1 = 79#7 then 1#1 else 0#1)))))) &&&
+                ~~~((if o = 192#8 then 1#1 else 0#1) ||| if o = 219#8 then 1#1 else 0#1) =
+              1#1 then
+          1#2
+        else if (if g2 = 1#2 then 1#1 else 0#1) &&& (g0 &&& if g1 = 74#7 then 1#1 else 0#1) = 1#1 then 0#2 else g2 := by
+  ved_bv_close3
+
+theorem closerShift (b : Bool) (o : BitVec 8) (d : BitVec 16) (g0 : BitVec 1) (g1 : BitVec 7) (g2 : BitVec 2) (g3 g4 : BitVec 8) (g5 : BitVec 1) (g6 : BitVec 10) (g7 : BitVec 4) (g8 : BitVec 16) (g9 : BitVec 1) :
+    (if g9 = 1#1 ∨ g5 = 1#1 ∧ ¬g9 = 1#1 then
+      if g5 = 1#1 ∧ ¬g9 = 1#1 then 1#1 ++ (g4 ++ 0#1) else if g9 = 1#1 ∧ g8 = 0#16 then g6 >>> 1 else g6
+    else 1023#10) =
+    if g9 ||| g5 &&& ~~~g9 = 1#1 then
+      if g5 &&& ~~~g9 = 1#1 then 1#1 ++ (g4 ++ 0#1)
+      else if (g9 &&& if g8 = 0#16 then 1#1 else 0#1) = 1#1 then g6 >>> (1#10).toNat else g6
+    else 1023#10 := by
+  ved_bv_close3
+
+/-- info: compose connect closer controls: 2 accepted, 1 refused -/
+#guard_msgs in
+set_option Elab.async false in
+run_cmd do
+  let msgs0 := (← get).messages
+  let src := "theorem closerWrong (b : Bool) (o : BitVec 8) (d : BitVec 16) (g0 : BitVec 1) (g1 : BitVec 7) (g2 : BitVec 2) (g3 g4 : BitVec 8) (g5 : BitVec 1) (g6 : BitVec 10) (g7 : BitVec 4) (g8 : BitVec 16) (g9 : BitVec 1) :\n    (if g2 = 2#2 then 1#2\n    else\n      if\n          ((g2 = 0#2 ∨ g2 = 1#2) ∧\n              g0 = 1#1 ∧ ¬g1 = 74#7 ∧ ¬g1 = 75#7 ∧ ¬g1 = 76#7 ∧ ¬g1 = 77#7 ∧ ¬g1 = 78#7 ∧ ¬g1 = 79#7) ∧\n            (o = 192#8 ∨ o = 219#8) then\n        2#2\n      else\n        if\n            ((g2 = 0#2 ∨ g2 = 1#2) ∧\n                g0 = 1#1 ∧ ¬g1 = 74#7 ∧ ¬g1 = 75#7 ∧ ¬g1 = 76#7 ∧ ¬g1 = 77#7 ∧ ¬g1 = 78#7 ∧ ¬g1 = 79#7) ∧\n              ¬o = 192#8 ∧ ¬o = 219#8 then\n          1#2\n        else if g2 = 1#2 ∧ g0 = 1#1 ∧ g1 = 74#7 then 0#2 else g2) =\n    if (if g2 = 2#2 then 1#1 else 0#1) = 1#1 then 1#2\n    else\n      if\n          ((if g2 = 0#2 then 1#1 else 0#1) ||| if g2 = 1#2 then 1#1 else 0#1) &&&\n                (g0 &&&\n                  ((~~~if g1 = 74#7 then 1#1 else 0#1) &&&\n                    ~~~((if g1 = 75#7 then 1#1 else 0#1) |||\n                        ((if g1 = 76#7 then 1#1 else 0#1) |||\n                          ((if g1 = 77#7 then 1#1 else 0#1) |||\n                            ((if g1 = 78#7 then 1#1 else 0#1) ||| if g1 = 79#7 then 1#1 else 0#1)))))) &&&\n              ((if o = 192#8 then 1#1 else 0#1) ||| if o = 219#8 then 1#1 else 0#1) =\n            1#1 then\n        2#2\n      else\n        if\n            ((if g2 = 0#2 then 1#1 else 0#1) ||| if g2 = 1#2 then 1#1 else 0#1) &&&\n                  (g0 &&&\n                    ((~~~if g1 = 74#7 then 1#1 else 0#1) &&&\n                      ~~~((if g1 = 75#7 then 1#1 else 0#1) |||\n                          ((if g1 = 76#7 then 1#1 else 0#1) |||\n                            ((if g1 = 77#7 then 1#1 else 0#1) |||\n                              ((if g1 = 78#7 then 1#1 else 0#1) ||| if g1 = 79#7 then 1#1 else 0#1)))))) &&&\n                ~~~((if o = 192#8 then 1#1 else 0#1) ||| if o = 219#8 then 1#1 else 0#1) =\n              1#1 then\n          1#2\n        else if (if g2 = 1#2 then 1#1 else 0#1) &&& (g0 &&& if g1 = 73#7 then 1#1 else 0#1) = 1#1 then 0#2 else g2 := by\n  ved_bv_close3"
+  let saved ← get
+  let nm := (← getCurrNamespace) ++ `closerWrong
+  let hasNm (env : Environment) : Bool :=
+    env.constants.map₂.foldl (fun acc n _ => acc || nm.isPrefixOf n) false
+  -- the STATEMENT alone elaborates (proof replaced by `sorry`): the refusal below is the tactic's, not the statement's
+  let srcS := src.replace ":= by\n  ved_bv_close3" ":= by sorry"
+  unless srcS.endsWith ":= by sorry" do throwError "control: statement text"
+  let .ok stxS := Lean.Parser.runParserCategory (← getEnv) `command srcS | throwError "control: parse (statement)"
+  let stmtOk ← try
+      elabCommand stxS
+      pure (!(← get).messages.hasErrors)
+    finally set saved
+  unless stmtOk do throwError "control void: the statement of closerWrong does not elaborate"
+  let .ok stx := Lean.Parser.runParserCategory (← getEnv) `command src | throwError "control: parse"
+  let (bad, tacErr) ← try
+      elabCommand stx
+      let errs := (← get).messages.toList.filter (·.severity == .error)
+      let txts ← errs.mapM (·.data.toString)
+      pure (!errs.isEmpty, txts.any fun t => (t.splitOn "ved_bv_close3").length > 1 || (t.splitOn "unsolved goals").length > 1
+        || (t.splitOn "failed").length > 1 || (t.splitOn "omega").length > 1 || (t.splitOn "bv_decide").length > 1)
+    finally set saved
+  unless bad do throwError "control: the wrong register-step goal was accepted"
+  unless tacErr do throwError "control: closerWrong failed, but not with a proof/tactic error"
+  if hasNm (← getEnv) then throwError "control: closerWrong (or an auxiliary constant) survived the refusal"
+  if (← get).messages.hasErrors || (← get).messages.toList.length != msgs0.toList.length then
+    throwError "control: messages of the refused control were not restored"
+  logInfo m!"compose connect closer controls: 2 accepted, 1 refused"
+
+
+/-! ## Controls of the normalised comparison (`ved.compose.multiCircuit`; unit 24)
+
+The fidelity literal of a register has `1 ++ (byte ++ 0)` as `concat [1, concat [byte, 0]]`, the Verilog cone `{1, byte, 0}` as
+`concat [1, byte, 0]`.  `RegsOkNF` compares `flat n` of both sides (`flat_sound`).  Kernel evaluation of the comparison itself:
+nested against flat and flat against nested are accepted, a wrong bit order and a wrong shift amount are refused, and the old
+comparison (`eqE` without `flat`) refuses the nested/flat pair; then `RegsOkNF` on the accepted `multiTwo`. -/
+
+def normControls : CommandElabM Unit := liftTermElabM do
+  let isTrue (t : String) : TermElabM Bool := do kernelEqual (← elabText t) (toExpr true)
+  let C := "Tools.VedComposeConnect"
+  let E := "Sparkle.IR.AST.Expr"
+  let sel (cat : String) (sh : Nat) :=
+    s!"({E}.op .mux [{E}.ref \"c\", {cat}, {E}.op .shr [{E}.ref \"s\", {E}.const {sh} 10]])"
+  let one := s!"{E}.const 1 1"
+  let zero := s!"{E}.const 0 1"
+  let b := s!"{E}.ref \"b\""
+  let nested := s!"{E}.concat [{one}, {E}.concat [{b}, {zero}]]"
+  let flatC := s!"{E}.concat [{one}, {b}, {zero}]"
+  let wrongOrder := s!"{E}.concat [{one}, {E}.concat [{zero}, {b}]]"
+  let eqN (x y : String) := s!"{C}.eqE ({C}.flat 12 {x}) ({C}.flat 12 {y})"
+  unless ← isTrue (eqN (sel nested 1) (sel flatC 1)) do throwError "control void: nested vs flat rejected"
+  unless ← isTrue (eqN (sel flatC 1) (sel nested 1)) do throwError "control void: flat vs nested rejected"
+  if ← isTrue (eqN (sel flatC 1) (sel wrongOrder 1)) then throwError "the normalised comparison accepts a wrong bit order"
+  if ← isTrue (eqN (sel flatC 1) (sel nested 2)) then throwError "the normalised comparison accepts a wrong shift amount"
+  if ← isTrue s!"{C}.eqE {sel nested 1} {sel flatC 1}" then throwError "control void: the old comparison accepts nested vs flat"
+  -- the controls are on well-formed ASTs: a 3-argument mux of width 10 that evaluates, and the mutations change concrete VALUES
+  let we := "(fun n : String => if n = \"b\" then 8 else if n = \"c\" then 1 else 10)"
+  let env (c bv sv : Nat) := s!"(fun n : String => if n = \"c\" then {c} else if n = \"b\" then {bv} else if n = \"s\" then {sv} else 0)"
+  let wOf (x : String) := s!"(Sparkle.IR.Semantics.widthOf {we} {x} == 10)"
+  let ev (x : String) (c bv sv : Nat) := s!"Sparkle.IR.Semantics.evalExpr {we} {env c bv sv} {x}"
+  for x in [sel nested 1, sel flatC 1, sel wrongOrder 1, sel nested 2] do
+    unless ← isTrue (wOf x) do throwError "control void: the mux control is not of width 10"
+  unless ← isTrue s!"({ev (sel nested 1) 1 1 0} == some 514 && {ev (sel flatC 1) 1 1 0} == some 514)" do
+    throwError "control void: nested/flat do not evaluate to 1++(b++0) = 514 at b = 1"
+  unless ← isTrue s!"({ev (sel wrongOrder 1) 1 1 0} == some 513)" do throwError "control void: the wrong bit order does not evaluate to 513"
+  unless ← isTrue s!"({ev (sel flatC 1) 0 0 4} == some 2 && {ev (sel nested 2) 0 0 4} == some 1)" do
+    throwError "control void: the shift mutation does not change the value (4>>1 = 2 vs 4>>2 = 1)"
+  logInfo m!"compose connect normalised comparison controls: 2 accepted, 2 refused (old comparison refuses nested vs flat) by the kernel"
+  -- RegsOkNF on the accepted multiTwo
+  let M := "Tests.Ved.ComposeConnectCheck.multiTwo"
+  let nm := s!"{M}.ved_open_Tests_Ved_ComposeConnectCheck_multiTwo_nm"
+  let deep := s!"{M}.ved_open_Tests_Ved_ComposeConnectCheck_multiTwo_deep"
+  let tabTxt (o0 o1 : Nat) :=
+    s!"([(\"_tmp_a_4\", 0), (\"_tmp_a_15\", 1), (\"_gen_start\", 2), (\"_gen_inp\", 3), (\"_tmp_op_b_9\", {o0}), (\"_tmp_op_b_12\", {o1}), (\"_gen_k1\", {o0}), (\"_gen_k2\", {o1})] : List (String × Nat))"
+  let needed := "([\"_tmp_a_4\", \"_tmp_a_15\", \"_gen_start\", \"_gen_inp\", \"_tmp_op_b_9\", \"_gen_k1\", \"_tmp_op_b_12\", \"_gen_k2\"] : List String)"
+  let regsN (o0 o1 : Nat) (xs : String) :=
+    s!"{C}.RegsOkNF {deep} {nm} {M}.ved_design {M}.ved_mod {M}.ved_body {needed} {tabTxt o0 o1} 28 28 28 ([{xs}] : List String)"
+  let real := "\"_tmp_reg_input_3\", \"_tmp_reg_input_14\""
+  unless ← isTrue (regsN 4 5 real) do throwError "control void: RegsOkNF rejects the real table"
+  if ← isTrue (regsN 5 4 real) then throwError "RegsOkNF accepts swapped oracle slots"
+  if ← isTrue (regsN 4 5 "\"_tmp_reg_input_14\", \"_tmp_reg_input_3\"") then throwError "RegsOkNF accepts exchanged register input wires"
+  logInfo m!"compose connect RegsOkNF controls: 1 accepted, 2 refused by the kernel"
+
+/-- info: compose connect normalised comparison controls: 2 accepted, 2 refused (old comparison refuses nested vs flat) by the kernel
+---
+info: compose connect RegsOkNF controls: 1 accepted, 2 refused by the kernel -/
+#guard_msgs in
+run_cmd normControls
 
 end Tests.Ved.ComposeConnectCheck
