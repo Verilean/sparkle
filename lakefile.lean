@@ -487,6 +487,15 @@ lean_lib «Tools.VedU1MerkleWhnf» where
 lean_lib «Tools.VedU1StructSeqTac» where
   roots := #[`Tools.VedU1StructSeqTac]
 
+lean_lib «Tools.VedU1StructWires» where
+  roots := #[`Tools.VedU1StructWires]
+
+lean_lib «Tools.VedU1StructSlice» where
+  roots := #[`Tools.VedU1StructSlice]
+
+lean_lib «Tools.VedU1StructWireEqs» where
+  roots := #[`Tools.VedU1StructWireEqs]
+
 lean_lib «Tools.VedU1StructSeq» where
   roots := #[`Tools.VedU1StructSeq]
 
@@ -570,6 +579,18 @@ lean_lib «Tests.Ved.VedMemShapeCheck» where
 
 lean_lib «Tests.Ved.VedMemOrderCheck» where
   roots := #[`Tests.Ved.VedMemOrderCheck]
+
+lean_lib «Tests.Ved.U1OrderFastCheck» where
+  roots := #[`Tests.Ved.U1OrderFastCheck]
+
+lean_lib «Tests.Ved.U1StructShareCheck» where
+  roots := #[`Tests.Ved.U1StructShareCheck]
+
+lean_lib «Tests.Ved.U1StructWireCheck» where
+  roots := #[`Tests.Ved.U1StructWireCheck]
+
+lean_lib «Tests.Ved.U1StructNamedCheck» where
+  roots := #[`Tests.Ved.U1StructNamedCheck]
 
 lean_lib «Tests.Ved.VedMemWidthCheck» where
   roots := #[`Tests.Ved.VedMemWidthCheck]
@@ -1808,6 +1829,9 @@ lean_lib «Tools.VedMemNest» where
 lean_lib «Tools.VedMemOrder» where
   roots := #[`Tools.VedMemOrder]
 
+lean_lib «Tools.VedU1OrderFast» where
+  roots := #[`Tools.VedU1OrderFast]
+
 lean_lib «Tools.VedMemWidth» where
   roots := #[`Tools.VedMemWidth]
 
@@ -1822,3 +1846,15 @@ lean_lib «Tools.VedComposeMultiOut» where
 
 lean_lib «Tools.VedH3ChildChainLemmas» where
   roots := #[`Tools.VedH3ChildChainLemmas]
+
+lean_lib «Tools.VedU2HierMultiOut» where
+  roots := #[`Tools.VedU2HierMultiOut]
+
+lean_lib «Tests.Ved.MultiOutCheck» where
+  roots := #[`Tests.Ved.MultiOutCheck]
+
+lean_lib «Tests.Ved.MultiOutProbe» where
+  roots := #[`Tests.Ved.MultiOutProbe]
+
+lean_lib «Tools.VedU2HierMultiOutH» where
+  roots := #[`Tools.VedU2HierMultiOutH]

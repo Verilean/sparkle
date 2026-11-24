@@ -34,6 +34,8 @@ structure DeepInfo where
   b0 : List Sparkle.IR.AST.Stmt := []
   wd : String → Nat := fun _ => 0
   compose : Bool := false
+  /-- option `ved.compose.multiOut`: the statement is `U2HRStmtK`, the shape `HierShapeK` -/
+  multiOut : Bool := false
   /-- VED compose connect: the option `ved.compose.connect` (Tools/VedComposeConnect.lean) -/
   connect : Bool := false
   /-- measurement only (`VED_COMPOSE_NOSHARE`): do not share the bundle-slice prefix walk -/
