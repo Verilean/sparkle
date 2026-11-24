@@ -690,6 +690,15 @@ run_cmd liftTermElabM do
   if m4 then throwError "min conds: a split on two comparisons with the default threshold"
   let (_, m2) ← withOptions (fun os => (os.setBool `ved.mem.s94StateSplit true).insert `ved.mem.s94StateMinConds (DataValue.ofNat 2)) (tryT two (← `(tactic| (intro s x hx; ved_state_split))))
   unless m2 do throwError "min conds: no split on two comparisons with the threshold 2"
+  -- the state attempt under the gates (the state variable is there, one branch is far below the branch limit): still closes, and a false statement is still refused
+  let stG (m : Nat) : TermElabM Term := `(∀ (s : BitVec 3) (x : Nat), x < 10 →
+    (if s.toNat = 0 then x + 1 else if s.toNat = 1 then x + 2 else if s.toNat = 2 then x else if s.toNat = 3 then 7 else if s.toNat = 4 then 9 else 0) % $(Syntax.mkNumLit (toString m)) =
+    (if s.toNat = 0 then x + 1 else if s.toNat = 1 then x + 2 else if s.toNat = 2 then x else if s.toNat = 3 then 7 else if s.toNat = 4 then 9 else 0))
+  let stGTac ← `(tactic| (intro s x hx; ved_local_close_state))
+  let (gOn, _) ← withOptions (fun os => (os.setBool `ved.mem.s94StateSplit true).setBool `ved.mem.s94Gates true) (tryT (← stG 16) stGTac)
+  unless gOn do throwError "gates: the state attempt did not close under the gates"
+  let (gBad, _) ← withOptions (fun os => (os.setBool `ved.mem.s94StateSplit true).setBool `ved.mem.s94Gates true) (tryT (← stG 8) stGTac)
+  if gBad then throwError "gates: a false statement was closed under the gates"
   logInfo m!"addr_unify / pow_unify / read_lift / or_bounds / gates controls: OFF refused, ON closes (counters), a false statement is refused, late failure restores the goal, the refuse seam refuses"
 
 end Tests.Ved.VedMemLocalCheck
