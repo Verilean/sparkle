@@ -929,6 +929,8 @@ def genOpenMulti (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (tbl : DeclTable)
           let reach := (kids.toList.flatMap fun k => (reachDefs envNow k.decl 6 #[]).toList.map fun c => toString (userName c))
           -- option `ved.compose.noReach`: no unfolding candidates of the children's bodies in `hOs`
           let reachOs := Tools.VedComposeMultiCircuit.reachItems (← getOptions) reach
+          -- option `ved.compose.multiOut` (the sequential struct leaves, `hobs`): the plain list as on ved/multiout, not gated by `noReach`
+          let reachL := ", ".intercalate reach.eraseDups
           -- hcF
           let hcFName := base ++ Name.mkSimple (openSuf ++ "_hcF")
           let hcFTy ← mkForallFVars xs (← withLocalDeclD `o osTy fun o => withLocalDeclD `t natTy fun t =>
