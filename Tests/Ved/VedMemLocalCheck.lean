@@ -264,4 +264,70 @@ run_cmd liftTermElabM do
   if cW then throwError "addr_bv: 16 bits were enumerated"
   logInfo m!"addr_bv controls: OFF refused, ON closes (leaf counter moves), a WRONG address equality is refused (also with the late-failure `first`: the goal is as it was), more than 12 bits are refused"
 
+/-! ## ved_atom_args, ved_ite_div (`ved.mem.s94Addr`), ved_hyp_split_omega (`ved.mem.s94HypSplit`) (s94u) -/
+
+set_option ved.mem.s94HypSplit true in
+/-- kernel-checked: the `if` is in a HYPOTHESIS (the target has none): `omega` alone cannot, the split of the hypothesis `if` and `omega` per leaf close it -/
+theorem hypsplit_ok (a b : Nat) (h1 : b < 2) (h : (if a = 0 then 1 else 0) % 2 = 0) (h2 : ¬(a = 5 ∧ b = 1)) : a ≠ 0 := by
+  ved_hyp_split_omega
+
+set_option ved.mem.s94Addr true in
+/-- kernel-checked: the two spellings `ofNat 4 x.toNat` / `extractLsb' 0 4 x` of one address are one atom for `omega` after `ved_atom_args` -/
+theorem atom_ok (M : BitVec 4 → BitVec 16) (x : BitVec 5) (h : (M (BitVec.ofNat 4 x.toNat)).toNat = 3) : (M (BitVec.extractLsb' 0 4 x)).toNat = 3 := by
+  ved_atom_args
+  omega
+
+set_option ved.mem.s94Addr true in
+/-- kernel-checked: `(if p then 1 else 0) / 2` is 0 -/
+theorem itediv_ok (p : Prop) [Decidable p] (h : (if p then 1 else 0) / 2 = 1) : False := by
+  ved_ite_div
+  omega
+
+/-- info: hyp_split / atom_args / ite_div controls: OFF refused / unchanged, ON closes (counters +1), a false statement is refused, late failure restores the goal -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryT (stmt : Term) (tac : TSyntax `tactic) : TermElabM (Bool × Bool) := do
+    let ty ← elabTerm stmt none
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      pure (gs.isEmpty, true)
+    catch _ => pure (false, false)
+  let withOpt (o : Name) (v : Bool) (x : TermElabM (Bool × Bool)) : TermElabM (Bool × Bool) := withOptions (fun os => os.setBool o v) x
+  -- hyp split
+  let hs ← `(∀ (a b : Nat), b < 2 → (if a = 0 then 1 else 0) % 2 = 0 → ¬(a = 5 ∧ b = 1) → a ≠ 0)
+  let tacH ← `(tactic| (intro a b h1 h h2; ved_hyp_split_omega_g))
+  let k0 ← Tools.VedMemS94Local.hypSplitHits.get
+  let (hOff, _) ← withOpt `ved.mem.s94HypSplit false (tryT hs tacH)
+  if hOff then throwError "hypsplit: OFF: the goal was closed"
+  unless (← Tools.VedMemS94Local.hypSplitHits.get) == k0 do throwError "hypsplit: OFF: counter moved"
+  let (hOn, okOn) ← withOpt `ved.mem.s94HypSplit true (tryT hs tacH)
+  if !okOn || !hOn then throwError "hypsplit: ON: not closed"
+  unless (← Tools.VedMemS94Local.hypSplitHits.get) == k0 + 1 do throwError "hypsplit: ON: counter"
+  -- a false statement (a = 0 allowed) is refused
+  let bad ← `(∀ (a b : Nat), b < 2 → (if a = 0 then 1 else 0) % 2 = 1 → ¬(a = 5 ∧ b = 1) → a ≠ 0)
+  let (hBad, _) ← withOpt `ved.mem.s94HypSplit true (tryT bad (← `(tactic| (intro a b h1 h h2; ved_hyp_split_omega_g))))
+  if hBad then throwError "hypsplit: a FALSE statement was closed"
+  -- late failure: the goal is as it was (not closed, still a Not-equal goal)
+  let (hLate, okLate) ← withOpt `ved.mem.s94HypSplit true (tryT bad (← `(tactic| (intro a b h1 h h2; (first | ved_hyp_split_omega_g | skip); guard_target =ₛ a ≠ 0))))
+  if !okLate || hLate then throwError "hypsplit: late failure did not restore the goal"
+  -- atom args
+  let atS ← `(∀ (M : BitVec 4 → BitVec 16) (x : BitVec 5), (M (BitVec.ofNat 4 x.toNat)).toNat = 3 → (M (BitVec.extractLsb' 0 4 x)).toNat = 3)
+  let tacA ← `(tactic| (intro M x h; ved_atom_args; omega))
+  let a0 ← Tools.VedMemS94Local.atomArgsHits.get
+  let (aOff, _) ← withOpt `ved.mem.s94Addr false (tryT atS tacA)
+  if aOff then throwError "atom_args: OFF: closed"
+  unless (← Tools.VedMemS94Local.atomArgsHits.get) == a0 do throwError "atom_args: OFF: counter moved"
+  let (aOn, okA) ← withOpt `ved.mem.s94Addr true (tryT atS tacA)
+  if !okA || !aOn then throwError "atom_args: ON: not closed"
+  unless (← Tools.VedMemS94Local.atomArgsHits.get) == a0 + 1 do throwError "atom_args: ON: counter"
+  -- ite div
+  let dv ← `(∀ (p : Prop) [Decidable p], (if p then 1 else 0) / 2 = 1 → False)
+  let tacD ← `(tactic| (intro p _ h; ved_ite_div; omega))
+  let (dOff, _) ← withOpt `ved.mem.s94Addr false (tryT dv tacD)
+  if dOff then throwError "ite_div: OFF: closed"
+  let (dOn, okD) ← withOpt `ved.mem.s94Addr true (tryT dv tacD)
+  if !okD || !dOn then throwError "ite_div: ON: not closed"
+  logInfo m!"hyp_split / atom_args / ite_div controls: OFF refused / unchanged, ON closes (counters +1), a false statement is refused, late failure restores the goal"
+
 end Tests.Ved.VedMemLocalCheck

@@ -619,22 +619,24 @@ def hypIteDecls : MetaM (Array FVarId) := do
     if (← isProp t) && !(collectDag (fun x => x.isAppOf ``ite) t).isEmpty then r := r.push d.fvarId
   return r
 
+/-- the message of the last failing `omega` of `hypSplitOmega` (diagnosis) -/
+initialize lastOmegaMsg : IO.Ref String ← IO.mkRef ""
+
 /-- `omega`; when it fails, one `if` of one hypothesis is split (`splitLocalDecl?`), both goals again; `fuel` bounds the number of leaves -/
 partial def hypSplitOmega (g : MVarId) (fuel : IO.Ref Nat) : TacticM Unit := do
-  let ok ← try
+  let (ok, msg) ← try
       let gs ← Tactic.run g (Tactic.withoutRecover (evalTactic (← `(tactic| omega))))
-      pure gs.isEmpty
-    catch _ => pure false
-  if ok then
-    -- `omega` closed it: assign through a second run (the first one's assignment is kept by `Tactic.run`)
-    return
+      pure (gs.isEmpty, "")
+    catch ex => pure (false, (← ex.toMessageData.toString).replace "\n" " | ")
+  if ok then return
+  lastOmegaMsg.set msg
   if (← fuel.get) == 0 then throwError "ved_hyp_split_omega: too many leaves"
   fuel.modify (· - 1)
   for f in ← g.withContext hypIteDecls do
     if let some gs ← Lean.Meta.splitLocalDecl? g f then
       for g' in gs do hypSplitOmega g' fuel
       return
-  throwError "ved_hyp_split_omega: omega failed and no hypothesis `if` can be split"
+  throwError "ved_hyp_split_omega: omega failed and no hypothesis `if` can be split: {(← lastOmegaMsg.get).take 2500}"
 
 /-- `ved_hyp_split_omega`: the main goal closed by `hypSplitOmega` -/
 elab "ved_hyp_split_omega" : tactic => do
@@ -705,11 +707,25 @@ elab "ved_ite_div" : tactic => do
   try evalTactic (← `(tactic| simp only [ite01_div2] at *))
   catch _ => st.restore
 
+/-- `ved_local_new_gate`: refuses unless `ved.mem.s94Addr` or `ved.mem.s94HypSplit` is on (the second alternative of `ved_local_close` exists only for those) -/
+elab "ved_local_new_gate" : tactic => do
+  unless ved.mem.s94Addr.get (← getOptions) || ved.mem.s94HypSplit.get (← getOptions) do throwError "ved_local_new_gate: no s94u option is on"
+
 /-- `ved_local_close`: the goal from its own cone: cone clear, field extraction, bounds, then `omega` (with `split` for the `if`s) -/
 macro "ved_local_close" : tactic =>
-  `(tactic| (ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); (try ved_atom_args); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *); (try ved_ite_div);
+  `(tactic| (ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *);
              all_goals (ved_bv_bounds
-                        (try simp only [mux_mod]); first | ved_mux | ved_hyp_split_omega_g)))
+                        (try simp only [mux_mod]); ved_mux)))
+
+/-- `ved_local_close_new` (s94u; refused unless `ved.mem.s94Addr` or `ved.mem.s94HypSplit` is on): the second alternative of `ved_local_goal`, tried only when `ved_local_close` did not close the goal (NOT part of
+`ved_local_close`: that one is also the closer of the address equalities, whose one budget the new steps must not use up, observed R033 goal 40): the address spellings of the memory reads normalised,
+`(if p then 1 else 0) / 2`, the `if`s of the hypotheses split -/
+macro "ved_local_close_new" : tactic =>
+  `(tactic| (ved_local_new_gate; ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); (try ved_atom_args);
+             -- `ved_atom_args` can close the goal (a hypothesis became `False`): the rest runs on the goals that are left
+             all_goals (ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *); (try ved_ite_div)
+                        all_goals (ved_bv_bounds
+                                   (try simp only [mux_mod]); first | ved_mux | ved_hyp_split_omega_g))))
 
 /-- the heartbeat limit of one local attempt (thousands; lower than any whole-goal step: a successful attempt needs at most about 4M) -/
 def localCapK : Nat := 8000
@@ -724,7 +740,7 @@ elab "ved_local_goal" : tactic => do
   let r ← tryCatchRuntimeEx
     (do
       withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then localCapK * 1000 else min c.maxHeartbeats (localCapK * 1000)), initHeartbeats := hb0 }) do
-        withoutRecover (evalTactic (← `(tactic| ved_local_close)))
+        withoutRecover (evalTactic (← `(tactic| first | ved_local_close | ved_local_close_new)))
       if ← localFailLate.get then throwError "ved_local_goal: failed after its work (test seam)"
       pure true)
     (fun _ => pure false)
@@ -806,13 +822,27 @@ elab "ved_bv_enum_leaf" : tactic => withMainContext do
 macro "ved_bv_enum" : tactic =>
   `(tactic| ((repeat' split); all_goals ved_bv_enum_leaf))
 
+/-- the heartbeat budget (thousands) of one `ved_addr_eq_bv` attempt: it runs first in the chain of the address equality (which has ONE budget, `addrEqBudgetK`), so a failing attempt must not
+use up what the old closers behind it need (observed R033 goal 40: the old closers close the pair in ~9M of the 12M, the new one failed after ~4M and the pair stayed open) -/
+def bvAddrBudgetK : Nat := 4000
+
 /-- the BitVec-level closer of an address equality (option `ved.mem.s94Addr`): `toNat` form, field extraction, then `ved_bv_enum`; fails at once when the option is off -/
 elab "ved_addr_eq_bv" : tactic => do
   unless ved.mem.s94Addr.get (← getOptions) do throwError "ved_addr_eq_bv: option ved.mem.s94Addr is off"
-  evalTactic (← `(tactic| apply BitVec.eq_of_toNat_eq))
-  evalTactic (← `(tactic| simp only [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat, Nat.shiftRight_zero, apply_ite BitVec.toNat, BitVec.toNat_add, BitVec.toNat_mul, BitVec.toNat_sub,
-               BitVec.toNat_append, Nat.zero_shiftLeft, Nat.zero_or, Nat.reduceMod, Nat.reducePow, Nat.shiftRight_eq_div_pow]))
-  evalTactic (← `(tactic| (ved_cone_clear; (try ved_pack_extract); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *); ved_bv_enum)))
+  let st ← saveState
+  let hb0 ← IO.getNumHeartbeats
+  let r ← tryCatchRuntimeEx
+    (do
+      withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then bvAddrBudgetK * 1000 else min c.maxHeartbeats (bvAddrBudgetK * 1000)), initHeartbeats := hb0 }) do
+        evalTactic (← `(tactic| apply BitVec.eq_of_toNat_eq))
+        evalTactic (← `(tactic| simp only [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat, Nat.shiftRight_zero, apply_ite BitVec.toNat, BitVec.toNat_add, BitVec.toNat_mul, BitVec.toNat_sub,
+                       BitVec.toNat_append, Nat.zero_shiftLeft, Nat.zero_or, Nat.reduceMod, Nat.reducePow, Nat.shiftRight_eq_div_pow]))
+        evalTactic (← `(tactic| (ved_cone_clear; (try ved_pack_extract); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *); ved_bv_enum)))
+      pure none)
+    (fun ex => pure (some ex))
+  if let some ex := r then
+    st.restore
+    throwError "ved_addr_eq_bv: failed or over its budget ({(← ex.toMessageData.toString).take 120})"
 
 /-- the heartbeat budget (thousands) of one argument comparison of `memCanon` (observed: the comparisons that finish need < 1M) -/
 def memCanonBudgetK : Nat := 500
@@ -925,15 +955,30 @@ elab "ved_mem_addr_l" : tactic => withMainContext do
             -- `isDefEq` of two addresses that contain `memState` atoms with big port arguments (trees of 1e6 .. 3e7 over a DAG of ~2e3: no sharing in the unifier) and ran into the 30M limit
             -- of the whole step; a runtime timeout is not caught by the `catch` below.  On exhaustion the state is restored and the pair counts as "no equality" (the loop goes on)
             let stP ← saveState
+            -- s94u (option `ved.mem.s94Addr`): the old chain is unchanged and first (observed R033 goal 40, 41: a new closer in front of it changed what the old one proves, 7 / 18: the representative);
+            -- only when it did not close the pair the BitVec-level closer `ved_addr_eq_bv` runs, under its OWN budget (`bvAddrBudgetK`), and closes it or the pair stays open as before
+            let useBv := ved.mem.s94Addr.get (← getOptions)
             let hbP ← IO.getNumHeartbeats
-            tryCatchRuntimeEx
-              (withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then addrEqBudgetK * 1000 else min c.maxHeartbeats (addrEqBudgetK * 1000)), initHeartbeats := hbP }) do
-                evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
-                                           first | rfl | ved_addr_eq_bv | ved_addr_eq_local | ved_addr_eq_local2))))
-              (fun ex => do
+            let oldChain : TacticM Unit :=
+              tryCatchRuntimeEx
+                (withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then addrEqBudgetK * 1000 else min c.maxHeartbeats (addrEqBudgetK * 1000)), initHeartbeats := hbP }) do
+                  evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by
+                                             first | rfl | ved_addr_eq_local | ved_addr_eq_local2))))
+                (fun ex => do
+                  stP.restore
+                  addrEqTimeouts.modify (· + 1)
+                  throwError "address equality: budget exhausted ({← ex.toMessageData.toString})")
+            let dbgA := (← IO.getEnv "VED_ADDRDBG").isSome
+            if useBv then
+              try
+                oldChain
+                if dbgA then IO.eprintln s!"ADDRDBG old chain closed the pair ({((← IO.getNumHeartbeats) - hbP) / 1000}k)"
+              catch ex =>
+                if dbgA then IO.eprintln s!"ADDRDBG old chain failed ({((← IO.getNumHeartbeats) - hbP) / 1000}k): {(← ex.toMessageData.toString).take 200}"
                 stP.restore
-                addrEqTimeouts.modify (· + 1)
-                throwError "address equality: budget exhausted ({← ex.toMessageData.toString})")
+                try evalTactic (← `(tactic| (have hmaddr : $aS = $repS := by ved_addr_eq_bv)))
+                catch ex => stP.restore; throw ex
+            else oldChain
             Tools.VedMemLoop.dbgT "addr: have done"
             -- `rw [hmaddr]` abstracts the occurrences by `kabstract`, a walk of the TREE (12 s per goal of 3e8 nodes, R34); on a goal
             -- the packing step takes (`Tools.VedMemLoop.addrReplaceMinTree`: R034, 3e8) the replacement is `Expr.replace` (cached by pointer: one visit per
