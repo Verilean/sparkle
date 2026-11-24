@@ -1798,3 +1798,6 @@ lean_lib «Tools.VedMemS94Local» where
 
 lean_lib «Tools.VedMemS94Opaque» where
   roots := #[`Tools.VedMemS94Opaque]
+
+lean_lib «Tools.VedMemS94Inv» where
+  roots := #[`Tools.VedMemS94Inv]

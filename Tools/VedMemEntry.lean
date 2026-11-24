@@ -12,6 +12,7 @@ import Tools.VedMemS94Peel
 import Tools.VedMemS94Gen
 import Tools.VedMemS94Local
 import Tools.VedMemS94Opaque
+import Tools.VedMemS94Inv
 import Tools.VedMemPack
 import Tools.VedMemShape
 import Tools.VedMemOrder
@@ -301,8 +302,10 @@ def buildR (regs : List (String × Nat)) (stmts : List (String × Nat × Nat × 
         let some α := L.getAppArgs[1]? | refuseM `mem "shape" m!"malformed Signal.loop"
         compsOf := compsOf.push (← Tools.VedU1Loop.stateComps α)
       let widths ← (compsOf.toList.flatten).mapM fun c => Tools.VedU1Loop.compWidth c
-      let some rnames := Tools.VedU1Loop.matchRegs widths regs <|> Tools.VedMemShape.matchRegsShared widths regs
+      let some rnames0 := Tools.VedU1Loop.matchRegs widths regs <|> Tools.VedMemShape.matchRegsShared widths regs
         | refuseM `mem "shape" m!"the loop state components {widths} do not match the registers {regs}"
+      -- option `ved.mem.s94PairFix`: a component sharing a register with an earlier one is re-paired by equal closed hardware
+      let rnames ← Tools.VedMemS94Inv.pairFix loops compsOf rnames0
       let mut k := 0
       for j in [0:loops.size] do
         let lv ← mkAppM ``Sparkle.Core.Signal.Signal.val #[loops[j]!, s]
