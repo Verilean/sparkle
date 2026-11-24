@@ -14,7 +14,7 @@ rests on `RegsOkNFp` / `outSpecNF` with `reg_connectN` / `out_connectN`, not on 
 one child `mkA`), not real-IP rows.
 
 * `deadTx` (circuits `actC` (live register, child call) then `cntTop` whose counter register is read only by the unexported field `n`; the exported `b` is its input): accepted, `VED U2 HIER OK`; afterwards the stored
-  type is `==` `U2HRStmt`, the module/design are the declaration's own synthesis, the artifact is the one the entry reported, std3, the
+  type is `==` `U2HRStmt`, the stored MODULE is the declaration's own synthesis (the design value is not compared here), the artifact is the one the entry reported, std3, the
   child theorem occurs, and no old fallback (reg_connect/out_connect sites only).
 * `deadLeadTx` (the dead counter circuit `cntG` FIRST, then the last circuit `actTop` with the live register read by the output and its
   own next state; both width 4): the synthesis drops the dead register, so the live register sits in the extra slot range of the deep
