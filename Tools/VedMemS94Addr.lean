@@ -301,13 +301,13 @@ register_option ved.mem.s94PairCtx : Bool := {
 }
 
 /-- a fresh metavariable for `P` in the local context restricted to the free variables of `P` (and of their types, transitively) -/
-def trimmedMVar (P : Expr) : MetaM Expr := do
+def trimmedMVarWith (P : Expr) (extra : Name → Bool) : MetaM Expr := do
   let lctx ← getLCtx
   let mut keep : Std.HashSet FVarId := {}
   let mut todo : Array FVarId := (Lean.collectFVars {} (← instantiateMVars P)).fvarIds
   -- the bounds `x ||| y < 2 ^ k` already proved (`ved_orb`) stay: the bound of an outer `|||` is proved from those of its sides
   for d in lctx do
-    if d.userName == `ved_orb && !d.isImplementationDetail then todo := todo.push d.fvarId
+    if extra d.userName && !d.isImplementationDetail then todo := todo.push d.fvarId
   while !todo.isEmpty do
     let f := todo.back!
     todo := todo.pop
@@ -328,6 +328,9 @@ register_option ved.mem.s94PairCache : Bool := {
 
 initialize pairCache : IO.Ref (Std.HashMap Expr Expr) ← IO.mkRef {}
 initialize pairCacheHits : IO.Ref Nat ← IO.mkRef 0
+
+/-- the trimmed context that keeps the `ved_orb` facts -/
+def trimmedMVar (P : Expr) : MetaM Expr := trimmedMVarWith P (· == `ved_orb)
 
 /-- the heartbeat limit of one pair proof (thousands) -/
 def pairCapK : Nat := 1500

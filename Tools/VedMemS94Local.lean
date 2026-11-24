@@ -1214,6 +1214,43 @@ elab "ved_orb_mod" : tactic => withMainContext do
   if ls.isEmpty then throwError "ved_orb_mod: no bound"
   evalTactic (← `(tactic| simp only [$ls,*]))
 
+/-- `ved_dedup`: a hypothesis whose type is that of an earlier one is cleared (the bound facts `ved_bnd` are asserted again by every closer that runs `ved_bv_bounds`: `omega` reads every copy); fails when nothing is cleared -/
+elab "ved_dedup" : tactic => withMainContext do
+  let mut seen : Std.HashSet Expr := {}
+  let mut dups : Array FVarId := #[]
+  for d in ← getLCtx do
+    if d.isImplementationDetail || d.isLet then continue
+    let t ← instantiateMVars d.type
+    unless (← isProp t) do continue
+    if seen.contains t then dups := dups.push d.fvarId else seen := seen.insert t
+  if dups.isEmpty then throwError "ved_dedup: no duplicate"
+  let mut g ← getMainGoal
+  for f in dups.reverse do g ← g.tryClear f
+  replaceMainGoal [g]
+
+/-- option `ved.mem.s94CondAbsurd`: in a leaf of `ved_cond_split` the case hypotheses (`ved_hc`) are first tried for a contradiction on their own, in a context of those and the variable bounds only (a path whose conditions
+cannot hold together is closed without looking at the equation: R033 goals 33 / 34 branch ck156 = 4, the final `omega` of the leaves 12 .. 25M with the two-spelling `|||` products of the target in its problem) -/
+register_option ved.mem.s94CondAbsurd : Bool := {
+  defValue := false
+  descr := "ved_cond_split: a leaf whose case hypotheses contradict each other is closed by omega on them alone (default false)"
+}
+
+/-- the heartbeat limit of the contradiction attempt (thousands) -/
+def condAbsurdCapK : Nat := 1000
+
+/-- `ved_hc_absurd`: `False` from the `ved_hc` / `ved_bnd` hypotheses by `omega` (limit `condAbsurdCapK`); refused when the option is off, fails when there is no contradiction -/
+elab "ved_hc_absurd" : tactic => do
+  unless ved.mem.s94CondAbsurd.get (← getOptions) do throwError "ved_hc_absurd: option ved.mem.s94CondAbsurd is off"
+  let g ← getMainGoal
+  let hb0 ← IO.getNumHeartbeats
+  let mv ← g.withContext (Tools.VedMemS94Addr.trimmedMVarWith (mkConst ``False) fun n => n == `ved_hc || n == `ved_bnd || n == `ved_bnd2)
+  let gs ← withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then condAbsurdCapK * 1000 else min c.maxHeartbeats (condAbsurdCapK * 1000)), initHeartbeats := hb0 }) do
+    Tactic.run mv.mvarId! (withoutRecover (evalTactic (← `(tactic| omega))))
+  unless gs.isEmpty do throwError "ved_hc_absurd: no contradiction"
+  let pr ← instantiateMVars mv
+  g.assign (← mkFalseElim (← g.getType) pr)
+  replaceMainGoal []
+
 partial def condSplitGo (depth : Nat) : TacticM Unit := do
   let hc := mkIdent `ved_hc
   let g ← getMainGoal
@@ -1227,6 +1264,11 @@ partial def condSplitGo (depth : Nat) : TacticM Unit := do
       -- the steps one after the other (the same sequence as one `;` chain); the heartbeat marks are printed only under `VED_CONDDBG`
       let hbl (nm : String) : IO Unit := do
         if (← IO.getEnv "VED_CONDDBG").isSome then IO.eprintln s!"cond_split[{depth}]: leaf {nm}: hb(k) since start {((← IO.getNumHeartbeats) - hb0) / 1000}"
+      -- (option `ved.mem.s94CondAbsurd`) a path whose case hypotheses contradict each other needs nothing else
+      if ved.mem.s94CondAbsurd.get (← getOptions) then
+        let closed ← tryCatchRuntimeEx (do evalTactic (← `(tactic| ved_hc_absurd)); pure true) (fun _ => pure false)
+        hbl s!"absurd {closed}"
+        if closed then return
       evalTactic (← `(tactic| (try ved_spell_unify)))
       hbl "unify"
       evalTactic (← `(tactic| (try ved_or_bounds)))
@@ -1241,6 +1283,8 @@ partial def condSplitGo (depth : Nat) : TacticM Unit := do
         g1.withContext do
           for d in ← getLCtx do
             if d.userName == `ved_orb || d.userName == `ved_hc then IO.eprintln s!"cond_split[{depth}]: leaf before omega, {d.userName}: {((← ppExpr d.type).pretty.replace "\n" " ").take 500}"
+      evalTactic (← `(tactic| all_goals (try ved_dedup)))
+      hbl "dedup"
       evalTactic (← `(tactic| all_goals omega))
       hbl "omega"
     catch e =>
