@@ -695,6 +695,9 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
     -- `ved_loop_gen_resid` runs the old per-goal `ved_loop_gen_mem` only when a loop value is left (also when `ved_loop_gen_once` failed: the fallback)
     -- option `ved.mem.s94Local` (new branch only): two spellings of one loop are one loop (`ved_loop_canon`, before the generalisation at stamp 95 and again for the loop values the
     -- stage-99 simp creates, before stamp 100); the plain generalisation follows as before
+    -- option `ved.mem.s94Share99` (new branch only): the stage-99 simp of the goals shares one simp cache (`ved_if_read_share`, Tools/VedMemS94Gen.lean); off: `ved_if_read (ved_loop_simp ..)`
+    let if99 : TSyntax `tactic ← if isNew && Tools.VedMemS94Gen.ved.mem.s94Share99.get (← getOptions) then `(tactic| ved_if_read_share [$r99,*])
+      else `(tactic| ved_if_read (ved_loop_simp [$r99,*]))
     let canon : Bool := isNew && Tools.VedMemS94Local.ved.mem.s94Local.get (← getOptions)
     let genT0 : TSyntax `tactic ← if go then `(tactic| first | ved_loop_gen_once $sI | skip) else `(tactic| skip)
     let genT : TSyntax `tactic ← if canon then `(tactic| ((try ved_loop_canon); $genT0:tactic)) else pure genT0
@@ -729,7 +732,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
           ved_stamp 98
           ved_goal_gate $gateN
           $d5
-          ved_if_read (ved_loop_simp [$r99,*])
+          $if99
           ved_stamp 99
           ved_dsimp_goals
           ved_stamp 100

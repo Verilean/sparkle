@@ -254,4 +254,91 @@ elab "ved_loop_canon" : tactic => withMainContext do
   dbgLog s!"loop_canon: {pairs.size} loops replaced by an earlier one"
   replaceMainGoal [g]
 
+/-!
+# Stage 99 across goals: one simp cache (`ved.mem.s94Share99`)
+
+Observed (s94u, `VED_S95_PROF99`): `ved_if_read (ved_loop_simp [..])` costs 3.9 G hb; 68 of 177 goals cost 54-56 M hb each, each target a ~8.6k-node DAG whose
+loop spines are the SAME terms in every goal (union of all targets 35.8k nodes vs 751k summed): class (b), the sharing is lost across goals because every
+`simp` call starts with an empty cache.
+
+`ved_share99_one [lemmas]` (one goal): the same `simp` as `ved_loop_simp [lemmas]` on the target (same simp context, same simprocs / discharger), but the
+`Simp.State` (cache, congruence cache) is the one left by the previous goals of the stage (`share99State`); only the step counter starts at 0.  The result
+is the same goal as the plain simp's (the cache key is the whole expression, the simp set is the same).  The proof of the result may mention only
+free variables of the goal's own context (a cached proof from another goal could use one of its hypotheses through the discharger): checked, otherwise
+the tactic fails (the caller then runs the plain `ved_loop_simp`).  `ved_if_read_share [lemmas]` is `ved_if_read (ved_loop_simp [lemmas])` with this
+step per goal (`first | share | plain`), the state is dropped at the end of the stage.
+-/
+
+register_option ved.mem.s94Share99 : Bool := {
+  defValue := false
+  descr := "ved memory loop: the stage-99 simp of the goals shares one simp cache (ved_if_read_share); the per-goal ved_if_read (ved_loop_simp ..) is the fallback (default false)"
+}
+
+/-- test seams / counters (CloseCheck, diagnosis) -/
+initialize share99Hits : IO.Ref Nat ← IO.mkRef 0
+initialize share99Fallbacks : IO.Ref Nat ← IO.mkRef 0
+initialize share99Refuse : IO.Ref Bool ← IO.mkRef false
+initialize share99FailLate : IO.Ref Bool ← IO.mkRef false
+/-- the simp state (cache) of the stage, `none` outside a stage -/
+initialize share99State : IO.Ref (Option Simp.State) ← IO.mkRef none
+
+/-- `ved_share99_one [lemmas]`: see the section comment. -/
+syntax (name := vedShare99One) "ved_share99_one " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+
+@[tactic vedShare99One] def evalVedShare99One : Tactic := fun stx => withMainContext do
+  if (← share99Refuse.get) then throwError "ved_share99_one: refused (test seam)"
+  unless ved.mem.s94Share99.get (← getOptions) do throwError "ved_share99_one: option ved.mem.s94Share99 is off"
+  let `(tactic| ved_share99_one [$ls,*]) := stx | throwUnsupportedSyntax
+  let stx0 ← `(tactic| ved_loop_simp [$ls,*])
+  let some (_, .ok stx1) ← liftMacroM (Lean.Elab.expandMacroImpl? (← getEnv) stx0) | throwError "ved_share99_one: ved_loop_simp does not expand"
+  let sc ← Lean.Elab.Tactic.mkSimpContext stx1 (eraseLocal := false)
+  let g ← getMainGoal
+  let tgt ← instantiateMVars (← g.getType)
+  let st0 := (← share99State.get).getD {}
+  let (r, st1) ← sc.dischargeWrapper.with fun d? => Meta.simpCore tgt sc.ctx sc.simprocs d? { st0 with numSteps := 0 }
+  if r.expr == tgt then throwError "ved_share99_one: simp made no progress"
+  -- the proof (and the result) may mention only the free variables of this goal
+  let lctx ← getLCtx
+  let pf? ← match r.proof? with
+    | some p => pure (some (← instantiateMVars p))
+    | none => pure none
+  let bad (e : Expr) : Bool := e.hasFVar && (e.find? fun x => x.isFVar && !lctx.contains x.fvarId!).isSome
+  if bad r.expr || (pf?.map bad).getD false then throwError "ved_share99_one: a cached proof mentions a variable outside the goal"
+  if (← share99FailLate.get) then throwError "ved_share99_one: late failure (test seam)"
+  if r.expr.isTrue then
+    g.assign (← mkOfEqTrue (← r.getProof))
+    replaceMainGoal []
+  else
+    let g' ← applySimpResultToTarget g tgt r
+    replaceMainGoal [g']
+  share99State.set (some st1)
+  share99Hits.modify (· + 1)
+
+/-- `ved_if_read_share [lemmas]`: `ved_if_read (ved_loop_simp [lemmas])` with one simp cache for all goals of the stage (same goal filter as `ved_if_read`:
+with many goals only those with a `memoryComboRead`). -/
+syntax (name := vedIfReadShare) "ved_if_read_share " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
+
+@[tactic vedIfReadShare] def evalVedIfReadShare : Tactic := fun stx => do
+  let `(tactic| ved_if_read_share [$ls,*]) := stx | throwUnsupportedSyntax
+  let gs ← getGoals
+  let many := gs.length > 64
+  let mut out : List MVarId := []
+  let keep := (← IO.getEnv "VED_SHARE99_KEEP").isSome
+  unless keep do share99State.set none
+  try
+    for g in gs do
+      setGoals [g]
+      let run ← if !many then pure true else g.withContext do
+        let e ← instantiateMVars (← g.getType)
+        pure (e.find? fun e => e.isConstOf ``Sparkle.Core.Signal.Signal.memoryComboRead).isSome
+      if run then
+        try evalTactic (← `(tactic| ved_share99_one [$ls,*]))
+        catch _ =>
+          share99Fallbacks.modify (· + 1)
+          try evalTactic (← `(tactic| ved_loop_simp [$ls,*])) catch _ => pure ()
+      out := out ++ (← getGoals)
+  finally
+    unless keep do share99State.set none
+  setGoals out
+
 end Tools.VedMemS94Gen

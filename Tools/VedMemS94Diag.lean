@@ -1432,7 +1432,7 @@ elab "#ved_s95_replay " d:str : command => do
       (951, "refine", ← `(tactic| all_goals refine ⟨_, _, _, ⟨rfl, rfl, rfl⟩, ?_⟩)),
       (96, "and_intro", ← `(tactic| all_goals (try (repeat' apply And.intro)))),
       (97, "peel", ← `(tactic| all_goals (try $peelAlt:tactic))),
-      (99, "if_read_simp", ← `(tactic| ved_if_read (ved_loop_simp [$r99,*]))),
+      (99, "if_read_simp", ← (if Tools.VedMemS94Gen.ved.mem.s94Share99.get opts then `(tactic| ved_if_read_share [$r99,*]) else `(tactic| ved_if_read (ved_loop_simp [$r99,*])))),
       (991, "dsimp_goals", ← `(tactic| ved_dsimp_goals)),
       (992, "canon2", ← (if (← IO.getEnv "VED_S95_CANON") == some "1" then `(tactic| all_goals (try ved_loop_canon)) else `(tactic| skip))),
       (100, if once then "gen_resid" else "gen_mem", genLastT)]
@@ -1458,16 +1458,40 @@ elab "#ved_s95_replay " d:str : command => do
         let mut out : List MVarId := []
         let mut i := 0
         let mut hbSum := 0
+        -- s94v: `VED_SHARE99_KEEP=1` keeps the stage-99 simp cache across the per-goal runs (`ved.mem.s94Share99`); `VED_S95_SHARE_CMP=1`: every goal also runs the plain
+        -- `ved_if_read (ved_loop_simp ..)` (fresh cache) and the output targets are compared with `==` (log `S95 p99 cmp`)
+        Tools.VedMemS94Gen.share99State.set none
+        let cmp := (← IO.getEnv "VED_S95_SHARE_CMP").isSome
+        let mut cmpBad := 0
+        let mut hbOld := 0
         for gq in cur do
           let before ← gq.withContext do instantiateMVars (← gq.getType)
           let nB := Tools.VedU1Loop.treeSizeVal before
           let dB := (Tools.VedU1WireShare.collectDag (fun _ => true) before).size
+          -- the plain route first (fresh cache), its result targets kept, the state restored
+          let mut oldTs : List Expr := []
+          if cmp then
+            let sv ← saveState
+            let h2 ← IO.getNumHeartbeats
+            let gsO ← Tactic.run gq (Tactic.evalTactic (← `(tactic| try (ved_if_read (ved_loop_simp [$r99,*])))))
+            hbOld := hbOld + ((← IO.getNumHeartbeats) - h2) / 1000
+            for x in gsO do oldTs := oldTs ++ [← x.withContext do instantiateMVars (← x.getType)]
+            sv.restore
           let t1 ← IO.monoMsNow
           let h1 ← IO.getNumHeartbeats
           let gsR ← Tactic.run gq (Tactic.evalTactic (← `(tactic| try ($tac:tactic))))
           let hbG := ((← IO.getNumHeartbeats) - h1) / 1000
           hbSum := hbSum + hbG
           out := out ++ gsR
+          if cmp then
+            let mut same := oldTs.length == gsR.length
+            if same then
+              for (tx, y) in oldTs.zip gsR do
+                let ty ← y.withContext do instantiateMVars (← y.getType)
+                unless tx == ty do same := false
+            unless same do
+              cmpBad := cmpBad + 1
+              dbgLog s!"S95 p99 cmp goal {i}: DIFFERENT"
           let after ← match gsR.head? with
             | some g2 => g2.withContext do instantiateMVars (← g2.getType)
             | none => pure before
@@ -1475,6 +1499,8 @@ elab "#ved_s95_replay " d:str : command => do
           i := i + 1
         cur := out
         dbgLog s!"S95 p99 done: goals {i} -> {cur.length}, per-goal heartbeats sum {hbSum}k"
+        if cmp then dbgLog s!"S95 p99 cmp: {i} goals, different={cmpBad}, plain-route heartbeats sum {hbOld}k, shared hits={← Tools.VedMemS94Gen.share99Hits.get} fallbacks={← Tools.VedMemS94Gen.share99Fallbacks.get}"
+        else dbgLog s!"S95 p99 share: hits={← Tools.VedMemS94Gen.share99Hits.get} fallbacks={← Tools.VedMemS94Gen.share99Fallbacks.get}"
         -- sharing between the goals: the DAG nodes of all targets before / after, summed per goal and as a union (structural equality)
         let mut unB : Std.HashSet Expr := {}
         let mut sumB := 0
