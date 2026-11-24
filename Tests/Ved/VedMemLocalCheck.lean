@@ -295,7 +295,7 @@ run_cmd liftTermElabM do
     catch _ => pure (false, false)
   let withOpt (o : Name) (v : Bool) (x : TermElabM (Bool × Bool)) : TermElabM (Bool × Bool) := withOptions (fun os => os.setBool o v) x
   -- hyp split
-  let hs ← `(∀ (a b : Nat), b < 2 → (if a = 0 then 1 else 0) % 2 = 0 → ¬(a = 5 ∧ b = 1) → a ≠ 0)
+  let hs ← `(∀ (a b : Nat), b < 2 → (if a = 0 then (1 : Nat) else 0) % 2 = 0 → ¬(a = 5 ∧ b = 1) → a ≠ 0)
   let tacH ← `(tactic| (intro a b h1 h h2; ved_hyp_split_omega_g))
   let k0 ← Tools.VedMemS94Local.hypSplitHits.get
   let (hOff, _) ← withOpt `ved.mem.s94HypSplit false (tryT hs tacH)
@@ -305,7 +305,7 @@ run_cmd liftTermElabM do
   if !okOn || !hOn then throwError "hypsplit: ON: not closed"
   unless (← Tools.VedMemS94Local.hypSplitHits.get) == k0 + 1 do throwError "hypsplit: ON: counter"
   -- a false statement (a = 0 allowed) is refused
-  let bad ← `(∀ (a b : Nat), b < 2 → (if a = 0 then 1 else 0) % 2 = 1 → ¬(a = 5 ∧ b = 1) → a ≠ 0)
+  let bad ← `(∀ (a b : Nat), b < 2 → (if a = 0 then (1 : Nat) else 0) % 2 = 1 → ¬(a = 5 ∧ b = 1) → a ≠ 0)
   let (hBad, _) ← withOpt `ved.mem.s94HypSplit true (tryT bad (← `(tactic| (intro a b h1 h h2; ved_hyp_split_omega_g))))
   if hBad then throwError "hypsplit: a FALSE statement was closed"
   -- late failure: the goal is as it was (not closed, still a Not-equal goal)
@@ -322,7 +322,7 @@ run_cmd liftTermElabM do
   if !okA || !aOn then throwError "atom_args: ON: not closed"
   unless (← Tools.VedMemS94Local.atomArgsHits.get) == a0 + 1 do throwError "atom_args: ON: counter"
   -- ite div
-  let dv ← `(∀ (p : Prop) [Decidable p], (if p then 1 else 0) / 2 = 1 → False)
+  let dv ← `(∀ (p : Prop) [Decidable p], (if p then (1 : Nat) else 0) / 2 = 1 → False)
   let tacD ← `(tactic| (intro p _ h; ved_ite_div; omega))
   let (dOff, _) ← withOpt `ved.mem.s94Addr false (tryT dv tacD)
   if dOff then throwError "ite_div: OFF: closed"
