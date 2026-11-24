@@ -248,9 +248,11 @@ elab "ved_ss_timed " t:tactic : tactic => do
   let nh ← g.withContext do pure (← getLCtx).size
   let hb0 ← IO.getNumHeartbeats
   if let some path ← IO.getEnv "VED_MS_LOG" then
-    let h ← IO.FS.Handle.mk path .append
-    h.putStrLn s!"VED MS start {← IO.monoMsNow} depth={sz} tree={tree} goals={(← getGoals).length} hbtotal={hb0 / 1000} tac={((t.raw.reprint.getD "").trimAscii.copy.take 70).toString}"
-    h.flush
+    try
+      let h ← IO.FS.Handle.mk path .append
+      h.putStrLn s!"VED MS start {← IO.monoMsNow} depth={sz} tree={tree} goals={(← getGoals).length} hbtotal={hb0 / 1000} tac={((t.raw.reprint.getD "").trimAscii.copy.take 70).toString}"
+      h.flush
+    catch _ => pure ()
   let t0 ← IO.monoMsNow
   let r ← try evalTactic t; pure true catch _ => pure false
   let t1 ← IO.monoMsNow
@@ -281,9 +283,11 @@ elab "ved_ss_timed " t:tactic : tactic => do
   let msg := s!"VED MS goal {g.name} depth={sz} tree={tree} hyps={nh} {t1 - t0}ms hb={(hb1 - hb0) / 1000} ok={r}{after}"
   match ← IO.getEnv "VED_MS_LOG" with
   | some path =>
-    let h ← IO.FS.Handle.mk path .append
-    h.putStrLn msg
-    h.flush
+    try
+      let h ← IO.FS.Handle.mk path .append
+      h.putStrLn msg
+      h.flush
+    catch _ => pure ()
   | none => IO.eprintln msg
   unless r do throwError "ved_timed: failed"
 

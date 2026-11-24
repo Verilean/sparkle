@@ -1299,8 +1299,9 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
       if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageFail "open_term"
       refuse decl "proof" m!"proof term is not closed"
     if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageOk
+    -- debugging only (default unset): a failure of the bisection tool never refuses or changes the proof
     if let some path ← IO.getEnv "VED_KBISECT" then
-      kBisect path ((← IO.getEnv "VED_KBISECT_DUMP").bind String.toNat?) pf
+      try kBisect path ((← IO.getEnv "VED_KBISECT_DUMP").bind String.toNat?) pf catch _ => pure ()
     if let some path ← IO.getEnv "VED_MS_LOG" then
       try
         let h ← IO.FS.Handle.mk path .append
@@ -1313,9 +1314,11 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
         addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
       fun e => refuse decl "kernel" e.toMessageData
     if let some path ← IO.getEnv "VED_MS_LOG" then
-      let h ← IO.FS.Handle.mk path .append
-      h.putStrLn s!"VED MS kernel end {← IO.monoMsNow}"
-      h.flush
+      try
+        let h ← IO.FS.Handle.mk path .append
+        h.putStrLn s!"VED MS kernel end {← IO.monoMsNow}"
+        h.flush
+      catch _ => pure ()
     let some (.thmInfo ti) := (← getEnv).find? nm.thm
       | refuse decl "kernel" m!"{nm.thm} is not a theorem in the environment"
     unless ti.type == expected do refuse decl "type" m!"stored type differs from the expected statement"
