@@ -389,4 +389,49 @@ run_cmd liftTermElabM do
   if ref.isSome then throwError "share99: the seam did not refuse"
   logInfo m!"share99 controls: OFF refused, ON = plain route goal by goal (the spines of different goals are not mixed), cache filled, counters, late failure restores"
 
+/-! ## ved_mem_spell (option `ved.mem.s94Spell`): two spellings of one memory are one atom -/
+
+open Sparkle.Core.Signal Sparkle.Core.Domain in
+/-- kernel-checked: after `ved_mem_spell` the two reads (a `BitVec` equation against its `toNat` form, a literal factor on the other side) are one atom -/
+set_option ved.mem.s94Spell true in
+theorem spell_ok (init : BitVec 4 → BitVec 8) (wa : Signal defaultDomain (BitVec 4)) (we : Signal defaultDomain Bool) (x : Nat → BitVec 5) (n : Nat) (a : BitVec 4)
+    (h : (Signal.memState init wa (Signal.mk fun t => if (x t).toNat = 3 then (BitVec.ofNat 8 4) * (BitVec.ofNat 8 5) else 0#8) we n a).toNat ≠ 0) :
+    (Signal.memState init wa (Signal.mk fun t => if x t = BitVec.ofNat 5 3 then (BitVec.ofNat 8 5) * (BitVec.ofNat 8 4) else 0#8) we n a).toNat ≠ 0 := by
+  ved_mem_spell
+  exact h
+
+/-- info: spell controls: OFF refused, ON merges the two spellings (counter +1), two really different memories are refused, late failure restores the goal -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryT (stmt : Term) (tac : TSyntax `tactic) : TermElabM (Bool × Bool) := do
+    let ty ← elabTerm stmt none
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      pure (gs.isEmpty, true)
+    catch _ => pure (false, false)
+  let withOpt (v : Bool) (x : TermElabM (Bool × Bool)) : TermElabM (Bool × Bool) := withOptions (fun os => os.setBool `ved.mem.s94Spell v) x
+  let mk (c1 c2 : Nat) : TermElabM Term := `(∀ (init : BitVec 4 → BitVec 8) (wa : Signal defaultDomain (BitVec 4)) (we : Signal defaultDomain Bool) (x : Nat → BitVec 5) (n : Nat) (a : BitVec 4),
+    (Signal.memState init wa (Signal.mk fun t => if (x t).toNat = 3 then (BitVec.ofNat 8 4) * (BitVec.ofNat 8 5) else 0#8) we n a).toNat ≠ 0 →
+    (Signal.memState init wa (Signal.mk fun t => if x t = BitVec.ofNat 5 3 then (BitVec.ofNat 8 $(Syntax.mkNumLit (toString c1))) * (BitVec.ofNat 8 $(Syntax.mkNumLit (toString c2))) else 0#8) we n a).toNat ≠ 0)
+  let good ← mk 5 4
+  let bad ← mk 5 6
+  let tac ← `(tactic| (intro init wa we x n a h; ved_mem_spell; exact h))
+  let k0 ← Tools.VedMemS94Local.spellHits.get
+  let (off, _) ← withOpt false (tryT good tac)
+  if off then throwError "spell: OFF: closed"
+  unless (← Tools.VedMemS94Local.spellHits.get) == k0 do throwError "spell: OFF: counter moved"
+  let (on, okOn) ← withOpt true (tryT good tac)
+  if !on || !okOn then throwError "spell: ON: not closed"
+  unless (← Tools.VedMemS94Local.spellHits.get) == k0 + 1 do throwError "spell: ON: counter"
+  -- two really different memories (4 * 6 against 4 * 5): the atoms are not merged, the goal stays open (or the tactic fails)
+  let (badC, _) ← withOpt true (tryT bad tac)
+  if badC then throwError "spell: DIFFERENT memories were merged"
+  -- late failure (seam): the goal is as it was
+  Tools.VedMemS94Local.spellFailLate.set true
+  let (late2, _) ← withOpt true (tryT good (← `(tactic| (intro init wa we x n a h; (first | ved_mem_spell | skip); guard_target =ₛ (Signal.memState init wa (Signal.mk fun t => if x t = BitVec.ofNat 5 3 then (BitVec.ofNat 8 5) * (BitVec.ofNat 8 4) else 0#8) we n a).toNat ≠ 0; exact h))))
+  Tools.VedMemS94Local.spellFailLate.set false
+  if late2 then throwError "spell: late failure: the goal was closed"
+  logInfo m!"spell controls: OFF refused, ON merges the two spellings (counter +1), two really different memories are refused, late failure restores the goal"
+
 end Tests.Ved.VedMemLocalCheck

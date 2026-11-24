@@ -601,6 +601,11 @@ elab "ved_cone_opaque" : tactic => do
   coneOpaqueHits.modify (· + 1)
   replaceMainGoal [g]
 
+register_option ved.mem.s94Spell : Bool := {
+  defValue := false
+  descr := "ved_local_close_new: two memState atoms that differ only in the spelling of their write ports (BitVec equation vs toNat form, factor order of a multiplication) are one atom (ved_mem_spell, before the atoms are abstracted); default false"
+}
+
 register_option ved.mem.s94HypSplit : Bool := {
   defValue := false
   descr := "ved_local_close: when `ved_mux` does not close the goal, split the `if`s of the HYPOTHESES (the path hypotheses of the A goals: the target has no `if`, `split` of `ved_split_omega` finds none) and close each leaf by omega (default false)"
@@ -638,9 +643,42 @@ partial def hypSplitOmega (g : MVarId) (fuel : IO.Ref Nat) : TacticM Unit := do
       return
   throwError "ved_hyp_split_omega: omega failed and no hypothesis `if` can be split: {(← lastOmegaMsg.get).take 2500}"
 
-/-- `ved_hyp_split_omega`: the main goal closed by `hypSplitOmega` -/
+/-- the memory reads `(M e).toNat` (`M` a local function variable, as `ved_cone_opaque` leaves them) of the target and the context propositions become variables (`generalizeHyp`):
+`splitLocalDecl?` otherwise splits the `if` inside the address `e` of a read (a `BitVec` `if` the arithmetic does not need) before the `if`s of the arithmetic (s94v, R033 goal 152 after
+`ved_mem_spell`: 10M heartbeats of leaves) -/
+def genMemReads (g : MVarId) : MetaM (Option MVarId) := g.withContext do
+  let isRd (x : Expr) : Bool := x.isAppOfArity ``BitVec.toNat 2 && (x.getArg! 1).isApp && (x.getArg! 1).getAppFn.isFVar
+  let mut cands : Array Expr := #[]
+  let mut hs : Array FVarId := #[]
+  for x in collectDag isRd (← instantiateMVars (← g.getType)) do
+    unless cands.contains x do cands := cands.push x
+  for d in ← getLCtx do
+    if d.isImplementationDetail || d.isLet then continue
+    let t ← instantiateMVars d.type
+    unless (← isProp t) do continue
+    let cs := collectDag isRd t
+    unless cs.isEmpty do
+      hs := hs.push d.fvarId
+      for x in cs do
+        unless cands.contains x do cands := cands.push x
+  if cands.isEmpty then return none
+  let args := cands.map fun c => ({ expr := c, xName? := some `ved_gm } : GeneralizeArg)
+  let (_, _, g') ← g.generalizeHyp args hs
+  return some g'
+
+/-- `ved_hyp_split_omega`: the main goal closed by `hypSplitOmega` (with `ved.mem.s94Spell`: first after `genMemReads`, the old path is the fallback) -/
 elab "ved_hyp_split_omega" : tactic => do
   let g ← getMainGoal
+  if ved.mem.s94Spell.get (← getOptions) then
+    let st ← saveState
+    try
+      if let some g' ← genMemReads g then
+        let fuel ← IO.mkRef hypSplitMaxLeaves
+        hypSplitOmega g' fuel
+        replaceMainGoal []
+        hypSplitHits.modify (· + 1)
+        return
+    catch _ => st.restore
   let fuel ← IO.mkRef hypSplitMaxLeaves
   hypSplitOmega g fuel
   replaceMainGoal []
@@ -703,6 +741,123 @@ elab "ved_ite_div" : tactic => do
   try evalTactic (← `(tactic| simp only [ite01_div2] at *))
   catch _ => st.restore
 
+/-! ## two spellings of one memory (`ved.mem.s94Spell`, s94v)
+
+Observed (s94v, `ved_port_dump` on the R033 goals 152 158): the A goals' hypotheses read ONE memory twice, `ved_M0` and `ved_M2` in the report's naming: two `memState` atoms
+with the same width, the same write address and enable, and write data ports that are the same signal spelled two ways: `if nat(x) = 13 then 16 * (4 * a + b) + c else ..` against
+`if x = 13#5 then ((a * 4) + b) * 16 + c else ..` (a `BitVec` equation against its `toNat` form, a literal factor on the other side of `*`).  The two atoms have different keys, so
+`ved_cone_opaque` abstracts them to two unrelated memories and `omega` needs the content relation `M2[i] != 0 -> M0[i] != 0` that no hypothesis supplies (unsupplied local theorem (a):
+the atoms are equal).  `ved_mem_spell` supplies it: for two atoms that differ only in the write address / data / enable ports, each differing port equation is proved by
+`simp only [BitVec.mul_comm, BitVec.toNat_eq, ..]` (ordered rewriting makes both spellings one), the atom equation `forall addr, M_b addr = M_r addr` follows from
+`memState_ports_congr` (proved once), and the atoms of the later spelling are rewritten to the first by this fact (`simp only [h] at *`, then `h` is cleared). -/
+
+
+initialize spellHits : IO.Ref Nat ← IO.mkRef 0
+initialize spellRefuse : IO.Ref Bool ← IO.mkRef false
+initialize spellFailLate : IO.Ref Bool ← IO.mkRef false
+
+open Sparkle.Core.Signal Sparkle.Core.Domain in
+/-- the memory contents depend on the write ports only through the signals: equal ports, equal memory word -/
+theorem memState_ports_congr {dom : DomainConfig} {aw dw : Nat} (init : BitVec aw → BitVec dw)
+    (wa wa' : Signal dom (BitVec aw)) (wd wd' : Signal dom (BitVec dw)) (we we' : Signal dom Bool)
+    (n : Nat) (addr : BitVec aw) (ha : wa = wa') (hd : wd = wd') (he : we = we') :
+    Signal.memState init wa wd we n addr = Signal.memState init wa' wd' we' n addr := by
+  subst ha hd he
+  rfl
+
+/-- the atoms `memState k0 .. k7 addr` (first eight arguments `bk`) of `e` as `M addr` (the address rewritten too) -/
+partial def spellReplace (bk : Array Expr) (M : Expr) (e : Expr) : Expr :=
+  e.replace fun x =>
+    if isMemAtom x && x.getAppArgs.extract 0 8 == bk then some (mkApp M (spellReplace bk M x.getAppArgs[8]!)) else none
+
+/-- `ved_mem_spell` (option `ved.mem.s94Spell`): see the section comment; fails when the option is off or no two atoms are spellings of one memory -/
+elab "ved_mem_spell" : tactic => withMainContext do
+  if (← spellRefuse.get) then throwError "ved_mem_spell: refused (test seam)"
+  unless ved.mem.s94Spell.get (← getOptions) do throwError "ved_mem_spell: option ved.mem.s94Spell is off"
+  let g ← getMainGoal
+  let hb00 ← IO.getNumHeartbeats
+  let mut atoms : Array Expr := #[]
+  let mut props : Array Expr := #[← instantiateMVars (← g.getType)]
+  for d in ← getLCtx do
+    if d.isImplementationDetail || d.isLet then continue
+    let t ← instantiateMVars d.type
+    if (← isProp t) then props := props.push t
+  for t in props do
+    for a in collectDag isMemAtom t do
+      unless atoms.contains a do atoms := atoms.push a
+  let prove (l r : Expr) : TacticM (Option Expr) := do
+    if l == r then return some (← mkEqRefl l)
+    let mv ← mkFreshExprMVar (← mkEq l r)
+    try
+      let gs ← Tactic.run mv.mvarId! (withoutRecover (evalTactic (← `(tactic|
+        simp only [BitVec.mul_comm, BitVec.toNat_eq, BitVec.toNat_ofNat, Nat.reduceMod, Nat.reducePow]))))
+      if gs.isEmpty then return some (← instantiateMVars mv) else return none
+    catch _ => return none
+  let mut facts : Array (Name × Expr × Expr) := #[]
+  let mut done : Array Expr := #[]
+  for i in [0:atoms.size] do
+    for j in [i+1:atoms.size] do
+      let r := atoms[i]!
+      let b := atoms[j]!
+      let ra := r.getAppArgs
+      let ba := b.getAppArgs
+      if done.contains b || done.contains r then continue
+      unless ra[0]! == ba[0]! && ra[1]! == ba[1]! && ra[2]! == ba[2]! && ra[3]! == ba[3]! && ra[7]! == ba[7]! do continue
+      if ra[4]! == ba[4]! && ra[5]! == ba[5]! && ra[6]! == ba[6]! then continue
+      let some ha ← prove ba[4]! ra[4]! | continue
+      let some hd ← prove ba[5]! ra[5]! | continue
+      let some he ← prove ba[6]! ra[6]! | continue
+      let aTy ← inferType ba[8]!
+      let fact ← withLocalDeclD `a aTy fun a => do
+        let ba' := ba.set! 8 a
+        let ra' := ra.set! 8 a
+        let _ := ra'
+        let pf ← mkAppM ``memState_ports_congr #[ba[3]!, ba[4]!, ra[4]!, ba[5]!, ra[5]!, ba[6]!, ra[6]!, ba[7]!, a, ha, hd, he]
+        mkLambdaFVars #[a] pf
+      facts := facts.push (Name.mkSimple s!"ved_spell_h{facts.size}", fact, ← inferType fact)
+      done := done.push b
+  if facts.isEmpty then throwError "ved_mem_spell: no two atoms are spellings of one memory"
+  Tools.VedMemLoop.dbgLog s!"spell: {facts.size} facts proved hb(k)={((← IO.getNumHeartbeats) - hb00) / 1000}"
+  -- the atoms of the later spelling `b` become `M_r` applications: every proposition that contains one is rewritten by `congrArg` over the abstraction of `M_b` (no unification
+  -- of the two big port terms: `simp only [h] at *` tried it on every atom of the other spelling, 9.3M heartbeats on R033 goal 152)
+  let mut g' := g
+  for (_, fact, _) in facts do
+    let ty ← inferType fact
+    let some (b, r) := (do
+        let .forallE _ _ body _ := ty | none
+        let (_, l, rr) ← body.eq?
+        pure (l, rr)) | throwError "ved_mem_spell: unexpected fact"
+    -- `b`, `r` are the atoms with the bound variable at argument 8
+    let bk := b.getAppArgs.extract 0 8
+    let Mb := mkAppN b.getAppFn bk
+    let Mr := mkAppN r.getAppFn (r.getAppArgs.extract 0 8)
+    let hfun ← mkAppM ``funext #[fact]
+    let mTy ← inferType Mb
+    let rewriteProp (T : Expr) : MetaM (Option (Expr × Expr)) := do
+      if (collectDag (fun x => isMemAtom x && x.getAppArgs.extract 0 8 == bk) T).isEmpty then return none
+      withLocalDeclD `M mTy fun M => do
+        let Tabs := spellReplace bk M T
+        let motive ← mkLambdaFVars #[M] Tabs
+        let T' := Tabs.replaceFVar M Mr
+        let pf ← mkExpectedTypeHint (← mkAppM ``congrArg #[motive, hfun]) (← mkEq T T')
+        return some (T', pf)
+    -- the hypotheses
+    for d in ← g'.withContext getLCtx do
+      if d.isImplementationDetail || d.isLet then continue
+      let t ← instantiateMVars d.type
+      unless (← g'.withContext (isProp t)) do continue
+      if let some (t', pf) ← g'.withContext (rewriteProp t) then
+        let (r : AssertAfterResult) ← g'.replaceLocalDecl d.fvarId t' pf
+        g' := r.mvarId
+    -- the target
+    let tgt ← instantiateMVars (← g'.getType)
+    if let some (t', pf) ← g'.withContext (rewriteProp tgt) then
+      g' ← g'.replaceTargetEq t' pf
+  replaceMainGoal [g']
+  Tools.VedMemLoop.dbgLog s!"spell: rewritten hb(k)={((← IO.getNumHeartbeats) - hb00) / 1000}"
+  if (← spellFailLate.get) then throwError "ved_mem_spell: late failure (test seam)"
+  spellHits.modify (· + facts.size)
+
 /-- `ved_local_new_gate`: refuses unless `ved.mem.s94Addr` or `ved.mem.s94HypSplit` is on (the second alternative of `ved_local_close` exists only for those) -/
 elab "ved_local_new_gate" : tactic => do
   unless ved.mem.s94Addr.get (← getOptions) || ved.mem.s94HypSplit.get (← getOptions) do throwError "ved_local_new_gate: no s94u option is on"
@@ -723,6 +878,17 @@ macro "ved_local_close_new" : tactic =>
                         all_goals (ved_bv_bounds
                                    (try simp only [mux_mod]); first | ved_mux | ved_hyp_split_omega_g))))
 
+/-- `ved_local_close_spell` (s94v; refused unless `ved.mem.s94Spell` is on): the third alternative of `ved_local_goal`, a separate attempt under its own limit `spellCapK` (the first two, under
+`localCapK`, did not close the goal): `ved_mem_spell` (two spellings of one memory are one atom), then the steps of `ved_local_close_new` -/
+macro "ved_local_close_spell" : tactic =>
+  `(tactic| (ved_cone_clear; ved_mem_spell; (try ved_cone_opaque); (try ved_pack_extract); (try ved_atom_args);
+             all_goals (ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *); (try ved_ite_div)
+                        all_goals (ved_bv_bounds
+                                   (try simp only [mux_mod]); first | ved_mux | ved_hyp_split_omega_g))))
+
+/-- the heartbeat limit of the separate attempt `ved_local_close_spell` (thousands; the proof of the port equation 3M, the rewrite 0.1M, the closing arithmetic 6M on R033 goals 152 158) -/
+def spellCapK : Nat := 12000
+
 /-- the heartbeat limit of one local attempt (thousands; lower than any whole-goal step: a successful attempt needs at most about 4M) -/
 def localCapK : Nat := 8000
 
@@ -740,6 +906,17 @@ elab "ved_local_goal" : tactic => do
       if ← localFailLate.get then throwError "ved_local_goal: failed after its work (test seam)"
       pure true)
     (fun _ => pure false)
+  -- the separate attempt of `ved.mem.s94Spell` (own limit), on the restored state
+  let r ← if r || !ved.mem.s94Spell.get (← getOptions) then pure r else do
+    st.restore
+    let hb1 ← IO.getNumHeartbeats
+    tryCatchRuntimeEx
+      (do
+        withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then spellCapK * 1000 else min c.maxHeartbeats (spellCapK * 1000)), initHeartbeats := hb1 }) do
+          withoutRecover (evalTactic (← `(tactic| ved_local_close_spell)))
+        if ← localFailLate.get then throwError "ved_local_goal: failed after its work (test seam)"
+        pure true)
+      (fun _ => pure false)
   if r then localHits.modify (· + 1)
   else
     st.restore

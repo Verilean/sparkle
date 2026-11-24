@@ -2203,6 +2203,153 @@ elab "ved_maddr_diag" : tactic => withMainContext do
         let pd := ((← IO.getEnv "VED_MADDR_PDEPTH").bind String.toNat?).getD 14
         s94LdLog s!"MADDR    key#{keys.idxOf key} arg{k}: {(progCut pd a.getAppArgs[k]!).take pl}"
 
+/-- the minimal differing subterm pairs of two terms (parallel descent through applications / lambdas / foralls; each pair of nodes visited once) -/
+partial def s94ExprDiffs (a b : Lean.Expr) (seen : IO.Ref (Std.HashSet (Lean.Expr × Lean.Expr))) (out : IO.Ref (Array (Lean.Expr × Lean.Expr))) : IO Unit := do
+  if a == b then return
+  if (← seen.get).contains (a, b) then return
+  seen.modify (·.insert (a, b))
+  match a, b with
+  | .app f1 x1, .app f2 x2 =>
+    if a.getAppNumArgs == b.getAppNumArgs then
+      s94ExprDiffs f1 f2 seen out
+      s94ExprDiffs x1 x2 seen out
+    else out.modify (·.push (a, b))
+  | .lam _ t1 b1 _, .lam _ t2 b2 _ => s94ExprDiffs t1 t2 seen out; s94ExprDiffs b1 b2 seen out
+  | .forallE _ t1 b1 _, .forallE _ t2 b2 _ => s94ExprDiffs t1 t2 seen out; s94ExprDiffs b1 b2 seen out
+  | .mdata _ x, _ => s94ExprDiffs x b seen out
+  | _, .mdata _ y => s94ExprDiffs a y seen out
+  | .proj _ i x, .proj _ j y => if i == j then s94ExprDiffs x y seen out else out.modify (·.push (a, b))
+  | _, _ => out.modify (·.push (a, b))
+
+/-- diagnosis (s94v): the `memState` atoms of the target and of the context propositions; for every two atoms of the same width / data width (args 0-3) that are not equal,
+the minimal differing subterm pairs (<= `VED_ADIFF_MAX`, default 12; `progCut` depth `VED_ADIFF_DEPTH`, default 9) and the type of the pair; to `VED_T3_LOG` / stderr -/
+elab "ved_atom_diff" : tactic => withMainContext do
+  let mut atoms : Array Expr := #[]
+  for t in [← instantiateMVars (← getMainTarget)] ++ (← (← getLCtx).foldlM (fun (acc : List Expr) dd => do
+      if dd.isImplementationDetail || dd.isLet then return acc
+      let t ← instantiateMVars dd.type
+      return if (← isProp t) then t :: acc else acc) []) do
+    for a in Tools.VedU1WireShare.collectDag Tools.VedMemS94Local.isMemAtom t do
+      unless atoms.contains a do atoms := atoms.push a
+  let mx := ((← IO.getEnv "VED_ADIFF_MAX").bind String.toNat?).getD 12
+  let dp := ((← IO.getEnv "VED_ADIFF_DEPTH").bind String.toNat?).getD 9
+  s94LdLog s!"ADIFF atoms={atoms.size}"
+  for i in [0:atoms.size] do
+    for j in [i+1:atoms.size] do
+      let a := atoms[i]!
+      let b := atoms[j]!
+      if a.getAppNumArgs == b.getAppNumArgs && (a.getAppArgs.extract 0 4) == (b.getAppArgs.extract 0 4) then
+        let seen ← IO.mkRef ({} : Std.HashSet (Expr × Expr))
+        let out ← IO.mkRef (#[] : Array (Expr × Expr))
+        s94ExprDiffs a b seen out
+        let ds ← out.get
+        s94LdLog s!"ADIFF atoms {i} {j}: {ds.size} minimal differences (arg8 equal: {a.getAppArgs[8]! == b.getAppArgs[8]!})"
+        for (x, y) in ds.extract 0 mx do
+          let tx ← try pure (toString (← ppExpr (← inferType x))) catch _ => pure "?"
+          s94LdLog s!"ADIFF   type {(tx.replace "\n" " ").take 120}"
+          s94LdLog s!"ADIFF     L {(progCut dp x).take 500}"
+          s94LdLog s!"ADIFF     R {(progCut dp y).take 500}"
+
+/-- the `Prod.fst` / `Prod.snd` chain of a term: the path from the base outwards (`true` = fst) and the base -/
+partial def s94ProjChain (e : Lean.Expr) : List Bool × Lean.Expr :=
+  if e.isAppOfArity ``Prod.fst 3 then let (p, b) := s94ProjChain (e.getArg! 2); (p ++ [true], b)
+  else if e.isAppOfArity ``Prod.snd 3 then let (p, b) := s94ProjChain (e.getArg! 2); (p ++ [false], b)
+  else ([], e)
+
+/-- (s94v) compact rendering of a port term: infix arithmetic, `if`, `Prod` projection chains as `base.#k` (`!` for the last component), loops as `LOOP#hash`,
+signals `⟨body⟩`, shared subterms (>= 2 parents, not atomic) as `$n` (children first) -/
+partial def s94Fmt (ids : Std.HashMap Lean.Expr Nat) (x : Lean.Expr) (top : Bool) : String :=
+  match (if top then none else ids[x]?) with
+  | some n => s!"${n}"
+  | none =>
+    let f := fun (y : Lean.Expr) => s94Fmt ids y false
+    let isTy (a : Lean.Expr) : Bool := (match a.getAppFn with
+      | .const n _ => n == ``Nat || n == ``Bool || n == ``Int || n == ``BitVec || (n.components.getLast?.map (·.toString.startsWith "inst")).getD false
+      | .sort .. => true | _ => false)
+    match x with
+    | .mdata _ b => s94Fmt ids b top
+    | .bvar i => s!"t{i}"
+    | .fvar v => s!"{v.name}"
+    | .lit (.natVal v) => s!"{v}"
+    | .const n _ => n.toString
+    | .lam _ _ b _ => s!"(fun {f b})"
+    | .app .. =>
+      let fn := x.getAppFn
+      let args := x.getAppArgs
+      match fn.constName?.map (·.toString) with
+      | some "OfNat.ofNat" => if args.size == 3 then f args[1]! else s94Head x
+      | some "BitVec.ofNat" => if args.size == 2 then s!"bv{f args[0]!}({f args[1]!})" else s94Head x
+      | some "BitVec.extractLsb'" => if args.size == 4 then s!"{f args[3]!}[{f args[1]!}+:{f args[2]!}]" else s94Head x
+      | some "BitVec.toNat" => if args.size == 2 then s!"nat({f args[1]!})" else s94Head x
+      | some "ite" => if args.size == 5 then s!"(if {f args[1]!} then {f args[3]!} else {f args[4]!})" else s94Head x
+      | some "Eq" => if args.size == 3 then s!"({f args[1]!} = {f args[2]!})" else s94Head x
+      | some "And" => if args.size == 2 then s!"({f args[0]!} ∧ {f args[1]!})" else s94Head x
+      | some "Or" => if args.size == 2 then s!"({f args[0]!} ∨ {f args[1]!})" else s94Head x
+      | some "Not" => if args.size == 1 then s!"¬{f args[0]!}" else s94Head x
+      | some "BEq.beq" => if args.size == 4 then s!"({f args[2]!} == {f args[3]!})" else s94Head x
+      | some "bne" => if args.size == 4 then s!"({f args[2]!} != {f args[3]!})" else s94Head x
+      | some "Sparkle.Core.Signal.Signal.loop" => s!"LOOP#{x.hash % 100000}"
+      | some "Sparkle.Core.Signal.Signal.mk" => if args.size == 3 then s!"⟨{f args[2]!}⟩" else s94Head x
+      | some "Sparkle.Core.Signal.Signal.pure" => if args.size == 3 then s!"pure({f args[2]!})" else s94Head x
+      | some "Sparkle.Core.Signal.Signal.val" => if args.size == 4 then s!"{f args[2]!}@{f args[3]!}" else s94Head x
+      | some "Prod.fst" | some "Prod.snd" =>
+        -- the projection chain: `path` from the base outwards (`true` = fst); `snd^k` then `fst` = component k, all `snd` = the tail
+        let (path, cur) := s94ProjChain x
+        let k := (path.filter (!·)).length
+        let idx := if path.getLast? == some true then s!"#{k}" else s!"#{k}!"
+        s!"{f cur}.{idx}"
+      | some nm =>
+        if args.size == 6 && ["HAdd.hAdd", "HSub.hSub", "HMul.hMul", "HDiv.hDiv", "HMod.hMod", "HPow.hPow", "HAppend.hAppend", "HAnd.hAnd", "HOr.hOr", "HXor.hXor", "HShiftRight.hShiftRight", "HShiftLeft.hShiftLeft"].contains nm then
+          let op := match nm with
+            | "HAdd.hAdd" => "+" | "HSub.hSub" => "-" | "HMul.hMul" => "*" | "HDiv.hDiv" => "/" | "HMod.hMod" => "%" | "HPow.hPow" => "^"
+            | "HAppend.hAppend" => "++" | "HAnd.hAnd" => "&" | "HOr.hOr" => "|" | "HXor.hXor" => "^^" | "HShiftRight.hShiftRight" => ">>" | _ => "<<"
+          s!"({f args[4]!} {op} {f args[5]!})"
+        else
+          let as := args.filter (fun a => !isTy a && !(a.getAppFn.constName?.map (·.toString.startsWith "Sparkle.Core.Domain")).getD false)
+          s!"{nm.splitOn "." |>.getLast!}({", ".intercalate (as.map f).toList})"
+      | none => s94Head x
+    | _ => s94Head x
+
+/-- diagnosis (s94v): for every `memState` atom of the target / the propositions of the context: width, data width, and the write address / data / enable ports and the read
+address in the compact rendering (`s94Fmt`, shared subterms `$n`), then the shared definitions; to `VED_T3_LOG` / stderr (`VED_PORT_LINE` = longest line, default 1500) -/
+elab "ved_port_dump" : tactic => withMainContext do
+  let mut atoms : Array Expr := #[]
+  for t in [← instantiateMVars (← getMainTarget)] ++ (← (← getLCtx).foldlM (fun (acc : List Expr) dd => do
+      if dd.isImplementationDetail || dd.isLet then return acc
+      let t ← instantiateMVars dd.type
+      return if (← isProp t) then t :: acc else acc) []) do
+    for a in Tools.VedU1WireShare.collectDag Tools.VedMemS94Local.isMemAtom t do
+      unless atoms.contains a do atoms := atoms.push a
+  let ll := ((← IO.getEnv "VED_PORT_LINE").bind String.toNat?).getD 1500
+  -- shared nodes of all the printed terms
+  let roots : Array Expr := atoms.foldl (fun acc a => acc ++ ((a.getAppArgs.extract 3 9).toList.toArray)) #[]
+  let mut par : Std.HashMap Expr Nat := {}
+  let mut order : Array Expr := #[]
+  for r in roots do
+    for n in Tools.VedU1WireShare.collectDag (fun _ => true) r do
+      unless par.contains n do order := order.push n
+      let kids : Array Expr := match n with
+        | .app f a => #[f, a] | .lam _ t b _ => #[t, b] | .forallE _ t b _ => #[t, b] | .mdata _ b => #[b] | .proj _ _ b => #[b] | _ => #[]
+      for kd in kids do par := par.insert kd (par.getD kd 0 + 1)
+  let isTriv (x : Expr) : Bool := match x with | .const .. | .fvar .. | .lit .. | .sort .. | .bvar .. => true | _ => false
+  let isTy (a : Lean.Expr) : Bool := (match a.getAppFn with
+      | .const n _ => n == ``Nat || n == ``Bool || n == ``Int || n == ``BitVec || n == ``Sparkle.Core.Signal.Signal || (n.components.getLast?.map (·.toString.startsWith "inst")).getD false
+      | .sort .. => true | _ => false)
+  let shared := (order.filter fun x => !isTriv x && !isTy x && !x.isAppOf ``OfNat.ofNat && !x.isAppOf ``Sparkle.Core.Signal.Signal.loop && par.getD x 0 ≥ 2 && !(roots.contains x)).reverse
+  let mut ids : Std.HashMap Expr Nat := {}
+  let mut kk := 0
+  for x in shared do ids := ids.insert x kk; kk := kk + 1
+  s94LdLog s!"PORT atoms={atoms.size} shared={shared.size}"
+  let mut i := 0
+  for a in atoms do
+    let args := a.getAppArgs
+    s94LdLog s!"PORT atom {i}: aw={s94Fmt ids args[1]! false} dw={s94Fmt ids args[2]! false}"
+    for (nm, k) in [("wa", 4), ("wd", 5), ("we", 6), ("read", 8)] do
+      s94LdLog s!"PORT atom {i} {nm} = {(s94Fmt ids args[k]! false).take ll}"
+    i := i + 1
+  for x in shared do
+    s94LdLog s!"PORT ${ids[x]!} := {(s94Fmt ids x true).take ll}"
+
 /-- diagnosis (s94t): the first address pair (same key, two addresses) of the target as the goal `a = rep` of `ved_addr_eq_local2`, after its `toNat` lemmas, run through `ved_local_diag`
 (steps, heartbeats, target / hypotheses at the failure) -/
 elab "ved_maddr_pair_diag" : tactic => withMainContext do
