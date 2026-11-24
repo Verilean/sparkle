@@ -944,10 +944,43 @@ elab "ved_conj_prune" : tactic => do
   conjPruneHits.modify (· + 1)
   replaceMainGoal [g']
 
+/-- `ved_read_bounds` (s94w): for every read `(f e).toNat` of the target and the hypotheses (`f` a variable, as `ved_cone_opaque` leaves the memories: `ved_M0 a`) the fact `(f e).toNat < 2 ^ w`
+(`BitVec.isLt`). `ved_bv_bounds` bounds only the variables, so `omega` saw `X = (ved_M0 a).toNat` unbounded: `(65536 - X) % 65536` and `(65536 - X % 65536) % 65536` (the two spellings of
+the absolute value of a quantizer input, R033 goal 6) are different numbers for `X >= 65536` (cause (a): the unsupplied local fact "a memory word is as wide as its data") -/
+elab "ved_read_bounds" : tactic => do
+  let mut g ← getMainGoal
+  let rs ← g.withContext do
+    let isRd (x : Expr) : Bool := x.isAppOfArity ``BitVec.toNat 2 && (x.getArg! 1).isApp && (x.getArg! 1).getAppFn.isFVar
+    let mut rs : Array Expr := #[]
+    for x in collectDag isRd (← instantiateMVars (← g.getType)) do
+      unless rs.contains x do rs := rs.push x
+    for d in ← getLCtx do
+      if d.isImplementationDetail || d.isLet then continue
+      let t ← instantiateMVars d.type
+      unless (← isProp t) do continue
+      if Tools.VedU1Loop.treeSizeVal t > 20000 then continue
+      for x in collectDag isRd t do
+        unless rs.contains x do rs := rs.push x
+    pure rs
+  if rs.isEmpty then throwError "ved_read_bounds: no memory read"
+  for x in rs do
+    let pr ← g.withContext (mkAppM ``BitVec.isLt #[x.getArg! 1])
+    let (_, g1) ← (← g.assert `ved_rdb (← g.withContext (inferType pr)) pr).intro1P
+    g := g1
+  replaceMainGoal [g]
+
 register_option ved.mem.s94StateSplit : Bool := {
   defValue := false
   descr := "ved_local_goal: a separate attempt (own limit stateCapK) for the ite towers over a small state variable: the 5-bit `x.toNat = k` conditions are decided by ONE case split on the value of x, then one omega per branch (ved_state_split); default false"
 }
+
+register_option ved.mem.s94MulShift : Bool := {
+  defValue := false
+  descr := "ved_local_goal: a separate attempt (own limit mulCapK) for the multiply-shift goals ((a * b + c) % 2^32 / 2^(m % 32), the quantizer): the spellings of the case conditions normalised, the memory reads bounded by their data width (ved_read_bounds), the `if`s split and the `% 2^k` of bounded terms cancelled, then omega on the leaves (default false)"
+}
+
+initialize mulShiftRefuse : IO.Ref Bool ← IO.mkRef false
+initialize mulShiftFailLate : IO.Ref Bool ← IO.mkRef false
 
 initialize stateSplitHits : IO.Ref Nat ← IO.mkRef 0
 initialize stateSplitBranches : IO.Ref Nat ← IO.mkRef 0
@@ -1093,6 +1126,11 @@ macro "ved_local_close_spell" : tactic =>
                         all_goals (ved_bv_bounds
                                    (try simp only [mux_mod]); first | ved_mux | ved_hyp_split_omega_g))))
 
+/-- the spellings of the case conditions made one: `(if p then 1 else 0) % 2 = 0 / 1`, `(if p then 1 else 0) = 0 / 1`, `¬ x % 2 = 1` (the two sides of a goal spell one condition both ways: the `if`s
+of the two sides are different atoms for `omega` / `split` otherwise, R033 goal 6: `(if ck132 / 4 % 2 = 1 then 1 else 0) % 2 = 0` against `ck132 / 4 % 2 = 0`) -/
+macro "ved_cond_norm" : tactic =>
+  `(tactic| simp only [ite10_mod2, ite10_mod2_z, ite10_eq1, ite10_eq0, Nat.mod_two_ne_one, Nat.mod_two_ne_zero, Nat.reducePow, Nat.reduceAdd, Nat.reduceMod] at *)
+
 /-- `ved_state_gate`: refuses unless `ved.mem.s94StateSplit` is on (and the test seam `stateSplitRefuse` is off) -/
 elab "ved_state_gate" : tactic => do
   unless ved.mem.s94StateSplit.get (← getOptions) do throwError "ved_state_gate: option ved.mem.s94StateSplit is off"
@@ -1115,7 +1153,28 @@ macro "ved_local_close_state" : tactic =>
              (try ved_conj_prune)
              first
              | (ved_state_split; ved_state_simp; all_goals ved_state_branch)
-             | (ved_bv_bounds; first | (simp only [mux_mod]; done) | ((try simp only [mux_mod]); ved_mux))))
+             | ((try ved_atom_args); all_goals ((try ved_ite_div); (try ved_cond_norm); (try ved_read_bounds); ved_bv_bounds; first | (simp only [mux_mod]; done) | ((try simp only [mux_mod]); ved_mux)))))
+
+/-- `ved_mul_gate`: refuses unless `ved.mem.s94MulShift` is on -/
+elab "ved_mul_gate" : tactic => do
+  unless ved.mem.s94MulShift.get (← getOptions) do throwError "ved_mul_gate: option ved.mem.s94MulShift is off"
+  if ← mulShiftRefuse.get then throwError "ved_mul_gate: refused (test seam)"
+
+/-- `ved_local_close_mulshift` (s94w; refused unless `ved.mem.s94MulShift` is on): the fifth attempt of `ved_local_goal`, own limit `mulCapK`: the multiply-shift goals. Both sides spell the same
+`((|a| * b + c) % 2^32 / 2^(m % 32)) % 65536`; what the closing arithmetic lacks is (a) the conditions spelled one way (`ved_cond_norm`), (b) `(f e).toNat < 2^w` for the memory reads (`ved_read_bounds`) and
+the bounds of the variables, so that `x % 2^k = x` for the bounded factors (`Nat.mod_eq_of_lt` with `omega` as discharger) makes the nonlinear products `|a| * b` (and `2 ^ (m % 32)`) the same atom of both
+sides after the `if`s are split; no case split on the shift amount is needed (it is the same atom on both sides) -/
+macro "ved_local_close_mulshift" : tactic =>
+  `(tactic| (ved_mul_gate; ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); (try ved_atom_args)
+             all_goals (ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *); (try ved_ite_div))
+             (try ved_conj_prune)
+             (try ved_cond_norm); (try ved_read_bounds); ved_bv_bounds; (try simp only [mux_mod])
+             (repeat' split)
+             all_goals (try simp (disch := omega) only [Nat.mod_eq_of_lt, Nat.reducePow, Nat.reduceAdd, Nat.reduceMod])
+             all_goals omega))
+
+/-- the heartbeat limit of the separate attempt `ved_local_close_mulshift` (thousands; R033 goals 6 95 107 111: 7 .. 14M) -/
+def mulCapK : Nat := 16000
 
 /-- the heartbeat limit of the separate attempt `ved_local_close_state` (thousands; R033 goals 23 46 48 49 57: 7 .. 15M) -/
 def stateCapK : Nat := 16000
@@ -1151,6 +1210,7 @@ elab "ved_local_goal" : tactic => do
         if ← localFailLate.get then throwError "ved_local_goal: failed after its work (test seam)"
         pure true)
       (fun _ => pure false)
+  Tools.VedMemLoop.dbgLog s!"local_goal: after spell {r} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}"
   -- the separate attempt of `ved.mem.s94StateSplit` (own limit), on the restored state
   let r ← if r || !ved.mem.s94StateSplit.get (← getOptions) then pure r else do
     st.restore
@@ -1162,6 +1222,19 @@ elab "ved_local_goal" : tactic => do
         if ← stateSplitFailLate.get then throwError "ved_local_goal: failed after its work (test seam)"
         pure true)
       (fun _ => pure false)
+  Tools.VedMemLoop.dbgLog s!"local_goal: after state {r} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}"
+  -- the separate attempt of `ved.mem.s94MulShift` (own limit), on the restored state
+  let r ← if r || !ved.mem.s94MulShift.get (← getOptions) then pure r else do
+    st.restore
+    let hb3 ← IO.getNumHeartbeats
+    tryCatchRuntimeEx
+      (do
+        withTheReader Core.Context (fun c => { c with maxHeartbeats := (if c.maxHeartbeats == 0 then mulCapK * 1000 else min c.maxHeartbeats (mulCapK * 1000)), initHeartbeats := hb3 }) do
+          withoutRecover (evalTactic (← `(tactic| ved_local_close_mulshift)))
+        if ← mulShiftFailLate.get then throwError "ved_local_goal: failed after its work (test seam)"
+        pure true)
+      (fun _ => pure false)
+  Tools.VedMemLoop.dbgLog s!"local_goal: after mulshift {r} hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}"
   if r then localHits.modify (· + 1)
   else
     st.restore
