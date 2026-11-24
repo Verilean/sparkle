@@ -61,6 +61,9 @@ structure ConnArgs where
   slow : Bool := false
   /-- option `ved.compose.multiCircuit`: compare `flat` of both sides (`RegsOkNF`, `regs_specN`, `reg_connectN`, `outSpecNF_sound`, `out_connectN`) -/
   normN : Bool := false
+  /-- unit 23 (needs `normN`): the deep circuit has trailing register slots the design's parent does not have (`Tools.VedH3ChildChain.slotUnused`);
+  the register check and its facts are over the first `pm.length` slots (`RegsOkNFp`, `regs_specNp`), the input slots start after ALL the circuit's slots (`regWs.length`) -/
+  dead : Bool := false
 
 def sq (s : String) : String := "\"" ++ s ++ "\""
 
@@ -72,7 +75,7 @@ def hinLines (ind : String) (binders : List String) (widths : List Nat) : List S
    s!"{ind}simp only [Tools.VedComposePrelude.bndConj, Tools.VedComposePrelude.bndConjAux, Nat.reducePow] at hin"]
 
 def tabOf (a : ConnArgs) : List (String × Nat) :=
-  let nReg := a.pm.length
+  let nReg := a.regWs.length
   let nData := a.dataN.length
   (a.pm.zipIdx.map fun (x, k) => (x, k)) ++ (a.dataN.zipIdx.map fun (x, j) => (x, nReg + j)) ++
     (a.insts.map fun (y, c) => (y, nReg + nData + c))
@@ -165,7 +168,7 @@ def hlocLines (a : ConnArgs) : List String := Id.run do
   L := L.push s!"      exact Tools.VedComposeConnect.{if a.normN then "out_connectN" else "out_connect"} ({a.deep}) ({a.nm}) hinj ({a.inpU} ins) t _ {a.fidOut} {a.design} {a.mod} {a.body} {owT} {hwiT} {hriT} {hwrT} hWk ins p E hasgF hEin hEreg hEorc _ \"out\" hOutA {a.fuel} {a.fuel} {a.fuel} {neededTxt a} hrangeN {outTail} hV"
   -- ONE closed kernel check for all register slots (`RegsOk`); `regs_spec` hands each slot's four facts back
   let xsTxt := "([" ++ ", ".intercalate (a.regIn.map sq) ++ "] : List String)"
-  L := L.push (if a.normN && !a.slow then s!"    have hallR : Tools.VedComposeConnect.RegsOkNF {a.deep} {a.nm} {a.design} {a.mod} {a.body} {neededTxt a} {tabTxt a} {a.fuel} {a.fuel} {a.fuel} {xsTxt} = true := by decide +kernel" else s!"    have hallR : Tools.VedComposeConnect.RegsOk {a.deep} {a.nm} {a.design} {a.mod} {a.body} {neededTxt a} {tabTxt a} {a.fuel} {a.fuel} {a.fuel} {xsTxt} = true := {if a.slow then "by decide +kernel" else "Tools.VedComposeConnect.regsOkF_sound (by decide +kernel)"}")
+  L := L.push (if a.normN && !a.slow then s!"    have hallR : Tools.VedComposeConnect.{if a.dead then "RegsOkNFp" else "RegsOkNF"} {a.deep} {a.nm} {a.design} {a.mod} {a.body} {neededTxt a} {tabTxt a} {a.fuel} {a.fuel} {a.fuel} {xsTxt} = true := by decide +kernel" else s!"    have hallR : Tools.VedComposeConnect.RegsOk {a.deep} {a.nm} {a.design} {a.mod} {a.body} {neededTxt a} {tabTxt a} {a.fuel} {a.fuel} {a.fuel} {xsTxt} = true := {if a.slow then "by decide +kernel" else "Tools.VedComposeConnect.regsOkF_sound (by decide +kernel)"}")
   -- the registers
   let holes := ", ".intercalate ((List.range k).map fun _ => "?_")
   L := L.push s!"    · {if k == 1 then "skip" else s!"refine ⟨{holes}⟩"}"
@@ -173,7 +176,7 @@ def hlocLines (a : ConnArgs) : List String := Id.run do
     let fid := a.fidR[i]!
     let w := a.regWs[i]!
     let inW := a.regIn[i]!
-    L := L.push s!"      · have hsp := Tools.VedComposeConnect.{if a.normN && !a.slow then "regs_specN" else "regs_spec"} {if a.normN && !a.slow then "" else s!"{a.deep} {a.nm} {a.design} {a.mod} {a.body} {neededTxt a} {tabTxt a} {a.fuel} {a.fuel} {a.fuel} {xsTxt}"} hallR ⟨{i}, by decide⟩ {sq inW} rfl _ {fid}"
+    L := L.push s!"      · have hsp := Tools.VedComposeConnect.{if a.normN && !a.slow then (if a.dead then "regs_specNp" else "regs_specN") else "regs_spec"} {if a.normN && !a.slow then "" else s!"{a.deep} {a.nm} {a.design} {a.mod} {a.body} {neededTxt a} {tabTxt a} {a.fuel} {a.fuel} {a.fuel} {xsTxt}"} hallR ⟨{i}, by decide⟩ {if a.dead then "(by decide) " else ""}{sq inW} rfl _ {fid}"
     L := L.push s!"        have hcon : {a.irS} ins (t + 1) ⟨{i}, by decide⟩ = E {sq inW} := Tools.VedComposeConnect.{if a.normN && !a.slow then "reg_connectN" else "reg_connect"} ({a.deep}) ({a.nm}) hinj ({a.inpU} ins) t ⟨{i}, by decide⟩ _ {fid} {a.design} {a.mod} {a.body} {owT} {hwiT} {hriT} {hwrT} hWk ins p E hasgF hEin hEreg hEorc {sq inW} {a.fuel} {a.fuel} {a.fuel} {neededTxt a} hrangeN hsp.1 hsp.2.1 {tabTxt a} hsp.2.2.2 hsp.2.2.1 hV"
     L := L.push s!"        have hlN : {a.irS} ins (t + 1) ⟨{i}, by decide⟩ < 2 ^ {w} := by"
     L := L.push s!"          have := hltS ins (t + 1) ⟨{i}, by decide⟩"
