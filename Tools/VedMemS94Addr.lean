@@ -96,7 +96,21 @@ theorem addr_borrow_6 (a d e : BitVec 5) :
 returns the new goal and the number of propositions changed -/
 def rewriteAll (g : MVarId) (a b h : Expr) : MetaM (MVarId × Nat) := do
   let aTy ← g.withContext (inferType a)
-  let rw (T : Expr) : MetaM (Option (Expr × Expr)) := do
+  -- the proof `h` may use hypotheses of the context that this very call replaces (and clears): it is made a hypothesis of its own first.  `replaceLocalDecl` reverts and re-introduces every
+  -- hypothesis after the replaced one (new free variables): the hypotheses are visited by POSITION and `h` is found again by its name each time (R033 goal 33: `unknown free variable` after
+  -- the first replacement made the later ones stale, the whole `ved_spell_unify` was discarded by the caller's `try`)
+  -- nothing to replace: the goal is returned untouched (the caller keeps using it; `assert` would assign it)
+  let occurs ← g.withContext do
+    let mut f := ((← instantiateMVars (← g.getType)).find? (· == a)).isSome
+    for d in ← getLCtx do
+      if f then break
+      if d.isImplementationDetail || d.isLet then continue
+      f := (← instantiateMVars d.type).find? (· == a) |>.isSome
+    pure f
+  if !occurs then return (g, 0)
+  let hTy ← g.withContext (inferType h)
+  let (_, g) ← (← g.assert `ved_req hTy h).intro1P
+  let rw (h T : Expr) : MetaM (Option (Expr × Expr)) := do
     if (T.find? (· == a)).isNone then return none
     withLocalDeclD `ved_x aTy fun x => do
       let Tabs := T.replace fun e => if e == a then some x else none
@@ -104,20 +118,28 @@ def rewriteAll (g : MVarId) (a b h : Expr) : MetaM (MVarId × Nat) := do
       let T' := Tabs.replaceFVar x b
       let pf ← mkExpectedTypeHint (← mkAppM ``congrArg #[motive, h]) (← mkEq T T')
       return some (T', pf)
+  let hOf (g : MVarId) : MetaM Expr := g.withContext do
+    let some d := (← getLCtx).findFromUserName? `ved_req | throwError "rewriteAll: lost the equation"
+    return d.toExpr
   let mut g := g
   let mut n := 0
-  for d in ← g.withContext getLCtx do
-    if d.isImplementationDetail || d.isLet then continue
+  let size := (← g.withContext getLCtx).decls.size
+  for k in [0:size] do
+    let some d := (← g.withContext getLCtx).decls[k]! | continue
+    if d.isImplementationDetail || d.isLet || d.userName == `ved_req then continue
     let t ← instantiateMVars d.type
     unless (← g.withContext (isProp t)) do continue
-    if let some (t', pf) ← g.withContext (rw t) then
+    let hE ← hOf g
+    if let some (t', pf) ← g.withContext (rw hE t) then
       let r ← g.replaceLocalDecl d.fvarId t' pf
       g := r.mvarId
       n := n + 1
   let tgt ← instantiateMVars (← g.getType)
-  if let some (t', pf) ← g.withContext (rw tgt) then
+  if let some (t', pf) ← g.withContext (rw (← hOf g) tgt) then
     g ← g.replaceTargetEq t' pf
     n := n + 1
+  let hF := (← g.withContext getLCtx).findFromUserName? `ved_req
+  if let some d := hF then g ← g.tryClear d.fvarId
   return (g, n)
 
 /-- `ved_zext_lift`: every `0#p ++ x` (`x : BitVec n`) of the target is `BitVec.ofNat (p + n) x.toNat` (`zext_append_eq`; `rewriteAll`, the term found by shape: the simp lemma does not match once the width of the
