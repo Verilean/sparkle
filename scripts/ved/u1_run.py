@@ -116,7 +116,8 @@ def union_rows(records):
              "union_std_packed_strict": tri(recs, ok_all, STD_PACKED_ROUTES), "union_std_packed_routes": ",".join(okp),
              # standard routes plus u2_hier (H2a), reported separately
              "union_std_u2hier_strict": tri(recs, ok_all, STD_U2HIER_ROUTES),
-             # standard routes plus u2_hier plus u2_hier_compose (the row rule with 8 routes), reported separately
+             # standard routes plus u2_hier plus u2_hier_compose (a narrower union, reported separately; NOT the
+             # ledger row rule, which gen_ledger v6 takes over all 8 fixed routes)
              "union_std_u2hier_compose_strict": tri(recs, ok_all, STD_U2HIER_COMPOSE_ROUTES),
              "invocation": base.get("invocation", "")}
         for rt in u1_gen.ROUTES:
