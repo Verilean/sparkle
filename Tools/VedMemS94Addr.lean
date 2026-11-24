@@ -78,9 +78,8 @@ theorem addr_spell_9 (c : BitVec 2) (a : BitVec 5) (b : BitVec 3) :
   omega
 
 /-- the address pair of R033 goals 33 / 34 (branch ck156 = 6), in full: for `a d e : BitVec 5` (address `(a - 1) * 7 + (d - e - 1)`, the two borrows `a = 0`, `e > d` taken modulo 32),
-`ofNat 6 (((a + 31) % 32 * 7 + (d + (32 - e) + 31) % 32) % 64) = 7#6 * extractLsb' 0 6 (a - 1#5) + extractLsb' 0 6 (d - e - 1#5)`.  Proved ONCE here (one `omega`, 1.5 .. 5M heartbeats, within the module's own
-limit, measured standalone: 1.5M fails, 5M passes); in a goal the same `omega` is over the pair limit `pairCapK` (1.5M) and its cost grows with the context (20M in the cone), this lemma is one `exact`
-(option `ved.mem.s94PairLemma`, in `ved_bv_addr_eq`) -/
+`ofNat 6 (((a + 31) % 32 * 7 + (d + (32 - e) + 31) % 32) % 64) = 7#6 * extractLsb' 0 6 (a - 1#5) + extractLsb' 0 6 (d - e - 1#5)`.  Proved ONCE here (one `omega`, about 20M heartbeats, within the module's own limit);
+the pair proof in a goal costs 12 .. 40M by `omega` and is over its limit `pairCapK` (1.5M), this lemma is one `exact` (option `ved.mem.s94PairLemma`, in `ved_bv_addr_eq`) -/
 theorem addr_borrow_6 (a d e : BitVec 5) :
     BitVec.ofNat 6 (((a.toNat + 31) % 32 * 7 + (d.toNat + (32 - e.toNat) + 31) % 32) % 64) =
       7#6 * BitVec.extractLsb' 0 6 (a - 1#5) + BitVec.extractLsb' 0 6 (d - e - 1#5) := by
@@ -173,8 +172,7 @@ register_option ved.mem.s94PairLemma : Bool := {
 elab "ved_pair_lemma_gate" : tactic => do
   unless ved.mem.s94PairLemma.get (← getOptions) do throwError "ved_pair_lemma_gate: option ved.mem.s94PairLemma is off"
 
-/-- `ved_bv_addr_eq`: the equation of two `BitVec` terms by their numbers (the bounds of the variables are in the context); with `ved.mem.s94PairLemma` the pair `addr_borrow_6` (either orientation, reducible
-transparency: a mismatch must not unfold the `BitVec` literals) first -/
+/-- `ved_bv_addr_eq`: the equation of two `BitVec` terms by their numbers (the bounds of the variables are in the context) -/
 macro "ved_bv_addr_eq" : tactic =>
   `(tactic| (first
              | (ved_pair_lemma_gate; first | with_reducible exact addr_borrow_6 _ _ _ | with_reducible exact (addr_borrow_6 _ _ _).symm)
@@ -289,6 +287,39 @@ def agreeOnRandom (bv : Bool) (l r : Expr) : MetaM Bool := do
     if a != b then return false
   return true
 
+/-- option `ved.mem.s94BitArgs` (s94y): `ved_spell_unify` also unifies the arguments of `|||` / `&&&` / `^^^` that are two spellings of one number -/
+register_option ved.mem.s94BitArgs : Bool := {
+  defValue := false
+  descr := "ved_spell_unify: arguments of |||, &&&, ^^^ that are two spellings of one number are unified (default false)"
+}
+
+/-- option `ved.mem.s94PairCtx` (s94y): the pair proofs of `ved_spell_unify` / `ved_or_bounds` run in a context that holds only the variables of the proposition (and what their types need), not the 30 .. 200
+hypotheses of the cone: `omega` reads every hypothesis, the standalone proof of the address pair of R033 goals 33 / 34 (branch ck156 = 6) costs < 0.4M heartbeats, in the cone context 12 .. 40M -/
+register_option ved.mem.s94PairCtx : Bool := {
+  defValue := false
+  descr := "pair proofs of ved_spell_unify / ved_or_bounds in a context of the proposition's variables only (default false)"
+}
+
+/-- a fresh metavariable for `P` in the local context restricted to the free variables of `P` (and of their types, transitively) -/
+def trimmedMVar (P : Expr) : MetaM Expr := do
+  let lctx ← getLCtx
+  let mut keep : Std.HashSet FVarId := {}
+  let mut todo : Array FVarId := (Lean.collectFVars {} (← instantiateMVars P)).fvarIds
+  -- the bounds `x ||| y < 2 ^ k` already proved (`ved_orb`) stay: the bound of an outer `|||` is proved from those of its sides
+  for d in lctx do
+    if d.userName == `ved_orb && !d.isImplementationDetail then todo := todo.push d.fvarId
+  while !todo.isEmpty do
+    let f := todo.back!
+    todo := todo.pop
+    if keep.contains f then continue
+    keep := keep.insert f
+    let some d := lctx.find? f | continue
+    todo := todo ++ (Lean.collectFVars {} (← instantiateMVars d.type)).fvarIds
+    if let some v := d.value? then todo := todo ++ (Lean.collectFVars {} (← instantiateMVars v)).fvarIds
+  let lctx' := lctx.foldl (fun acc d => if keep.contains d.fvarId then acc else acc.erase d.fvarId) lctx
+  let insts := (← getLocalInstances).filter fun i => keep.contains i.fvar.fvarId!
+  mkFreshExprMVarAt lctx' insts P
+
 /-- the heartbeat limit of one pair proof (thousands) -/
 def pairCapK : Nat := 1500
 /-- most pair proofs tried by one `ved_spell_unify` -/
@@ -296,8 +327,9 @@ def pairMax : Nat := 24
 
 /-- a proof of the proposition `P` by `tac` (the bounds of the variables of `es` in the context) under the pair limit, or none -/
 def proveProp (P : Expr) (es : Array Expr) (tac : TacticM Unit) : TacticM (Option Expr) := do
-  let mv ← mkFreshExprMVar P
+  let mv ← if ved.mem.s94PairCtx.get (← getOptions) then trimmedMVar P else mkFreshExprMVar P
   let hb0 ← IO.getNumHeartbeats
+  if (← IO.getEnv "VED_UNIFYDBG").isSome then IO.eprintln s!"unify: pair context has {(← mv.mvarId!.getDecl).lctx.size} entries (option PairCtx {ved.mem.s94PairCtx.get (← getOptions)})"
   -- a heartbeat timeout of the pair limit is a failure of this pair (a runtime exception: `tryCatchRuntimeEx`), not of the caller
   tryCatchRuntimeEx
     (do
@@ -324,6 +356,8 @@ def unifyPairs (g : MVarId) (terms : Array Expr) (bv : Bool) (tac : TacticM Unit
       let r := terms[i]!
       let b := terms[j]!
       if done.contains b || done.contains r || r == b then continue
+      -- a term and one that contains it (`x % m` and `x % m % m`): replacing one by the other makes the target grow (`% m % m % m ..`), they are not two spellings to unify
+      if (r.find? (· == b)).isSome || (b.find? (· == r)).isSome then continue
       unless fvKey r == fvKey b do continue
       unless (← g.withContext (do isDefEq (← inferType r) (← inferType b))) do
         if dbg then IO.eprintln s!"unify: pair {i},{j}: types differ"
@@ -331,10 +365,15 @@ def unifyPairs (g : MVarId) (terms : Array Expr) (bv : Bool) (tac : TacticM Unit
       unless (← g.withContext (agreeOnRandom bv r b)) do continue
       if (← budget.get) == 0 then return (g, n)
       budget.modify (· - 1)
-      let some h ← g.withContext (setGoals [g] *> prove b r tac) | do
-        if dbg then IO.eprintln s!"unify: pair {i},{j}: proof failed"
+      let some h ← (try g.withContext (setGoals [g] *> prove b r tac) catch ex => do
+          if dbg then IO.eprintln s!"unify: pair {i},{j}: prove threw: {((← ex.toMessageData.toString).replace "\n" " ").take 300}"
+          throw ex) | do
+        if dbg then IO.eprintln s!"unify: pair {i},{j}: proof failed: {((← g.withContext (ppExpr b)).pretty.replace "\n" " ").take 350}  ==?  {((← g.withContext (ppExpr r)).pretty.replace "\n" " ").take 350}"
         continue
-      let (g', k) ← rewriteAll g b r h
+      let (g', k) ← (try rewriteAll g b r h catch ex => do
+          if dbg then IO.eprintln s!"unify: pair {i},{j}: rewriteAll threw: {((← ex.toMessageData.toString).replace "\n" " ").take 300}"
+          throw ex)
+      if dbg then IO.eprintln s!"unify: pair {i},{j}: proved, rewrote {k}: {((← g.withContext (ppExpr b)).pretty.replace "\n" " ").take 200}"
       if k > 0 then
         g := g'
         done := done.push b
@@ -380,6 +419,23 @@ elab "ved_spell_unify" : tactic => do
         unless exps.contains e do exps := exps.push e
     let (g', n) ← unifyPairs g exps false (do evalTactic (← `(tactic| omega))) budget
     g := g'; round := round + n
+    -- (3) option `ved.mem.s94BitArgs` (s94y): the arguments of `|||` / `&&&` / `^^^` that are two spellings of one number (omega treats `x ||| y` as an atom of its whole text, so two spellings of
+    -- `x` make two atoms; R033 goals 33 34 branch ck156 = 4: `((a % 2^32 + b) % 2^32 + c) % 2^32` against `(2^32 - 120 + (2^32 - 2 + ..) % 2^32) % 2^32`)
+    if ved.mem.s94BitArgs.get (← getOptions) then
+      let ps ← propsOf g
+      let mut bas : Array Expr := #[]
+      let isBitOp (x : Expr) : Bool := (x.isAppOfArity ``HOr.hOr 6 || x.isAppOfArity ``HAnd.hAnd 6 || x.isAppOfArity ``HXor.hXor 6) && (x.getArg! 0).isConstOf ``Nat
+      for t in ps do
+        for x in collectDag isBitOp t do
+          for a in #[x.getArg! 4, x.getArg! 5] do
+            if !(collectDag (·.isFVar) a).isEmpty && !a.isFVar && !bas.contains a && (collectDag (fun y => y.isAppOfArity ``ite 5) a).isEmpty then bas := bas.push a
+      -- and the `% literal` nodes inside them (the factor `X` of `X * 2 ^ e % 2 ^ 64` is one atom for omega only when both sides spell it alike)
+      let mut cands := bas
+      for a in bas do
+        for m in collectDag (fun x => x.isAppOfArity ``HMod.hMod 6 && (x.getArg! 5).isAppOfArity ``OfNat.ofNat 3 && (x.getArg! 0).isConstOf ``Nat && !(collectDag (·.isFVar) x).isEmpty) a do
+          if !cands.contains m && cands.size < 40 && (collectDag (fun y => y.isAppOfArity ``ite 5) m).isEmpty then cands := cands.push m
+      let (g', n) ← unifyPairs g cands false (do evalTactic (← `(tactic| (first | (simp only [Nat.reduceMul, Nat.reduceMod, Nat.reduceSub, Nat.reduceAdd, Nat.mod_mod]; done) | ((try simp only [Nat.reduceMul, Nat.reduceMod, Nat.reduceSub, Nat.reduceAdd, Nat.mod_mod]); omega))))) budget
+      g := g'; round := round + n
     total := total + round
     if round == 0 then break
   if total == 0 then throwError "ved_spell_unify: no two spellings of one value"
