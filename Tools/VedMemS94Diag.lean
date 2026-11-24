@@ -1953,6 +1953,27 @@ def s94LdLog (msg : String) : IO Unit := do
     h.putStrLn msg
   else IO.eprintln msg
 
+/-- diagnosis (s94u): the subterms `x / y` whose numerator is an `ite` in the context and target, raw (explicit) -/
+elab "ved_find_div" : tactic => withMainContext do
+  let mut n := 0
+  for d in (← getLCtx).decls.toList.filterMap id do
+    if d.isImplementationDetail then continue
+    let t ← instantiateMVars d.type
+    for x in Tools.VedU1WireShare.collectDag (fun x => x.isAppOfArity ``HDiv.hDiv 6 && (x.getArg! 4).isAppOf ``ite) t do
+      if n < 3 then
+        n := n + 1
+        s94LdLog s!"FINDDIV in {d.userName}: {(← withOptions (fun o => (o.setBool `pp.explicit true).setBool `pp.deepTerms true) (ppExpr x)).pretty.replace "\n" " " |>.take 700}"
+
+/-- diagnosis (s94u): `omega` on the main goal; on failure its message (the possible counterexample: the atoms and the facts) is logged (first `VED_OMEGA_LEN` characters, default 3000) and the state restored -/
+elab "ved_omega_msg" : tactic => do
+  let st ← saveState
+  try
+    evalTactic (← `(tactic| omega))
+    s94LdLog "OMEGA closed"
+  catch ex =>
+    s94LdLog s!"OMEGA failed: {((← ex.toMessageData.toString).replace "\n" " | ").take (((← IO.getEnv "VED_OMEGA_LEN").bind String.toNat?).getD 3000)}"
+  st.restore
+
 /-- diagnosis (s94s): the steps of `ved_local_close` one by one on the main goal, each under its own heartbeat limit (`VED_LDIAG_HB` thousand, default 8000), one line per step
 (result, ms, heartbeats, tree and DAG of the target, hypotheses in the context); the first failing step ends the run; the goal is restored afterwards (diagnosis only).
 The tail line says, for a goal the closer did not close, the target's tree / DAG ratio (large: lost sharing, class (b)) and the shallow target -/
@@ -1965,9 +1986,11 @@ elab "ved_local_diag" : tactic => do
     ("cone_clear", ← `(tactic| ved_cone_clear)),
     ("cone_opaque", ← `(tactic| (try ved_cone_opaque))),
     ("pack_extract", ← `(tactic| ved_pack_extract)),
+    ("atom_args", ← `(tactic| (try ved_atom_args))),
     ("small", ← `(tactic| ved_local_small)),
     ("dsimp", ← `(tactic| (try dsimp only at *))),
     ("ite10", ← `(tactic| (try simp only [Tools.VedMemS94Local.ite10_mod2] at *))),
+    ("ite_div", ← `(tactic| (try ved_ite_div))),
     ("bounds", boundsT),
     ("mux_mod", ← `(tactic| all_goals (try simp only [Tools.VedMemS94Local.mux_mod]))),
     ("mux", ← `(tactic| all_goals ved_mux))]
@@ -1986,6 +2009,7 @@ elab "ved_local_diag" : tactic => do
         ("splitall_omega", ← `(tactic| ((repeat' split); all_goals omega))),
         ("enum", ← `(tactic| ved_bv_enum)),
         ("cong", ← `(tactic| all_goals ved_cong)),
+        ("hypsplit", ← `(tactic| all_goals ved_hyp_split_omega)),
         ("mux", ← `(tactic| all_goals ved_mux))]
       for (an, at_) in alts do
         let stA ← saveState
@@ -2028,6 +2052,16 @@ elab "ved_local_diag" : tactic => do
           let nodes := Tools.VedU1WireShare.collectDag (fun _ => true) tg
           let cnt (c : Name) : Nat := (nodes.filter fun x => x.isAppOf c).size
           s94LdLog s!"LDIAG {tag} FEAT after {name}: or={cnt ``HOr.hOr} and={cnt ``HAnd.hAnd} xor={cnt ``HXor.hXor} shl={cnt ``HShiftLeft.hShiftLeft} shr={cnt ``HShiftRight.hShiftRight} ite={cnt ``ite} mod={cnt ``HMod.hMod} div={cnt ``HDiv.hDiv} mul={cnt ``HMul.hMul} add={cnt ``HAdd.hAdd} sub={cnt ``HSub.hSub} pow={cnt ``HPow.hPow} toNat={cnt ``BitVec.toNat} Eq={cnt ``Eq} Or={cnt ``Or} And={cnt ``And} Not={cnt ``Not}"
+          -- s94u: the nonlinear nodes (a product whose factors are both non-literal, a power with a non-literal exponent, a division / modulus by a non-literal), first few, shallow
+          let isLit (x : Expr) : Bool := x.isAppOf ``OfNat.ofNat || x.isRawNatLit
+          let nl := nodes.filter fun x =>
+            (x.isAppOfArity ``HMul.hMul 6 && !isLit (x.getArg! 4) && !isLit (x.getArg! 5)) ||
+            (x.isAppOfArity ``HPow.hPow 6 && !(isLit (x.getArg! 5) || (x.getArg! 5).isAppOf ``HAdd.hAdd)) ||
+            (x.isAppOfArity ``HDiv.hDiv 6 && !isLit (x.getArg! 5) && !(x.getArg! 5).isAppOf ``HPow.hPow && !(x.getArg! 5).isAppOf ``HMod.hMod) ||
+            (x.isAppOfArity ``HMod.hMod 6 && !isLit (x.getArg! 5) && !(x.getArg! 5).isAppOf ``HPow.hPow)
+          s94LdLog s!"LDIAG {tag} NONLIN count={nl.size}"
+          for o in nl.toList.take 4 do
+            s94LdLog s!"LDIAG {tag} NONLIN node: {(progCut 5 o).take 400}"
           for o in (nodes.filter fun x => x.isAppOf ``HOr.hOr).toList.take 4 do
             s94LdLog s!"LDIAG {tag} OR node: {(progCut 8 o).take 500}"
           s94LdLog s!"LDIAG {tag} SHOW after {name}: {(progCut ((← IO.getEnv "VED_LDIAG_DEPTH").bind String.toNat? |>.getD 12) (← instantiateMVars (← g.getType))).take ((← IO.getEnv "VED_LDIAG_LEN").bind String.toNat? |>.getD 3000)}"

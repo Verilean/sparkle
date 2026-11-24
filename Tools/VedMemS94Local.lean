@@ -27,6 +27,11 @@ register_option ved.mem.s94Cone2 : Bool := {
   descr := "ved_cone_clear keeps a second hop: the small arithmetic context entries that mention a variable of a kept arithmetic hypothesis (the premise `phase = 2` of a path hypothesis `¬(phase = 2 ∧ ..)`), default false"
 }
 
+register_option ved.mem.s94Addr : Bool := {
+  defValue := false
+  descr := "ved_mem_addr_l: an address equality is first tried by `ved_addr_eq_bv` (toNat translation, field extraction, case split on the `if`s, then `decide` over the BitVec variables that are left, kernel-checked); the old closers are the fallback (default false)"
+}
+
 /-- a second-hop entry is kept only when its tree is at most this (the premises of a path hypothesis are small) -/
 def cone2MaxTree : Nat := 400
 
@@ -596,11 +601,115 @@ elab "ved_cone_opaque" : tactic => do
   coneOpaqueHits.modify (· + 1)
   replaceMainGoal [g]
 
+register_option ved.mem.s94HypSplit : Bool := {
+  defValue := false
+  descr := "ved_local_close: when `ved_mux` does not close the goal, split the `if`s of the HYPOTHESES (the path hypotheses of the A goals: the target has no `if`, `split` of `ved_split_omega` finds none) and close each leaf by omega (default false)"
+}
+
+/-- most leaves `ved_hyp_split_omega` produces -/
+def hypSplitMaxLeaves : Nat := 48
+initialize hypSplitHits : IO.Ref Nat ← IO.mkRef 0
+
+/-- the context propositions that contain an `ite` -/
+def hypIteDecls : MetaM (Array FVarId) := do
+  let mut r := #[]
+  for d in ← getLCtx do
+    if d.isImplementationDetail || d.isLet then continue
+    let t ← instantiateMVars d.type
+    if (← isProp t) && !(collectDag (fun x => x.isAppOf ``ite) t).isEmpty then r := r.push d.fvarId
+  return r
+
+/-- `omega`; when it fails, one `if` of one hypothesis is split (`splitLocalDecl?`), both goals again; `fuel` bounds the number of leaves -/
+partial def hypSplitOmega (g : MVarId) (fuel : IO.Ref Nat) : TacticM Unit := do
+  let ok ← try
+      let gs ← Tactic.run g (Tactic.withoutRecover (evalTactic (← `(tactic| omega))))
+      pure gs.isEmpty
+    catch _ => pure false
+  if ok then
+    -- `omega` closed it: assign through a second run (the first one's assignment is kept by `Tactic.run`)
+    return
+  if (← fuel.get) == 0 then throwError "ved_hyp_split_omega: too many leaves"
+  fuel.modify (· - 1)
+  for f in ← g.withContext hypIteDecls do
+    if let some gs ← Lean.Meta.splitLocalDecl? g f then
+      for g' in gs do hypSplitOmega g' fuel
+      return
+  throwError "ved_hyp_split_omega: omega failed and no hypothesis `if` can be split"
+
+/-- `ved_hyp_split_omega`: the main goal closed by `hypSplitOmega` -/
+elab "ved_hyp_split_omega" : tactic => do
+  let g ← getMainGoal
+  let fuel ← IO.mkRef hypSplitMaxLeaves
+  hypSplitOmega g fuel
+  replaceMainGoal []
+  hypSplitHits.modify (· + 1)
+
+/-- `ved_hyp_split_omega_g`: `ved_hyp_split_omega` when `ved.mem.s94HypSplit` is on, else a refusal -/
+elab "ved_hyp_split_omega_g" : tactic => do
+  unless ved.mem.s94HypSplit.get (← getOptions) do throwError "ved_hyp_split_omega_g: option ved.mem.s94HypSplit is off"
+  evalTactic (← `(tactic| ved_hyp_split_omega))
+
+/-- the address spelling `BitVec.ofNat w x.toNat` of a word and its `extractLsb' 0 w x` are one word (observed R033 goals 26 35 148 154 and A 149 155 152 158: after `ved_cone_opaque` the two sides read
+the abstracted memory at the two spellings, `M (extractLsb' 0 4 ck501)` and `M (ofNat 4 ck501.toNat)`, which `omega` takes for two different atoms) -/
+theorem ofNat_toNat_extract {n : Nat} (w : Nat) (x : BitVec n) : BitVec.ofNat w x.toNat = BitVec.extractLsb' 0 w x := by
+  apply BitVec.eq_of_toNat_eq
+  simp [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat]
+
+theorem ofNat_mod_lit (w m n : Nat) (hm : 2 ^ w = m) : BitVec.ofNat w (n % m) = BitVec.ofNat w n := by
+  subst hm
+  apply BitVec.eq_of_toNat_eq
+  simp [BitVec.toNat_ofNat, Nat.mod_mod]
+
+theorem ofNat_ite_lift (w : Nat) (c : Prop) [Decidable c] (a b : Nat) :
+    BitVec.ofNat w (if c then a else b) = if c then BitVec.ofNat w a else BitVec.ofNat w b := by
+  split <;> rfl
+
+theorem extract_ite_lift (w n : Nat) (c : Prop) [Decidable c] (a b : BitVec n) :
+    BitVec.extractLsb' 0 w (if c then a else b) = if c then BitVec.extractLsb' 0 w a else BitVec.extractLsb' 0 w b := by
+  split <;> rfl
+
+/-- number of runs of `ved_atom_args` that rewrote something (test counter) -/
+initialize atomArgsHits : IO.Ref Nat ← IO.mkRef 0
+
+/-- `ved_atom_args` (option `ved.mem.s94Addr`): after `ved_cone_opaque` (no `memState` atom left, so the terms are small) the address spellings `ofNat w x.toNat` are made `extractLsb' 0 w x` in the
+target and the context (`simp only [ofNat_toNat_extract] at *`); does nothing when the option is off, when a `memState` atom is still in the target, or when nothing changes -/
+elab "ved_atom_args" : tactic => withMainContext do
+  unless ved.mem.s94Addr.get (← getOptions) do return
+  unless (collectDag isMemAtom (← instantiateMVars (← getMainTarget))).isEmpty do return
+  let st ← saveState
+  let cntPat : TacticM Nat := do
+    let mut n := 0
+    for d in ← getLCtx do
+      if d.isImplementationDetail then continue
+      let t ← instantiateMVars d.type
+      n := n + (collectDag (fun x => x.isAppOfArity ``BitVec.ofNat 2 && (x.getArg! 1).isAppOf ``BitVec.toNat) t).size
+    pure (n + (collectDag (fun x => x.isAppOfArity ``BitVec.ofNat 2 && (x.getArg! 1).isAppOf ``BitVec.toNat) (← instantiateMVars (← getMainTarget))).size)
+  let dbg := (← IO.getEnv "VED_ATOMDBG").isSome
+  if dbg then IO.eprintln s!"ved_atom_args: ofNat-of-toNat patterns before: {← cntPat}"
+  try
+    evalTactic (← `(tactic| simp only [ofNat_toNat_extract, ofNat_mod_lit, ofNat_ite_lift, Tools.VedMem.ofNat_mod_eq_extract', Nat.reduceAdd, Nat.reducePow, Nat.reduceMod] at *))
+    atomArgsHits.modify (· + 1)
+    if dbg then IO.eprintln s!"ved_atom_args: ofNat-of-toNat patterns after: {← cntPat}"
+  catch ex =>
+    if (← IO.getEnv "VED_ATOMDBG").isSome then IO.eprintln s!"ved_atom_args: {(← ex.toMessageData.toString).take 300}"
+    st.restore
+
+/-- a flag `if p then 1 else 0` divided by 2 is 0 (observed R033 goals 149 155 152 158: the field extraction of a packed `Bool` leaves `(if p then 1 else 0) / 2` which `omega` takes as an atom) -/
+theorem ite01_div2 (p : Prop) [Decidable p] : (if p then 1 else 0) / 2 = 0 := by
+  split <;> rfl
+
+/-- `ved_ite_div` (option `ved.mem.s94Addr`): `simp only [ite01_div2] at *`; nothing when the option is off or nothing changes -/
+elab "ved_ite_div" : tactic => do
+  unless ved.mem.s94Addr.get (← getOptions) do return
+  let st ← saveState
+  try evalTactic (← `(tactic| simp only [ite01_div2] at *))
+  catch _ => st.restore
+
 /-- `ved_local_close`: the goal from its own cone: cone clear, field extraction, bounds, then `omega` (with `split` for the `if`s) -/
 macro "ved_local_close" : tactic =>
-  `(tactic| (ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *);
+  `(tactic| (ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); (try ved_atom_args); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *); (try ved_ite_div);
              all_goals (ved_bv_bounds
-                        (try simp only [mux_mod]); ved_mux)))
+                        (try simp only [mux_mod]); first | ved_mux | ved_hyp_split_omega_g)))
 
 /-- the heartbeat limit of one local attempt (thousands; lower than any whole-goal step: a successful attempt needs at most about 4M) -/
 def localCapK : Nat := 8000
@@ -646,11 +755,6 @@ macro "ved_addr_eq_local2" : tactic =>
              simp only [BitVec.toNat_ofNat, BitVec.extractLsb'_toNat, Nat.shiftRight_zero, apply_ite BitVec.toNat, BitVec.toNat_add, BitVec.toNat_mul, BitVec.toNat_sub,
                BitVec.toNat_append, Nat.zero_shiftLeft, Nat.zero_or, Nat.reduceMod, Nat.reducePow, Nat.shiftRight_eq_div_pow]
              ved_local_close))
-
-register_option ved.mem.s94Addr : Bool := {
-  defValue := false
-  descr := "ved_mem_addr_l: an address equality is first tried by `ved_addr_eq_bv` (toNat translation, field extraction, case split on the `if`s, then `decide` over the BitVec variables that are left, kernel-checked); the old closers are the fallback (default false)"
-}
 
 /-- most bits of BitVec variables one leaf of `ved_bv_enum` enumerates (2^bits cases of `decide +kernel`) -/
 def bvEnumMaxBits : Nat := 12
