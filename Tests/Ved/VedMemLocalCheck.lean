@@ -391,9 +391,9 @@ run_cmd liftTermElabM do
 
 /-! ## ved_mem_spell (option `ved.mem.s94Spell`): two spellings of one memory are one atom -/
 
+set_option ved.mem.s94Spell true in
 open Sparkle.Core.Signal Sparkle.Core.Domain in
 /-- kernel-checked: after `ved_mem_spell` the two reads (a `BitVec` equation against its `toNat` form, a literal factor on the other side) are one atom -/
-set_option ved.mem.s94Spell true in
 theorem spell_ok (init : BitVec 4 → BitVec 8) (wa : Signal defaultDomain (BitVec 4)) (we : Signal defaultDomain Bool) (x : Nat → BitVec 5) (n : Nat) (a : BitVec 4)
     (h : (Signal.memState init wa (Signal.mk fun t => if (x t).toNat = 3 then (BitVec.ofNat 8 4) * (BitVec.ofNat 8 5) else 0#8) we n a).toNat ≠ 0) :
     (Signal.memState init wa (Signal.mk fun t => if x t = BitVec.ofNat 5 3 then (BitVec.ofNat 8 5) * (BitVec.ofNat 8 4) else 0#8) we n a).toNat ≠ 0 := by
