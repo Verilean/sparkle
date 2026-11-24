@@ -1131,6 +1131,12 @@ of the two sides are different atoms for `omega` / `split` otherwise, R033 goal 
 macro "ved_cond_norm" : tactic =>
   `(tactic| simp only [ite10_mod2, ite10_mod2_z, ite10_eq1, ite10_eq0, Nat.mod_two_ne_one, Nat.mod_two_ne_zero, Nat.reducePow, Nat.reduceAdd, Nat.reduceMod] at *)
 
+/-- `ved_state_late` / `ved_mul_late`: the test seams "the attempt failed after its work" (the caller restores the goal) -/
+elab "ved_state_late" : tactic => do
+  if ← stateSplitFailLate.get then throwError "ved_state_late: failed after its work (test seam)"
+elab "ved_mul_late" : tactic => do
+  if ← mulShiftFailLate.get then throwError "ved_mul_late: failed after its work (test seam)"
+
 /-- `ved_state_gate`: refuses unless `ved.mem.s94StateSplit` is on (and the test seam `stateSplitRefuse` is off) -/
 elab "ved_state_gate" : tactic => do
   unless ved.mem.s94StateSplit.get (← getOptions) do throwError "ved_state_gate: option ved.mem.s94StateSplit is off"
@@ -1152,7 +1158,7 @@ macro "ved_local_close_state" : tactic =>
   `(tactic| (ved_state_gate; ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *)
              (try ved_conj_prune)
              first
-             | (ved_state_split; ved_state_simp; all_goals ved_state_branch)
+             | (ved_state_split; ved_state_simp; all_goals ved_state_branch; ved_state_late)
              | ((try ved_atom_args); all_goals ((try ved_ite_div); (try ved_cond_norm); (try ved_read_bounds); ved_bv_bounds; first | (simp only [mux_mod]; done) | ((try simp only [mux_mod]); ved_mux)))))
 
 /-- `ved_mul_gate`: refuses unless `ved.mem.s94MulShift` is on -/
@@ -1171,7 +1177,8 @@ macro "ved_local_close_mulshift" : tactic =>
              (try ved_cond_norm); (try ved_read_bounds); ved_bv_bounds; (try simp only [mux_mod])
              (repeat' split)
              all_goals (try simp (disch := omega) only [Nat.mod_eq_of_lt, Nat.reducePow, Nat.reduceAdd, Nat.reduceMod])
-             all_goals omega))
+             all_goals omega
+             ved_mul_late))
 
 /-- the heartbeat limit of the separate attempt `ved_local_close_mulshift` (thousands; R033 goals 6 95 107 111: 7 .. 14M) -/
 def mulCapK : Nat := 16000

@@ -434,4 +434,125 @@ run_cmd liftTermElabM do
   if late2 then throwError "spell: late failure: the goal was closed"
   logInfo m!"spell controls: OFF refused, ON merges the two spellings (counter +1), two really different memories are refused, late failure restores the goal"
 
+/-! ## ved.mem.s94StateSplit: one case split on the state value, ved.mem.s94MulShift: the multiply-shift closing -/
+
+set_option ved.mem.s94StateSplit true in
+/-- kernel-checked: an `if` tower over the 3-bit state `s` (5 comparisons `s.toNat = k`) closes by one case split on `s.toNat` (8 cases), the literal conditions decided, `omega` per case -/
+theorem state_split_ok (s : BitVec 3) (x : Nat) (hx : x < 10) :
+    (if s.toNat = 0 then x + 1 else if s.toNat = 1 then x + 2 else if s.toNat = 2 then x else if s.toNat = 3 then 7 else if s.toNat = 4 then 9 else 0) % 16 =
+    (if s.toNat = 0 then x + 1 else if s.toNat = 1 then x + 2 else if s.toNat = 2 then x else if s.toNat = 3 then 7 else if s.toNat = 4 then 9 else 0) := by
+  ved_local_close_state
+
+set_option ved.mem.s94MulShift true in
+/-- kernel-checked: the two spellings of one multiply-shift (conditions spelled `(if u % 2 = 1 then 1 else 0) % 2 = 0` / `u % 2 = 0`, `a % 65536` / `a`, `b % 2^(16+16)` / `b`) are one term for `omega` -/
+theorem mulshift_ok (a u b0 b1 c m : Nat) (ha : a < 65536) (hb0 : b0 < 4294967296) (hb1 : b1 < 4294967296) :
+    (((a % 65536) * (if (if u % 2 = 1 then 1 else 0) % 2 = 0 then b0 else b1) + c) % 4294967296 / 2 ^ (m % 32)) % 65536 =
+    ((a * (if u % 2 = 0 then b0 % 2 ^ (16 + 16) else b1 % 2 ^ (16 + 16)) + c) % 2 ^ (16 + 16) / 2 ^ (m % 32)) % 65536 := by
+  ved_local_close_mulshift
+
+/-- info: state / mulshift controls: OFF refused, ON closes (counters), a false statement is refused, late failure restores the goal, the refuse seam refuses -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryT (stmt : Term) (tac : TSyntax `tactic) : TermElabM (Bool × Bool) := do
+    let ty ← elabTerm stmt none
+    Term.synthesizeSyntheticMVarsNoPostponing
+    let ty ← instantiateMVars ty
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      pure (gs.isEmpty, true)
+    catch _ => pure (false, false)
+  let withOpt (o : Name) (v : Bool) (x : TermElabM (Bool × Bool)) : TermElabM (Bool × Bool) := withOptions (fun os => os.setBool o v) x
+  -- state split
+  let st (m : Nat) : TermElabM Term := `(∀ (s : BitVec 3) (x : Nat), x < 10 →
+    (if s.toNat = 0 then x + 1 else if s.toNat = 1 then x + 2 else if s.toNat = 2 then x else if s.toNat = 3 then 7 else if s.toNat = 4 then 9 else 0) % $(Syntax.mkNumLit (toString m)) =
+    (if s.toNat = 0 then x + 1 else if s.toNat = 1 then x + 2 else if s.toNat = 2 then x else if s.toNat = 3 then 7 else if s.toNat = 4 then 9 else 0))
+  let stTac ← `(tactic| (intro s x hx; ved_local_close_state))
+  let (off, _) ← withOpt `ved.mem.s94StateSplit false (tryT (← st 16) stTac)
+  if off then throwError "state: OFF: closed"
+  let b0 ← Tools.VedMemS94Local.stateSplitBranches.get
+  let (on, _) ← withOpt `ved.mem.s94StateSplit true (tryT (← st 16) stTac)
+  unless on do throwError "state: ON: not closed"
+  unless (← Tools.VedMemS94Local.stateSplitBranches.get) == b0 + 8 do throwError "state: ON: expected 8 branches"
+  -- a false statement (`% 8` with x + 2 up to 11): refused
+  let (bad, _) ← withOpt `ved.mem.s94StateSplit true (tryT (← st 8) stTac)
+  if bad then throwError "state: a false statement was closed"
+  -- late failure: the split goal is restored (the closed flag stays false), the seam is reset
+  Tools.VedMemS94Local.stateSplitFailLate.set true
+  let (late, _) ← withOpt `ved.mem.s94StateSplit true (tryT (← st 16) (← `(tactic| (intro s x hx; first | (ved_state_split; ved_state_simp; all_goals ved_state_branch; ved_state_late) | skip))))
+  Tools.VedMemS94Local.stateSplitFailLate.set false
+  if late then throwError "state: late failure: the goal was closed"
+  Tools.VedMemS94Local.stateSplitRefuse.set true
+  let (ref, _) ← withOpt `ved.mem.s94StateSplit true (tryT (← st 16) stTac)
+  Tools.VedMemS94Local.stateSplitRefuse.set false
+  if ref then throwError "state: the refuse seam closed the goal"
+  -- multiply-shift
+  let ms (k : Nat) : TermElabM Term :=
+    if k == 0 then `(∀ (a u b0 b1 c m : Nat), a < 65536 → b0 < 4294967296 → b1 < 4294967296 →
+      (((a % 65536) * (if (if u % 2 = 1 then 1 else 0) % 2 = 0 then b0 else b1) + c) % 4294967296 / 2 ^ (m % 32)) % 65536 =
+      ((a * (if u % 2 = 0 then b0 % 2 ^ (16 + 16) else b1 % 2 ^ (16 + 16)) + c) % 2 ^ (16 + 16) / 2 ^ (m % 32)) % 65536)
+    else `(∀ (a u b0 b1 c m : Nat), a < 65536 → b0 < 4294967296 → b1 < 4294967296 →
+      (((a % 65536) * (if (if u % 2 = 1 then 1 else 0) % 2 = 0 then b0 else b1) + c) % 4294967296 / 2 ^ (m % 32)) % 65536 =
+      ((a * (if u % 2 = 0 then b0 % 2 ^ (16 + 16) else b1 % 2 ^ (16 + 16)) + c + 1) % 2 ^ (16 + 16) / 2 ^ (m % 32)) % 65536)
+  let msTac ← `(tactic| (intro a u b0 b1 c m ha hb0 hb1; ved_local_close_mulshift))
+  let (moff, _) ← withOpt `ved.mem.s94MulShift false (tryT (← ms 0) msTac)
+  if moff then throwError "mulshift: OFF: closed"
+  let (mon, _) ← withOpt `ved.mem.s94MulShift true (tryT (← ms 0) msTac)
+  unless mon do
+    let ty ← elabTerm (← ms 0) none
+    Term.synthesizeSyntheticMVarsNoPostponing
+    let ty ← instantiateMVars ty
+    let mv ← mkFreshExprMVar ty
+    let msg ← withOptions (fun os => os.setBool `ved.mem.s94MulShift true) <| try
+        let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic msTac))
+        pure s!"goals left {gs.length}"
+      catch e => pure (← e.toMessageData.toString)
+    throwError "mulshift: ON: not closed: {msg.take 800}"
+  let (mbad, _) ← withOpt `ved.mem.s94MulShift true (tryT (← ms 1) msTac)
+  if mbad then throwError "mulshift: a false statement was closed"
+  Tools.VedMemS94Local.mulShiftFailLate.set true
+  let (mlate, _) ← withOpt `ved.mem.s94MulShift true (tryT (← ms 0) (← `(tactic| (intro a u b0 b1 c m ha hb0 hb1; first | ved_local_close_mulshift | skip))))
+  Tools.VedMemS94Local.mulShiftFailLate.set false
+  if mlate then throwError "mulshift: late failure: the goal was closed"
+  Tools.VedMemS94Local.mulShiftRefuse.set true
+  let (mref, _) ← withOpt `ved.mem.s94MulShift true (tryT (← ms 0) msTac)
+  Tools.VedMemS94Local.mulShiftRefuse.set false
+  if mref then throwError "mulshift: the refuse seam closed the goal"
+  logInfo m!"state / mulshift controls: OFF refused, ON closes (counters), a false statement is refused, late failure restores the goal, the refuse seam refuses"
+
+/-- kernel-checked: `ved_conj_prune` cuts a 7-conjunct bound hypothesis to the conjuncts about the atoms of the target (the three about `y` are dropped) -/
+theorem conj_prune_ok (x y : Nat) (h : x < 2 ∧ y < 3 ∧ x < 5 ∧ y < 9 ∧ x < 7 ∧ y < 8 ∧ x < 11) : x + 1 ≤ 2 := by
+  ved_conj_prune
+  omega
+
+/-- kernel-checked: `ved_read_bounds` supplies `(f e).toNat < 2 ^ w` for a read of a variable function -/
+theorem read_bounds_ok (f : BitVec 3 → BitVec 8) (e : BitVec 3) : (f e).toNat < 256 := by
+  ved_read_bounds
+  omega
+
+/-- info: conj_prune / read_bounds controls: the three conjuncts about y dropped (counter +3), a hypothesis with fewer than 6 conjuncts refused, a goal without a read refused, a target about y closes from the kept conjunct y < 3 -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryT (stmt : Term) (tac : TSyntax `tactic) : TermElabM (Bool × Bool) := do
+    let ty ← elabTerm stmt none
+    Term.synthesizeSyntheticMVarsNoPostponing
+    let ty ← instantiateMVars ty
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      pure (gs.isEmpty, true)
+    catch _ => pure (false, false)
+  let d0 ← Tools.VedMemS94Local.conjPruneDropped.get
+  let (ok, _) ← tryT (← `(∀ (x y : Nat), x < 2 ∧ y < 3 ∧ x < 5 ∧ y < 9 ∧ x < 7 ∧ y < 8 ∧ x < 11 → x + 1 ≤ 2)) (← `(tactic| (intro x y h; ved_conj_prune; omega)))
+  unless ok do throwError "conj_prune: not closed"
+  unless (← Tools.VedMemS94Local.conjPruneDropped.get) == d0 + 3 do throwError "conj_prune: dropped counter"
+  let (small, _) ← tryT (← `(∀ (x y : Nat), x < 2 ∧ y < 3 → x + 1 ≤ 2)) (← `(tactic| (intro x y h; ved_conj_prune; omega)))
+  if small then throwError "conj_prune: a small conjunction was cut"
+  -- the target is about y: the conjuncts about x are dropped, the conjunct y < 3 stays: closes; but a statement that needs `x < 2` for a target about y and x is not closed by the pruned hypothesis
+  let (need, _) ← tryT (← `(∀ (x y : Nat), x < 2 ∧ y < 3 ∧ x < 5 ∧ y < 9 ∧ x < 7 ∧ y < 8 ∧ x < 11 → y + 1 ≤ 3)) (← `(tactic| (intro x y h; ved_conj_prune; omega)))
+  unless need do throwError "conj_prune: a target about y must close from y < 3"
+  let (noRd, _) ← tryT (← `(∀ (x : Nat), x = x)) (← `(tactic| (intro x; ved_read_bounds)))
+  if noRd then throwError "read_bounds: a goal without a read was accepted"
+  logInfo m!"conj_prune / read_bounds controls: the three conjuncts about y dropped (counter +3), a hypothesis with fewer than 6 conjuncts refused, a goal without a read refused, a target about y closes from the kept conjunct y < 3"
+
 end Tests.Ved.VedMemLocalCheck
