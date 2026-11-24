@@ -1686,14 +1686,14 @@ info: compose connect RegsOkNF controls: 1 accepted, 2 refused by the kernel -/
 #guard_msgs in
 run_cmd normControls
 
-/-! ## A dead trailing register slot (unit 23; `Tools/VedH3ChildChainLemmas.lean`, `RegsOkNFp`)
+/-! ## A dead trailing register slot (unit 25; `Tools/VedH3ChildChainLemmas.lean`, `RegsOkNFp`)
 
 `slotUnused c n` is a closed Bool the entry evaluates by the kernel on the open parent's deep circuit.  Controls on small hand-built
 `Cdo` values (width-4 registers, one 4-bit input; these are toys, not real-IP circuits): a circuit whose extra slot is read by nobody
 (its own next-state cone reads it: allowed) is accepted; an extra slot read by a parent register's cone, or by the output, is refused;
 a circuit with the dead register in the MIDDLE (so the live register that follows sits in the "extra" range and the output reads it) is
 refused: only a TRAILING dead slot block is supported.  The generator's refusal on the real declaration (used slot / option off) is in the
-report of unit 23, not here. -/
+report of unit 25, not here. -/
 
 section DeadSlot
 open Tools.VedH3ChildChain
