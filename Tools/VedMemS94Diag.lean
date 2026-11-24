@@ -1985,6 +1985,16 @@ elab "ved_pp_ctx" : tactic => withMainContext do
   let ppo (e : Expr) : MetaM String := do
     return ((← withOptions (fun o => (o.setBool `pp.deepTerms true).setBool `pp.proofs false) (ppExpr e)).pretty.replace "\n" " " |>.take lim).toString
   s94LdLog s!"PPCTX target: {← ppo (← instantiateMVars (← getMainTarget))}"
+  -- `VED_PP_DEPTH=n` (s94y): the sides of the target printed with deep terms folded at depth n
+  if let some dn := (← IO.getEnv "VED_PP_DEPTH").bind String.toNat? then
+    let tg ← instantiateMVars (← getMainTarget)
+    let ppd (e : Expr) : MetaM String := do
+      return ((← withOptions (fun o => ((o.setBool `pp.deepTerms false).insert `pp.deepTerms.threshold (.ofNat dn)).setBool `pp.proofs false) (ppExpr e)).pretty.replace "\n" " " |>.take lim).toString
+    s94LdLog s!"PPDEPTH head={tg.getAppFn.constName?.getD `none} nargs={tg.getAppNumArgs}"
+    if tg.isAppOfArity ``Eq 3 then
+      s94LdLog s!"PPDEPTH lhs: {← ppd (tg.getArg! 1)}"
+      s94LdLog s!"PPDEPTH rhs: {← ppd (tg.getArg! 2)}"
+    else s94LdLog s!"PPDEPTH target: {← ppd tg}"
   for d in (← getLCtx).decls.toList.filterMap id do
     if d.isImplementationDetail then continue
     let t ← instantiateMVars d.type
@@ -1992,6 +2002,20 @@ elab "ved_pp_ctx" : tactic => withMainContext do
     if Tools.VedU1Loop.treeSizeVal t > 30000 then continue
     if d.userName.toString.startsWith "ved_bnd" then continue
     s94LdLog s!"PPCTX hyp {d.userName}: {← ppo t}"
+
+/-- diagnosis (s94y): the Prop hypotheses of the main goal that mention a free variable named in `VED_PP_FV` (comma separated user names), deep terms folded at `VED_PP_DEPTH` (default 12), first `VED_PP_LEN` characters -/
+elab "ved_pp_mention" : tactic => withMainContext do
+  let lim := ((← IO.getEnv "VED_PP_LEN").bind String.toNat?).getD 3500
+  let dn := ((← IO.getEnv "VED_PP_DEPTH").bind String.toNat?).getD 12
+  let names := ((← IO.getEnv "VED_PP_FV").getD "").splitOn ","
+  let fvs := (← getLCtx).decls.toList.filterMap id |>.filter (fun d => names.contains d.userName.toString) |>.map (·.fvarId)
+  for d in (← getLCtx).decls.toList.filterMap id do
+    if d.isImplementationDetail then continue
+    let t ← instantiateMVars d.type
+    if !(← isProp t) then continue
+    if !(fvs.any fun f => t.containsFVar f) then continue
+    let pp ← withOptions (fun o => ((o.setBool `pp.deepTerms false).insert `pp.deepTerms.threshold (.ofNat dn)).setBool `pp.proofs false) (ppExpr t)
+    s94LdLog s!"PPMENT {d.userName} tree={Tools.VedU1Loop.treeSizeVal t}: {(pp.pretty.replace "\n" " ").take lim}"
 
 /-- diagnosis (s94w): every Prop hypothesis of the main goal with its tree / DAG size and head symbol (one line each, `PPSIZE`) -/
 elab "ved_ctx_sizes" : tactic => withMainContext do
