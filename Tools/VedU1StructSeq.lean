@@ -88,10 +88,10 @@ elab "ved_ss_pack_share" : tactic => do
           tryCatchRuntimeEx
             (local' packGoalHb (do Tactic.withoutRecover (Tactic.evalTactic (← `(tactic| ved_wire_bits))); pure true))
             fun e => do
-              if logOn then log s!"VED PK goal {i} wire_bits-first runtime failure after {(← IO.monoMsNow) - t0}ms: {(← e.toMessageData.toString).take 600}"
+              if logOn then log s!"VED PK goal {i} wire_bits-first runtime failure after {(← IO.monoMsNow) - t0}ms"
               if e.isRuntime then pure false else throw e
-        catch e =>
-          if logOn then log s!"VED PK goal {i} wire_bits-first failed after {(← IO.monoMsNow) - t0}ms: {(← e.toMessageData.toString).take 600}"
+        catch _ =>
+          if logOn then log s!"VED PK goal {i} wire_bits-first failed after {(← IO.monoMsNow) - t0}ms"
           pure false
       if ok0 then
         how := "ratio:wire_bits"

@@ -222,7 +222,7 @@ elab "ved_ss_wiresimp " h:ident " [" ls:Lean.Parser.Tactic.simpLemma,* "]" : tac
       pure s!"dag={dg} tree={tr} depth={((Tools.VedU1StructSlice.depthOf v).run' {})}"
     -- simplified by the stage's own set; a lemma the simp removes (or cannot change) is left out of the rewrite list
     tryCatchRuntimeEx (evalTactic (← `(tactic| ved_ss_core_simp_big [$ls,*] at $hid:ident)))
-      fun e => do if logOn then logF s!"VED WIRES hV{j} ({stats}) simp failed: {(← e.toMessageData.toString).take 200}"
+      fun _ => do if logOn then logF s!"VED WIRES hV{j} ({stats}) simp failed"
     let has ← withMainContext do pure ((← getLCtx).findFromUserName? nm).isSome
     if has then hVs := hVs.push nm
     j := j + 1
@@ -234,7 +234,7 @@ elab "ved_ss_wiresimp " h:ident " [" ls:Lean.Parser.Tactic.simpLemma,* "]" : tac
     let hids : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
       (hVs.reverse.map mkIdent).mapM fun i => `(Lean.Parser.Tactic.simpLemma| $i:ident)
     tryCatchRuntimeEx (evalTactic (← `(tactic| simp (config := { maxSteps := 4000000 }) only [$hids,*] at $h:ident)))
-      fun e => do if logOn then logF s!"VED WIRES atoms simp failed: {(← e.toMessageData.toString).take 200}"
+      fun _ => do if logOn then logF "VED WIRES atoms simp failed"
   let t4 ← IO.monoMsNow
   -- (5) the loops put back (`ved_ss_wit` looks for `Signal.loop F` in the value), the context as the unchanged stage leaves it
   for fv in st.loops do
