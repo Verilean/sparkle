@@ -666,10 +666,6 @@ theorem ofNat_ite_lift (w : Nat) (c : Prop) [Decidable c] (a b : Nat) :
     BitVec.ofNat w (if c then a else b) = if c then BitVec.ofNat w a else BitVec.ofNat w b := by
   split <;> rfl
 
-theorem extract_ite_lift (w n : Nat) (c : Prop) [Decidable c] (a b : BitVec n) :
-    BitVec.extractLsb' 0 w (if c then a else b) = if c then BitVec.extractLsb' 0 w a else BitVec.extractLsb' 0 w b := by
-  split <;> rfl
-
 /-- number of runs of `ved_atom_args` that rewrote something (test counter) -/
 initialize atomArgsHits : IO.Ref Nat ← IO.mkRef 0
 
