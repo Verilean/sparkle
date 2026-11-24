@@ -6,6 +6,7 @@ import Tools.VedMemS94Gen
 import Tools.VedMemS94Addr
 import Tools.VedMemS94Local
 import Tools.VedMemS94Opaque
+import Tools.VedMemS94Inv
 
 /-!
 # Controls for the s94r pieces of the local route (sparkle-ved-mem-s94)
@@ -700,5 +701,98 @@ run_cmd liftTermElabM do
   let (gBad, _) ← withOptions (fun os => (os.setBool `ved.mem.s94StateSplit true).setBool `ved.mem.s94Gates true) (tryT (← stG 8) stGTac)
   if gBad then throwError "gates: a false statement was closed under the gates"
   logInfo m!"addr_unify / pow_unify / read_lift / or_bounds / gates controls: OFF refused, ON closes (counters), a false statement is refused, late failure restores the goal, the refuse seam refuses"
+
+/-! ### s94y: the once-proved address pair (`ved.mem.s94PairLemma`) and the pairing of the invariant (`ved.mem.s94PairFix`) -/
+
+set_option ved.mem.s94PairLemma true in
+/-- the pair of R033 goals 33 / 34 (branch ck156 = 6): `ved_bv_addr_eq` with the option closes it by `addr_borrow_6` (kernel-checked) -/
+theorem pair_lemma_ok (a d e : BitVec 5) :
+    BitVec.ofNat 6 (((a.toNat + 31) % 32 * 7 + (d.toNat + (32 - e.toNat) + 31) % 32) % 64) =
+      7#6 * BitVec.extractLsb' 0 6 (a - 1#5) + BitVec.extractLsb' 0 6 (d - e - 1#5) := by
+  ved_bv_addr_eq
+
+/-- info: pair lemma controls: under the pair limit (1.5M heartbeats) OFF fails (omega), ON closes (the lemma, both orientations), a false pair is refused, the zext pair still closes with the option on -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryCap (cap : Nat) (stmt : Term) (tac : TSyntax `tactic) : TermElabM Bool := do
+    let ty ← elabTerm stmt none
+    Term.synthesizeSyntheticMVarsNoPostponing
+    let ty ← instantiateMVars ty
+    let mv ← mkFreshExprMVar ty
+    let hb0 ← IO.getNumHeartbeats
+    tryCatchRuntimeEx
+      (do
+        let gs ← withTheReader Core.Context (fun c => { c with maxHeartbeats := cap, initHeartbeats := hb0 }) do
+          Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+        pure gs.isEmpty)
+      (fun _ => pure false)
+  let withOpt (v : Bool) (x : TermElabM Bool) : TermElabM Bool := withOptions (fun os => os.setBool `ved.mem.s94PairLemma v) x
+  let pr (k : Nat) (swap : Bool) : TermElabM Term := do
+    let n : Term := ⟨Syntax.mkNumLit (toString k)⟩
+    if swap then `(∀ (a d e : BitVec 5), BitVec.ofNat 6 ($n) * BitVec.extractLsb' 0 6 (a - 1#5) + BitVec.extractLsb' 0 6 (d - e - 1#5) =
+      BitVec.ofNat 6 (((a.toNat + 31) % 32 * 7 + (d.toNat + (32 - e.toNat) + 31) % 32) % 64))
+    else `(∀ (a d e : BitVec 5), BitVec.ofNat 6 (((a.toNat + 31) % 32 * 7 + (d.toNat + (32 - e.toNat) + 31) % 32) % 64) =
+      BitVec.ofNat 6 ($n) * BitVec.extractLsb' 0 6 (a - 1#5) + BitVec.extractLsb' 0 6 (d - e - 1#5))
+  let tac ← `(tactic| (intro a d e; have := a.isLt; have := d.isLt; have := e.isLt; ved_bv_addr_eq))
+  let cap := 1500000
+  if ← withOpt false (tryCap cap (← pr 7 false) tac) then throwError "pair lemma: OFF closed under the pair limit (the control measures nothing)"
+  unless ← withOpt true (tryCap cap (← pr 7 false) tac) do throwError "pair lemma: ON did not close the pair under the pair limit"
+  unless ← withOpt true (tryCap cap (← pr 7 true) tac) do throwError "pair lemma: ON did not close the swapped pair under the pair limit"
+  if ← withOpt true (tryCap 12000000 (← pr 6 false) tac) then throwError "pair lemma: a false pair (6#6 * ..) was closed"
+  -- the other pair of the family still closes with the option on (the lemma does not apply, `first` falls through to the general proof)
+  let zx ← `(∀ (c : BitVec 2) (a : BitVec 5) (b : BitVec 3), BitVec.ofNat 9 ((c.toNat * 68 + a.toNat * 4 + b.toNat) % 512) = 68#9 * (0#7 ++ c) + 4#9 * (0#4 ++ a) + (0#6 ++ b))
+  unless ← withOpt true (tryCap 12000000 zx (← `(tactic| (intro c a b; have := c.isLt; have := a.isLt; have := b.isLt; ved_bv_addr_eq)))) do
+    throwError "pair lemma: the zext pair did not close with the option on"
+  logInfo m!"pair lemma controls: under the pair limit (1.5M heartbeats) OFF fails (omega), ON closes (the lemma, both orientations), a false pair is refused, the zext pair still closes with the option on"
+
+declare_signal_state PairState
+  | ra   : BitVec 2  := 0#2
+  | rb   : BitVec 2  := 0#2
+  | rc   : BitVec 2  := 0#2
+  | idx  : BitVec 5  := 0#5
+  | last : BitVec 16 := 0#16
+
+set_option Elab.async false in
+/-- the registers `ra` and `rc` are the same constant register (the synthesizer builds ONE register for them, 4 registers for 5 components), `rb` another 2-bit register: the old pairing
+gives `rc` to the most recent taken 2-bit register (`rb`'s) and the invariant says `rb = 0` at every cycle -/
+def pairFsm {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let state := Signal.loop fun state =>
+    let rb := PairState.rb state
+    let idx := PairState.idx state
+    let isProcess := rb === (1#2 : Signal dom _)
+    let readAddr4 := idx.map (BitVec.extractLsb' 0 4 ·)
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn readAddr4
+    let outMemRead := Signal.memory readAddr4 inputCoeff isProcess (Signal.pure 0#4)
+    let rbNext := Signal.mux start (Signal.pure 1#2) (Signal.mux (idx === (15#5 : Signal dom _)) (Signal.pure 0#2) rb)
+    let idxNext := Signal.mux isProcess (idx + 1#5) (Signal.pure 0#5)
+    bundleAll! [Signal.register 0#2 (Signal.pure 0#2), Signal.register 0#2 rbNext, Signal.register 0#2 (Signal.pure 0#2),
+      Signal.register 0#5 idxNext, Signal.register 0#16 outMemRead]
+  PairState.last state
+
+-- option ON: accepted (the constant register is paired with the register of the same hardware), the theorem is stored
+#guard_msgs (drop info) in
+set_option Elab.async false in
+set_option ved.mem.s94PairFix true in
+#ved_u1_mem pairFsm
+
+set_option Elab.async false in
+/-- the same design under another name (each accepted run stores a theorem under the declaration's name) -/
+def pairFsmB {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := pairFsm start writeEn writeAddr writeData
+
+-- option OFF: refused at `[proof]` (the invariant of the old pairing is false); nothing is stored
+#guard_msgs (drop all) in
+set_option Elab.async false in
+set_option ved.mem.s94PairFix false in
+#ved_u1_mem pairFsmB
+
+/-- info: pair fix controls: ON accepted (theorem stored, one component re-paired), OFF refused (nothing stored) -/
+#guard_msgs in
+run_cmd do
+  unless (← getEnv).contains `Tests.Ved.VedMemLocalCheck.pairFsm.ved_mem do throwError "pair fix: ON: no theorem stored"
+  unless (← Tools.VedMemS94Inv.pairFixCount.get) == 1 do throwError "pair fix: ON: expected one re-paired component, got {← Tools.VedMemS94Inv.pairFixCount.get}"
+  if (← getEnv).contains `Tests.Ved.VedMemLocalCheck.pairFsmB.ved_mem then throwError "pair fix: OFF: the entry accepted the design with the wrong pairing"
+  logInfo m!"pair fix controls: ON accepted (theorem stored, one component re-paired), OFF refused (nothing stored)"
 
 end Tests.Ved.VedMemLocalCheck

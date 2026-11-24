@@ -1015,7 +1015,7 @@ def stateSplitMaxBits : Nat := 5
 def stateSplitMinConds : Nat := 4
 
 /-- the `BitVec n` variable (n <= `stateSplitMaxBits`) with the most distinct comparisons `x.toNat = literal` in the TARGET (>= `stateSplitMinConds`; the context hypotheses are not scanned: their tree sizes cost 3.7M heartbeats on R033 goal 46) -/
-def stateSplitVar (g : MVarId) (minC : Option Nat := none) : MetaM (Option (Expr × Nat)) := g.withContext do
+def stateSplitVar (g : MVarId) : MetaM (Option (Expr × Nat)) := g.withContext do
   let isCmp (e : Expr) : Bool :=
     e.isAppOfArity ``Eq 3 && (e.getArg! 2).isAppOfArity ``OfNat.ofNat 3 && (e.getArg! 1).isAppOfArity ``BitVec.toNat 2 && ((e.getArg! 1).getArg! 1).isFVar
   let mut cnt : Std.HashMap FVarId Nat := {}
@@ -1026,7 +1026,7 @@ def stateSplitVar (g : MVarId) (minC : Option Nat := none) : MetaM (Option (Expr
       cnt := cnt.insert v.fvarId! (cnt.getD v.fvarId! 0 + 1)
   let mut best : Option (Expr × Nat) := none
   for (f, n) in cnt.toList do
-    if n < minC.getD (ved.mem.s94StateMinConds.get (← getOptions)) then continue
+    if n < ved.mem.s94StateMinConds.get (← getOptions) then continue
     let ty ← whnfR (← instantiateMVars (← f.getType))
     unless ty.isAppOf ``BitVec do continue
     let some w := (← whnf ty.appArg!).rawNatLit? <|> (← instantiateMVars ty.appArg!).nat? | continue
@@ -1064,7 +1064,7 @@ partial def natCasesProof (x hlo hhi : Expr) (a n : Nat) : MetaM Expr := do
 /-- `ved_state_split`: the variable `v` found by `stateSplitVar`; the goal splits into the cases `v.toNat = 0 .. 2^w - 1` (`Or` chain proved by `omega` from `v.isLt`), and in the case `k`
 the reads `v.toNat` of the TARGET are replaced by the literal `k` (the context is not touched: no `subst`, which reverts and re-introduces every hypothesis that mentions `v`, 260k heartbeats
 per case on R033 goal 48; the case hypothesis `v.toNat = k` stays for `omega`). No such variable: a refusal. -/
-def stateSplitRun (minC : Option Nat) : TacticM Unit := do
+elab "ved_state_split" : tactic => do
   let g ← getMainGoal
   let hb0 ← IO.getNumHeartbeats
   let stage {α} (nm : String) (m : MetaM α) : MetaM α := do
@@ -1072,7 +1072,7 @@ def stateSplitRun (minC : Option Nat) : TacticM Unit := do
     let r ← try m catch e => throwError "ved_state_split[{nm}]: {e.toMessageData}"
     Tools.VedMemLoop.dbgLog s!"state_split {nm}: hb(k)={((← IO.getNumHeartbeats) - h) / 1000} total {((← IO.getNumHeartbeats) - hb0) / 1000}"
     pure r
-  let some (v, w) ← stateSplitVar g minC | throwError "ved_state_split: no small variable with at least {minC.getD stateSplitMinConds} comparisons x.toNat = k"
+  let some (v, w) ← stateSplitVar g | throwError "ved_state_split: no small variable with at least {stateSplitMinConds} comparisons x.toNat = k"
   let n := 2 ^ w
   let rd ← stage "rd" <| g.withContext (mkAppM ``BitVec.toNat #[v])
   let natT := mkConst ``Nat
@@ -1103,133 +1103,6 @@ def stateSplitRun (minC : Option Nat) : TacticM Unit := do
   let gs ← stage "cases" <| g3.withContext <| casesLoop g3 hcF 0
   stateSplitBranches.modify (· + gs.length)
   replaceMainGoal gs
-
-elab "ved_state_split" : tactic => stateSplitRun none
-
-/-- option `ved.mem.s94StateSplit2` (s94y): a branch of the state split that the closers of `ved_state_branch` do not close is split a SECOND time, on the best other small variable with at least one comparison
-`x.toNat = k` left in its target (R033 goals 33 34, branch ck156 = 4: `ck164.toNat = 0`, `2 ^ ck164.toNat`); one level only -/
-register_option ved.mem.s94StateSplit2 : Bool := {
-  defValue := false
-  descr := "ved_state_branch: a branch that its closers do not close is split once more on another small state variable (default false)"
-}
-
-/-- the number of nested splits made / the test seams of the nested split (CloseCheck) -/
-initialize nestedSplits : IO.Ref Nat ← IO.mkRef 0
-initialize nestedRefuse : IO.Ref Bool ← IO.mkRef false
-initialize nestedFailLate : IO.Ref Bool ← IO.mkRef false
-
-/-- `ved_nest_gate`: refused unless `ved.mem.s94StateSplit2` is on (no work before the refusal) -/
-elab "ved_nest_gate" : tactic => do
-  unless ved.mem.s94StateSplit2.get (← getOptions) do throwError "ved_nest_gate: option ved.mem.s94StateSplit2 is off"
-
-/-- `ved_state_split2`: the second-level split (refused unless `ved.mem.s94StateSplit2` is on): one comparison is enough -/
-elab "ved_state_split2" : tactic => do
-  unless ved.mem.s94StateSplit2.get (← getOptions) do throwError "ved_state_split2: option ved.mem.s94StateSplit2 is off"
-  if ← nestedRefuse.get then throwError "ved_state_split2: refused (test seam)"
-  stateSplitRun (some 1)
-  nestedSplits.modify (· + 1)
-  if ← nestedFailLate.get then throwError "ved_state_split2: failed after its work (test seam)"
-
-/-- option `ved.mem.s94CondSplit` (s94y): the leaf closer of the state branches splits the most frequent `if` condition of the target (`by_cases`, then ONE `simp only [h]` that decides the `if`s with that condition,
-no `split`) until the target has no `if` left, then `omega`; the old closers stay the fallback.  R033 goals 33 34 (branch ck156 = 4, after the second split) and 62 (branch 12): `split` walks the 4e5 .. 8e5-node
-tree for every one of the 75 `if`s and its internal simp times out at 8M, the DAG has 600 nodes and three distinct conditions (cause (a): a leaf closer that is too expensive, not an unsupplied lemma) -/
-register_option ved.mem.s94CondSplit : Bool := {
-  defValue := false
-  descr := "ved_cond_split: leaves of the state branches closed by case splits on the most frequent if-condition (one simp each) and omega (default false)"
-}
-
-/-- test seams / counters (CloseCheck) -/
-initialize condSplits : IO.Ref Nat ← IO.mkRef 0
-initialize condRefuse : IO.Ref Bool ← IO.mkRef false
-initialize condFailLate : IO.Ref Bool ← IO.mkRef false
-
-/-- the `if` condition of the target with the most `ite` nodes (DAG; ties: the smaller condition) -/
-def iteCondTop (g : MVarId) : MetaM (Option Expr) := g.withContext do
-  let tgt ← instantiateMVars (← g.getType)
-  let mut cnt : Std.HashMap Expr Nat := {}
-  for x in collectDag (fun x => x.isAppOfArity ``ite 5) tgt do
-    let c := x.getArg! 1
-    cnt := cnt.insert c (cnt.getD c 0 + 1)
-  let mut best : Option (Expr × Nat) := none
-  -- the conditions that contain no `if` themselves first (the innermost ones: deciding them lets the outer ones reduce)
-  let plain := cnt.toList.filter fun (c, _) => (collectDag (fun x => x.isAppOfArity ``ite 5) c).isEmpty
-  for (c, n) in (if plain.isEmpty then cnt.toList else plain) do
-    match best with
-    | none => best := some (c, n)
-    | some (c0, n0) => if n > n0 || (n == n0 && (collectDag (fun _ => true) c).size < (collectDag (fun _ => true) c0).size) then best := some (c, n)
-  return best.map (·.1)
-
-/-- the target with every `ite c t e` (the condition `c`, `hc : c` when `pos`, else `hc : ¬ c`) replaced by `t` (`e`): one `congrArg` over the abstraction of the node per node (DAG replace, no `simp`: the
-simp of a 2e5-node tree costs 7M heartbeats for the first split, 1e5 .. 4e5 for the later ones); outer nodes first, a node that went away with a discarded branch is skipped -/
-def decideIte (g : MVarId) (c hc : Expr) (pos : Bool) : MetaM MVarId := do
-  let mut g := g
-  let tgt0 ← instantiateMVars (← g.getType)
-  for node in collectDag (fun x => x.isAppOfArity ``ite 5 && x.getArg! 1 == c) tgt0 do
-    let tgt ← instantiateMVars (← g.getType)
-    if (tgt.find? (· == node)).isNone then continue
-    g ← g.withContext do
-      let α := node.getArg! 0
-      let inst := node.getArg! 2
-      let t := node.getArg! 3
-      let e := node.getArg! 4
-      let u ← getLevel α
-      let (b, h) := if pos then (t, mkApp6 (mkConst ``if_pos [u]) c inst hc α t e) else (e, mkApp6 (mkConst ``if_neg [u]) c inst hc α t e)
-      let aTy ← inferType node
-      withLocalDeclD `ved_x aTy fun x => do
-        let Tabs := tgt.replace fun y => if y == node then some x else none
-        let motive ← mkLambdaFVars #[x] Tabs
-        let T' := Tabs.replaceFVar x b
-        g.replaceTargetEq T' (← mkExpectedTypeHint (← mkAppM ``congrArg #[motive, h]) (← mkEq tgt T'))
-  return g
-
-/-- the fewest `ite` DAG nodes of a target for `ved_cond_split` (R033: the towers of 33 34 (85) 62 (54) 53 (> 40); the small branches that the old closers close have <= 25) -/
-def condSplitMinIte : Nat := 30
-
-/-- `ved_cond_gate`: refused unless `ved.mem.s94CondSplit` is on (no work before the refusal) -/
-elab "ved_cond_gate" : tactic => do
-  unless ved.mem.s94CondSplit.get (← getOptions) do throwError "ved_cond_gate: option ved.mem.s94CondSplit is off"
-  -- only a tower (at least `condSplitMinIte` distinct `if` nodes): a small goal is closed by the old closers for 0.1 .. 3M and must keep its budget
-  let tgt ← instantiateMVars (← (← getMainGoal).getType)
-  if (collectDag (fun x => x.isAppOfArity ``ite 5) tgt).size < condSplitMinIte then throwError "ved_cond_gate: fewer than {condSplitMinIte} if nodes"
-
-partial def condSplitGo (depth : Nat) : TacticM Unit := do
-  let hc := mkIdent `ved_hc
-  let g ← getMainGoal
-  let tgt ← instantiateMVars (← g.getType)
-  if (collectDag (fun x => x.isAppOfArity ``ite 5) tgt).isEmpty then
-    -- the leaf: the exponents / addresses the splits brought into two spellings unified, the `|||` bounds, then omega
-    let hb0 ← IO.getNumHeartbeats
-    try evalTactic (← `(tactic| first | omega | ((try ved_spell_unify); (try ved_or_bounds); omega)))
-    catch e =>
-      if (← IO.getEnv "VED_CONDDBG").isSome then IO.eprintln s!"cond_split[{depth}]: leaf FAILED after hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}"
-      throw e
-    if (← IO.getEnv "VED_CONDDBG").isSome then IO.eprintln s!"cond_split[{depth}]: leaf ok hb(k)={((← IO.getNumHeartbeats) - hb0) / 1000}"
-  else
-    if depth == 0 then throwError "ved_cond_split: depth"
-    let some c ← iteCondTop g | throwError "ved_cond_split: no condition"
-    if (← IO.getEnv "VED_CONDDBG").isSome then IO.eprintln s!"cond_split[{depth}]: cond chosen, hb(k)={(← IO.getNumHeartbeats) / 1000}"
-    let cs ← g.withContext (Term.exprToSyntax c)
-    if (← IO.getEnv "VED_CONDDBG").isSome then
-      IO.eprintln s!"cond_split[{depth}]: {((← g.withContext (ppExpr c)).pretty.replace "\n" " ").take 300}"
-    evalTactic (← `(tactic| by_cases $hc:ident : $cs))
-    condSplits.modify (· + 1)
-    let mut pos := true
-    for g1 in ← getGoals do
-      let hcE ← g1.withContext do
-        let some d := (← getLCtx).findFromUserName? `ved_hc | throwError "ved_cond_split: hypothesis"
-        pure d.toExpr
-      let g2 ← decideIte g1 c hcE pos
-      pos := false
-      setGoals [g2]
-      if (← IO.getEnv "VED_CONDDBG").isSome then IO.eprintln s!"cond_split[{depth}]: decided, hb(k)={(← IO.getNumHeartbeats) / 1000}"
-      condSplitGo (depth - 1)
-
-/-- `ved_cond_split d`: see `ved.mem.s94CondSplit`; at most `d` nested splits; refused when the option is off -/
-elab "ved_cond_split " d:num : tactic => do
-  unless ved.mem.s94CondSplit.get (← getOptions) do throwError "ved_cond_split: option ved.mem.s94CondSplit is off"
-  if ← condRefuse.get then throwError "ved_cond_split: refused (test seam)"
-  condSplitGo d.getNat
-  if ← condFailLate.get then throwError "ved_cond_split: failed after its work (test seam)"
 
 /-- `ved_state_simp`: the target of EVERY goal simplified by the decide-able part of the case conditions (literal comparisons, `if` of a literal condition, the 0/1 flags `(if p then 1 else 0) % 2 = 1 / 0`, the bit operations on
 literals, `x % m` of an `if`): ONE simp context for all the goals (the context of the simp set is built once, not per branch: 100k+ heartbeats each); goals the simp does not change are kept. -/
@@ -1315,24 +1188,16 @@ elab "ved_state_gate" : tactic => do
 
 /-- the closer of one branch of the state split (a small goal: the literal conditions are decided, the rest are linear `if`s of a few atoms): its own cone, the bounds of its variables, `ved_split_omega`;
 the bit operations on 0/1 flags by `split` and the literal simprocs -/
-macro "ved_state_leaf_body" : tactic =>
+macro "ved_state_branch_body" : tactic =>
   `(tactic| (ved_cone_clear; (try ved_spell_unify); (try ved_read_lift); ved_bv_bounds_t
              first
              | (simp only [mux_mod]; done)
-             | (ved_cond_gate; (try simp only [mux_mod]); ved_cond_split 12)
              | ((try simp only [mux_mod]); ved_or_gate; ved_split_omega_o)
              | ((try simp only [mux_mod]); ved_split_omega)
              | (ved_mul_opt_gate; (try ved_cond_norm); (try ved_read_bounds); ved_bv_bounds; (try simp only [mux_mod]); (repeat' split)
                 all_goals (try simp (disch := omega) only [Nat.mod_eq_of_lt, Nat.reducePow, Nat.reduceAdd, Nat.reduceMod])
                 all_goals omega)
              | ((repeat' split) <;> (try simp only [Nat.reduceAnd, Nat.reduceOr, Nat.reduceXor, Nat.reduceMod, Nat.reduceAdd, Nat.reducePow, Nat.reduceEqDiff, ↓reduceIte, true_and, and_true, false_and, and_false] at *) <;> omega)))
-
-/-- the closer of one branch with the nested split (option `ved.mem.s94StateSplit2`): the leaf closers first (as before), else the branch is split once more and each leaf closed by them -/
-macro "ved_state_branch_body" : tactic =>
-  `(tactic| first
-            | ved_state_leaf_body
-            | (ved_nest_gate; ved_cone_clear; (try ved_spell_unify); (try ved_read_lift); ved_bv_bounds_t
-               ved_state_split2; ved_state_simp; all_goals ved_state_leaf_body))
 
 /-- the heartbeat limit of ONE branch of the state split (thousands; option `ved.mem.s94Gates`): the branches that close cost 0.2 .. 5M on R033 (goals 23 26 35 46 48 49 54 57 64), a branch that does not
 close used up the whole attempt limit before (the timeouts of 33 34 53 62 at 20M) -/
