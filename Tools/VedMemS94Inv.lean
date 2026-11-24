@@ -101,6 +101,9 @@ def pairFix (loops : Array Expr) (compsOf : Array (List Expr)) (names : List Str
   if diag then
     for (a, b) in (List.range names.length).zip (names.zip new) do
       if b.1 != b.2 then IO.eprintln s!"PAIR comp {a}: {b.1} -> {b.2}"
+    for r in (names.eraseDups) do
+      let cs := (List.range names.length).filter fun i => names[i]! == r
+      if cs.length > 1 then IO.eprintln s!"PAIR share {r}: comps {cs} closed keys {cs.map fun i => (keys[i]!).isSome}"
     IO.eprintln s!"PAIR done ok={ok} comps={names.length} changed={(names.zip new).filter (fun p => p.1 != p.2) |>.length}"
   -- a loop whose shape is not recognised contributes no key (its components are never re-paired)
   if !ved.mem.s94PairFix.get (← getOptions) then return names
