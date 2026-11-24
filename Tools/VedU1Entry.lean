@@ -1182,7 +1182,23 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     -- `VED_MS_LOG` (debugging only, default unset): the proof is elaborated; the kernel starts next
     if let some path ← IO.getEnv "VED_MS_LOG" then
       let h ← IO.FS.Handle.mk path .append
-      h.putStrLn s!"VED MS elaborated {← IO.monoMsNow} (kernel next)"
+      h.putStrLn s!"VED MS elaborated {← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000}k (kernel next)"
+      let mut seen : Std.HashSet Lean.Expr := {}
+      let mut todo : Array Lean.Expr := #[pf]
+      while !todo.isEmpty do
+        let x := todo.back!
+        todo := todo.pop
+        if seen.contains x then continue
+        seen := seen.insert x
+        match x with
+        | .app f a => todo := (todo.push a).push f
+        | .lam _ t b _ => todo := (todo.push b).push t
+        | .forallE _ t b _ => todo := (todo.push b).push t
+        | .letE _ t v b _ => todo := ((todo.push b).push v).push t
+        | .mdata _ b => todo := todo.push b
+        | .proj _ _ b => todo := todo.push b
+        | _ => pure ()
+      h.putStrLn s!"VED MS proof dag={seen.size}"
       h.flush
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
