@@ -326,7 +326,7 @@ register_option ved.mem.s94PairCache : Bool := {
   descr := "ved_spell_unify / ved_or_bounds: a pair proposition proved before is reused, not proved again (default false)"
 }
 
-initialize pairCache : IO.Ref (Std.HashMap Expr Expr) ← IO.mkRef {}
+initialize pairCache : IO.Ref (Std.HashMap Expr (Expr × Array (FVarId × Expr))) ← IO.mkRef {}
 initialize pairCacheHits : IO.Ref Nat ← IO.mkRef 0
 
 /-- the trimmed context that keeps the `ved_orb` facts -/
@@ -343,9 +343,15 @@ def proveProp (P : Expr) (es : Array Expr) (tac : TacticM Unit) : TacticM (Optio
   let P ← instantiateMVars P
   -- option `ved.mem.s94PairCache`: a proposition proved before (another leaf of the same branch) is not proved again: its proof term is reused when every free variable of it is still in the context
   if cacheOn then
-    if let some pf := (← pairCache.get).get? P then
+    if let some (pf, fvs) := (← pairCache.get).get? P then
+      -- the same free variables with the same types (the identifiers of two goals of one file can coincide: a variable of another goal is not this one)
       let lctx ← getLCtx
-      if (Lean.collectFVars {} pf).fvarIds.all (lctx.contains ·) then
+      let mut ok := true
+      for (f, ty) in fvs do
+        match lctx.find? f with
+        | some d => if d.isLet || (← instantiateMVars d.type) != ty then ok := false
+        | none => ok := false
+      if ok then
         pairCacheHits.modify (· + 1)
         if (← IO.getEnv "VED_UNIFYDBG").isSome then IO.eprintln "unify: pair proof reused (cache)"
         return some pf
@@ -353,7 +359,12 @@ def proveProp (P : Expr) (es : Array Expr) (tac : TacticM Unit) : TacticM (Optio
   if cacheOn then
     if let some pf := r then
       let m ← pairCache.get
-      pairCache.set ((if m.size > 256 then {} else m).insert P pf)
+      let lctx ← getLCtx
+      let mut fvs : Array (FVarId × Expr) := #[]
+      for f in (Lean.collectFVars (Lean.collectFVars {} P) pf).fvarIds do
+        let some d := lctx.find? f | continue
+        fvs := fvs.push (f, ← instantiateMVars d.type)
+      pairCache.set ((if m.size > 256 then {} else m).insert P (pf, fvs))
   return r
 where
   proveProp' (P : Expr) (es : Array Expr) (tac : TacticM Unit) : TacticM (Option Expr) := do
