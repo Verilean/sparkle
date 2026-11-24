@@ -249,13 +249,36 @@ elab "ved_ss_timed " t:tactic : tactic => do
   let hb0 ← IO.getNumHeartbeats
   if let some path ← IO.getEnv "VED_MS_LOG" then
     let h ← IO.FS.Handle.mk path .append
-    h.putStrLn s!"VED MS start {← IO.monoMsNow} depth={sz} tree={tree} goals={(← getGoals).length} hbtotal={hb0 / 1000}"
+    h.putStrLn s!"VED MS start {← IO.monoMsNow} depth={sz} tree={tree} goals={(← getGoals).length} hbtotal={hb0 / 1000} tac={((t.raw.reprint.getD "").trimAscii.copy.take 70).toString}"
     h.flush
   let t0 ← IO.monoMsNow
   let r ← try evalTactic t; pure true catch _ => pure false
   let t1 ← IO.monoMsNow
   let hb1 ← IO.getNumHeartbeats
-  let msg := s!"VED MS goal {g.name} depth={sz} tree={tree} hyps={nh} {t1 - t0}ms hb={(hb1 - hb0) / 1000} ok={r}"
+  -- distinct sub-terms (DAG) of the goal before / the first goal after: tree vs DAG says whether sharing is kept (debugging only)
+  let dagOf (e : Lean.Expr) : Nat := Id.run do
+    let mut seen : Std.HashSet Lean.Expr := {}
+    let mut todo := #[e]
+    while !todo.isEmpty do
+      let x := todo.back!
+      todo := todo.pop
+      if seen.contains x then continue
+      seen := seen.insert x
+      match x with
+      | .app f a => todo := (todo.push a).push f
+      | .lam _ t b _ => todo := (todo.push b).push t
+      | .forallE _ t b _ => todo := (todo.push b).push t
+      | .letE _ t v b _ => todo := ((todo.push b).push v).push t
+      | .mdata _ b => todo := todo.push b
+      | .proj _ _ b => todo := todo.push b
+      | _ => pure ()
+    return seen.size
+  let after ← match ← getGoals with
+    | g1 :: _ => do
+      let t1 ← instantiateMVars (← g1.getType)
+      pure s!" dag0={dagOf tgt0} after: tree={Tools.VedU1Loop.treeSizeVal t1} dag={dagOf t1}"
+    | [] => pure s!" dag0={dagOf tgt0} after: closed"
+  let msg := s!"VED MS goal {g.name} depth={sz} tree={tree} hyps={nh} {t1 - t0}ms hb={(hb1 - hb0) / 1000} ok={r}{after}"
   match ← IO.getEnv "VED_MS_LOG" with
   | some path =>
     let h ← IO.FS.Handle.mk path .append

@@ -332,4 +332,33 @@ example : ¬ (∀ (x p K M N : Nat), (if p ≤ x then (K + x) % M else x) % N = 
   have := h 5 1 3 100 1000
   simp at this
 
+/-! ## Unit 14: `ved.sseq.kshape` (proof-carrying wrappers of core's `rfl` lemmas; kernel cost of a large literal added to a symbolic operand)
+
+Core states `BitVec.toNat_add`, `BitVec.extractLsb'_toNat`, `Option.getD_some`, … by `rfl`; `simp` applies such a theorem without recording a proof
+term (the kernel must then prove the difference by definitional unfolding, which evaluates `p ≤ x + p` one successor at a time).  The wrappers
+`Tools.VedU1StructSlice.nr.<n>` have the type of `n` and the value `n`, so `simp` records the step.  Controls: (1) the core theorems ARE rfl theorems
+and the wrappers are NOT; (2) each wrapper has exactly the type of its core theorem (no new proposition); (3) the accepted children are still accepted
+and the wrong modules still refused with `kshape` on. -/
+
+open Lean Meta in
+#eval show CoreM Unit from do
+  for n in Tools.VedU1StructSlice.kshapeNames do
+    let w := Tools.VedU1StructSlice.nrName n
+    let some ci := (← getEnv).find? n | throwError "{n} missing"
+    let some cw := (← getEnv).find? w | throwError "{w} missing"
+    unless ci.type == cw.type && ci.levelParams == cw.levelParams do throwError "wrapper {w}: type differs from {n}"
+    unless ← isRflTheorem n do throwError "{n} is not a rfl theorem (the list is stale)"
+    if ← isRflTheorem w then throwError "wrapper {w} is a rfl theorem"
+    let ax ← Tools.VedStrictAudit.strictAudit w
+    unless Tools.VedStrictAudit.showNames ax.axioms == Tools.VedStrictAudit.showNames (← Tools.VedStrictAudit.strictAudit n).axioms do
+      throwError "wrapper {w}: axioms differ from {n}"
+  logInfo m!"CONTROL kshape: {Tools.VedU1StructSlice.kshapeNames.length} wrappers: same type as the core rfl theorem, not rfl themselves, same axioms"
+
+def u14Opts : List (Name × Bool) := u13Opts ++ [(`ved.sseq.kshape, true)]
+
+#eval acceptedV ``chainN 7 ``topN "ved_u14a" u14Opts
+#eval acceptedV ``chainW 3 ``topW "ved_u14w" u14Opts
+#eval refusedV ``topNR "ved_u14R" "wrong register update (kshape on)" u14Opts
+#eval refusedV ``topNO "ved_u14O" "wrong output wire (kshape on)" u14Opts
+
 end Tests.Ved.U1StructNamedCheck
