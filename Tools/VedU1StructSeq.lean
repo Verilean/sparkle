@@ -81,16 +81,19 @@ elab "ved_ss_pack_share" : tactic => do
     -- a goal whose tree is at least `packRatio` times its DAG (and `packRatioMin` nodes): the unfolded register/output value
     -- is read as a tree by `ved_pack_simp` (measured, wScalarMul: tree up to ~150 x DAG); `ved_wire_bits` (equalities per
     -- shared wire) first, its failure message logged (it names the missing proposition), then the ordinary route
-    let ratioRoute := (← getOptions).getBool `ved.sseq.ratio true && sz ≥ packRatioMin && sz ≥ packRatio * dag
+    let ctl := ved.sseq.ctlFail.get (← getOptions)
+    let ratioRoute := ctl &&& 1 != 0 || ((← getOptions).getBool `ved.sseq.ratio true && sz ≥ packRatioMin && sz ≥ packRatio * dag)
     let mut done := false
     if ratioRoute then
       let ok0 ← try
           tryCatchRuntimeEx
-            (local' packGoalHb (do Tactic.withoutRecover (Tactic.evalTactic (← `(tactic| ved_wire_bits))); pure true))
+            (local' packGoalHb (ctlHb (ctl &&& 1 != 0) (do Tactic.withoutRecover (Tactic.evalTactic (← `(tactic| ved_wire_bits))); pure true)))
             fun e => do
+              ctlHit 0
               if logOn then log s!"VED PK goal {i} wire_bits-first runtime failure after {(← IO.monoMsNow) - t0}ms"
               if e.isRuntime then pure false else throw e
         catch _ =>
+          ctlHit 1
           if logOn then log s!"VED PK goal {i} wire_bits-first failed after {(← IO.monoMsNow) - t0}ms"
           pure false
       if ok0 then

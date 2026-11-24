@@ -35,6 +35,28 @@ register_option ved.sseq.kshape : Bool := {
   descr := "ved.sseq.kshape: extractLsb' toNat steps with a proof term, not by rfl (kernel cost, default off)"
 }
 
+/-- Control only (default 0 = off and inert; nothing in a proof route reads it otherwise): forces a RUNTIME failure (a heartbeat budget of 1) in
+one recovery site so that a test can show the handler is reached and the run continues through its restore / fallback.  Bits: 1 =
+`ved_wire_bits`-first of the ratio route of `ved_ss_pack_share` (the ratio route is forced too), 2 = the first per-wire hV simp of
+`ved_ss_wiresimp`, 4 = its atoms simp tried once under the failing budget and then run normally, 8 = its atoms simp only under the failing budget
+(the fallback is the skipped simp). -/
+register_option ved.sseq.ctlFail : Nat := {
+  defValue := 0
+  descr := "ved.sseq.ctlFail: control only, forces a heartbeat failure in a recovery site (bit mask 1/2/4/8; default 0 = off)"
+}
+
+/-- Control only: how often each recovery handler ran (0: `ved_wire_bits`-first runtime handler, 1: its outer failure handler, 2: hV simp
+handler, 3: atoms simp handler); `ctlHit` cannot fail and is not read by any proof route. -/
+initialize ctlReached : IO.Ref (Array Nat) ← IO.mkRef (Array.replicate 4 0)
+
+def ctlHit (k : Nat) : IO Unit := ctlReached.modify fun a => a.modify k (· + 1)
+
+/-- `x` under a heartbeat budget of 1 (a runtime failure) when `on`, unchanged otherwise -/
+def ctlHb {α : Type} (on : Bool) (x : TacticM α) : TacticM α :=
+  if !on then x else do
+    let hb ← IO.getNumHeartbeats
+    withTheReader Core.Context (fun c => { c with maxHeartbeats := 1, initHeartbeats := hb }) x
+
 /-- `stx` mentions the identifier `old` -/
 partial def hasIdent (old : Name) (stx : Lean.Syntax) : Bool :=
   match stx with

@@ -180,6 +180,7 @@ elab "ved_ss_wiresimp " h:ident " [" ls:Lean.Parser.Tactic.simpLemma,* "]" : tac
     logF s!"VED WIRES DUMP {(← ppExpr sig1).pretty.take 40000}"
   -- (2) the cut wires
   let K := ved.sseq.wireK.get (← getOptions)
+  let ctl := Tools.VedU1StructSeqTac.ved.sseq.ctlFail.get (← getOptions)
   let g0 ← getMainGoal
   let ((sig2, _), st) ← (visit K sig1).run { g := g0 }
   let t1 ← IO.monoMsNow
@@ -192,6 +193,7 @@ elab "ved_ss_wiresimp " h:ident " [" ls:Lean.Parser.Tactic.simpLemma,* "]" : tac
   replaceMainGoal [g3]
   -- (3) one value lemma per cut wire
   let mut hVs : Array Name := #[]
+  let mut ctlFirst := true
   let mut j := 0
   for (fv, _) in st.cuts do
     if st.loops.contains fv then
@@ -221,8 +223,9 @@ elab "ved_ss_wiresimp " h:ident " [" ls:Lean.Parser.Tactic.simpLemma,* "]" : tac
       let (dg, tr) := Tools.VedU1StructSlice.dagTree v
       pure s!"dag={dg} tree={tr} depth={((Tools.VedU1StructSlice.depthOf v).run' {})}"
     -- simplified by the stage's own set; a lemma the simp removes (or cannot change) is left out of the rewrite list
-    tryCatchRuntimeEx (evalTactic (← `(tactic| ved_ss_core_simp_big [$ls,*] at $hid:ident)))
-      fun _ => do if logOn then logF s!"VED WIRES hV{j} ({stats}) simp failed"
+    tryCatchRuntimeEx (Tools.VedU1StructSeqTac.ctlHb (ctl &&& 2 != 0 && ctlFirst) (evalTactic (← `(tactic| ved_ss_core_simp_big [$ls,*] at $hid:ident))))
+      fun _ => do Tools.VedU1StructSeqTac.ctlHit 2; if logOn then logF s!"VED WIRES hV{j} ({stats}) simp failed"
+    ctlFirst := false
     let has ← withMainContext do pure ((← getLCtx).findFromUserName? nm).isSome
     if has then hVs := hVs.push nm
     j := j + 1
@@ -233,8 +236,15 @@ elab "ved_ss_wiresimp " h:ident " [" ls:Lean.Parser.Tactic.simpLemma,* "]" : tac
   if hVs.size > 0 then
     let hids : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
       (hVs.reverse.map mkIdent).mapM fun i => `(Lean.Parser.Tactic.simpLemma| $i:ident)
-    tryCatchRuntimeEx (evalTactic (← `(tactic| simp (config := { maxSteps := 4000000 }) only [$hids,*] at $h:ident)))
-      fun _ => do if logOn then logF "VED WIRES atoms simp failed"
+    let atomsFail : Exception → TacticM Unit := fun _ => do
+      Tools.VedU1StructSeqTac.ctlHit 3
+      if logOn then logF "VED WIRES atoms simp failed"
+    -- control only (bit 4): the same simp once under a failing budget (handler reached, state restored), then the real one below
+    if ctl &&& 4 != 0 then
+      tryCatchRuntimeEx (Tools.VedU1StructSeqTac.ctlHb true (evalTactic (← `(tactic| simp (config := { maxSteps := 4000000 }) only [$hids,*] at $h:ident))))
+        atomsFail
+    tryCatchRuntimeEx (Tools.VedU1StructSeqTac.ctlHb (ctl &&& 8 != 0) (evalTactic (← `(tactic| simp (config := { maxSteps := 4000000 }) only [$hids,*] at $h:ident))))
+      atomsFail
   let t4 ← IO.monoMsNow
   -- (5) the loops put back (`ved_ss_wit` looks for `Signal.loop F` in the value), the context as the unchanged stage leaves it
   for fv in st.loops do

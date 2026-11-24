@@ -361,4 +361,92 @@ def u14Opts : List (Name × Bool) := u13Opts ++ [(`ved.sseq.kshape, true)]
 #eval refusedV ``topNR "ved_u14R" "wrong register update (kshape on)" u14Opts
 #eval refusedV ``topNO "ved_u14O" "wrong output wire (kshape on)" u14Opts
 
+/-! ## Unit 28 (P2-1 remainder): the recovery handlers reached by a RUNTIME failure
+`ved.sseq.ctlFail` (control only, default 0 = inert) gives one recovery site a heartbeat budget of 1: bit 1 = `ved_wire_bits`-first of
+the ratio route of `ved_ss_pack_share` (the route is forced on the toy), bit 2 = the first per-wire hV simp of `ved_ss_wiresimp`, bit 4 = its
+atoms simp once under the failing budget and then normally, bit 8 = its atoms simp only under the failing budget.  For each site the run must reach the handler (the counter `ctlReached`, independent of `VED_MS_LOG`), continue through the
+state restore / fallback, and end as without the failure: the toy theorem is accepted (`U1Stmt`, std3, no `sorryAx`) and the wrong
+modules (register update / output wire) are still refused at `[proof]`. -/
+
+def ctlOpts (extra : List (Name × Bool)) (ctl : Nat) (o : Options) : Options :=
+  ((extra.foldl (fun o p => o.setBool p.1 p.2) o).insert `ved.sseq.wireK (Lean.DataValue.ofNat 3)).insert `ved.sseq.ctlFail
+    (Lean.DataValue.ofNat ctl)
+
+/-- the child theorem run with `ctl`; the handler counters (reset before) are returned -/
+def childRunC (child : Name) (n : Nat) (top : Name) (tag : String) (extra : List (Name × Bool)) (ctl : Nat) :
+    CommandElabM ((Option String × Option Name) × Array Nat) := do
+  let (_, d) ← synthOf top
+  let some cm := d.modules.head? | throwError "no child module of {top}"
+  Tools.VedU1StructSeqTac.ctlReached.set (Array.replicate 4 0)
+  let r ← liftTermElabM do
+    withOptions (ctlOpts extra ctl) do
+      let (b, _, names) ← Tools.VedU1StructOut.stmtOfStruct child
+      unless names.length == n do throwError "expected {n} output ports, got {names}"
+      try
+        let thm ← Tools.VedU1Entry.checkU1E child (child ++ Name.mkSimple tag) b cm .generated names
+        return (none, some thm)
+      catch e => return (some (← e.toMessageData.toString), none)
+  return (r, ← Tools.VedU1StructSeqTac.ctlReached.get)
+
+def acceptedC (child : Name) (n : Nat) (top : Name) (tag : String) (extra : List (Name × Bool)) (ctl : Nat) (sites : List Nat) :
+    CommandElabM Unit := do
+  let ((msg, thm?), cnt) ← childRunC child n top tag extra ctl
+  for k in sites do
+    unless cnt[k]! > 0 do throwError "ctlFail={ctl}: handler {k} not reached ({cnt})"
+  if ctl == 0 then unless cnt.all (· == 0) do throwError "ctlFail=0: a handler ran ({cnt})"
+  let some thm := thm? | throwError "{child} (ctlFail={ctl}) refused: {msg.getD ""}"
+  liftTermElabM do
+    let some (.thmInfo ti) := (← getEnv).find? thm | throwError "{thm} is not a theorem"
+    unless ti.type.getAppFn.isConstOf ``Tools.VedU1Contract.U1Stmt do throwError "{thm}: type is not U1Stmt"
+    let axs ← collectAxioms thm
+    unless axs.all (std3.contains ·) do throwError "{thm}: axioms outside std3: {axs}"
+    if axs.contains ``sorryAx then throwError "{thm}: sorryAx"
+    logInfo m!"CHILD THEOREM {child} ctlFail={ctl}: handlers reached {sites.map (fun k => decide (cnt[k]! > 0))}: {thm} U1Stmt, std3, no sorryAx"
+
+def refusedC (top : Name) (tag : String) (extra : List (Name × Bool)) (ctl : Nat) (sites : List Nat) : CommandElabM Unit := do
+  let ((msg?, thm?), cnt) ← childRunC ``chainN 7 top tag extra ctl
+  for k in sites do
+    unless cnt[k]! > 0 do throwError "ctlFail={ctl}: handler {k} not reached ({cnt})"
+  if thm?.isSome then throwError "control (ctlFail={ctl}): the checker ACCEPTED a wrong module"
+  let some msg := msg? | throwError "control (ctlFail={ctl}): neither refused nor accepted"
+  unless msg.startsWith s!"VED U1 REFUSED {``chainN} [proof]" do
+    throwError "control (ctlFail={ctl}): unexpected refusal: {msg.take 300}"
+  logInfo m!"CONTROL ctlFail={ctl} {top}: handlers reached {sites.map (fun k => decide (cnt[k]! > 0))}, refused at [proof], {msg.take 160}"
+
+def ctlShare : List (Name × Bool) := [(`ved.sseq.fastOrder, true), (`ved.sseq.share, true)]
+def ctlWire : List (Name × Bool) := u12Opts
+
+-- without the failure: the baseline, no handler runs
+#eval acceptedC ``chainN 7 ``topN "ved_c0a" ctlShare 0 []
+#eval acceptedC ``chainN 7 ``topN "ved_c0b" ctlWire 0 []
+-- site 1: `ved_wire_bits`-first of the ratio route
+#eval acceptedC ``chainN 7 ``topN "ved_c1a" ctlShare 1 [0]
+#eval refusedC ``topNR "ved_c1R" ctlShare 1 [0]
+#eval refusedC ``topNO "ved_c1O" ctlShare 1 [0]
+-- site 2: the first per-wire hV simp (the wire stays unsimplified, the run continues)
+#eval acceptedC ``chainN 7 ``topN "ved_c2a" ctlWire 2 [2]
+#eval acceptedC ``chainW 3 ``topW "ved_c2w" ctlWire 2 [2]
+#eval refusedC ``topNR "ved_c2R" ctlWire 2 [2]
+#eval refusedC ``topNO "ved_c2O" ctlWire 2 [2]
+-- site 3: the atoms simp, once under the failing budget (handler, state restored), then normally
+#eval acceptedC ``chainN 7 ``topN "ved_c4a" ctlWire 4 [3]
+#eval acceptedC ``chainW 3 ``topW "ved_c4w" ctlWire 4 [3]
+#eval refusedC ``topNR "ved_c4R" ctlWire 4 [3]
+#eval refusedC ``topNO "ved_c4O" ctlWire 4 [3]
+
+/-- site 3 with the atoms simp only under the failing budget (the skipped simp is the fallback): the handler runs, no exception leaves
+it; the downstream stage then cannot close the goal, so the run ends refused at `[proof]` (a refusal, not a crash) -/
+def skippedC (child : Name) (n : Nat) (top : Name) (tag : String) : CommandElabM Unit := do
+  let ((msg?, thm?), cnt) ← childRunC child n top tag ctlWire 8
+  unless cnt[3]! > 0 do throwError "ctlFail=8: handler 3 not reached ({cnt})"
+  match msg?, thm? with
+  | some msg, none =>
+    unless msg.startsWith s!"VED U1 REFUSED {child} [proof]" do throwError "ctlFail=8: unexpected refusal: {msg.take 300}"
+    logInfo m!"CONTROL ctlFail=8 {child}: handler 3 reached, atoms simp skipped, refused at [proof]"
+  | _, some _ => logInfo m!"CONTROL ctlFail=8 {child}: handler 3 reached, atoms simp skipped, accepted"
+  | none, none => throwError "ctlFail=8: neither refused nor accepted"
+
+#eval skippedC ``chainN 7 ``topN "ved_c8a"
+#eval skippedC ``chainW 3 ``topW "ved_c8w"
+
 end Tests.Ved.U1StructNamedCheck
