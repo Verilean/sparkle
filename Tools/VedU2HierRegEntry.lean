@@ -1281,7 +1281,10 @@ def phase2 (decl : Name) (stmt : Lean.Expr) (nDom : Nat) (m : Sparkle.IR.AST.Mod
   let pm := (regsOf m.body).map (·.1)
   unless pm.length == regWs.length do
     -- unit 23 (option `ved.compose.multiCircuit`, with the connection path): the open circuit's TRAILING slots beyond the parent's registers are
-    -- accepted when they are dead (`slotUnused`, a closed Bool the elaborator evaluates here and the generated proof re-checks by the kernel)
+    -- accepted when they are dead: `slotUnused` is a closed Bool evaluated HERE by `Lean.Kernel.whnf` as an ENTRY check only (an early,
+    -- explicit refusal); the generated proof does not re-check it.  The final theorem rests on the kernel-checked closed facts
+    -- `RegsOkNFp .. = true` / `outSpecNF` together with `reg_connectN` / `out_connectN`; `Cdo.next_prefix_irrel` / `out_prefix_irrel`
+    -- (Tools/VedH3ChildChainLemmas.lean) state why skipping the trailing slots is sound and are NOT used by the generated proof.
     let opts ← getOptions
     let sizeMsg := m!"the parent has {pm.length} registers, the open parent's circuit has {regWs.length}"
     unless pm.length < regWs.length && opts.getBool `ved.compose.multiCircuit && Tools.VedCompose.ved.compose.step.get opts &&
