@@ -3,6 +3,7 @@ import Sparkle.Compiler.Elab
 import Tools.VedMemEntry
 import Tools.VedMemLoop
 import Tools.VedMemS94Gen
+import Tools.VedMemS94Addr
 import Tools.VedMemS94Local
 import Tools.VedMemS94Opaque
 
@@ -554,5 +555,141 @@ run_cmd liftTermElabM do
   let (noRd, _) ← tryT (← `(∀ (x : Nat), x = x)) (← `(tactic| (intro x; ved_read_bounds)))
   if noRd then throwError "read_bounds: a goal without a read was accepted"
   logInfo m!"conj_prune / read_bounds controls: the three conjuncts about y dropped (counter +3), a hypothesis with fewer than 6 conjuncts refused, a goal without a read refused, a target about y closes from the kept conjunct y < 3"
+
+/-! ## s94x: spellings of one value inside a memory read (`Tools/VedMemS94Addr.lean`), reads at `if` addresses, `|||` bounds, gates -/
+
+set_option ved.mem.s94AddrNorm true in
+/-- kernel-checked: the two spellings of one address (R033 goals 33 34: `ofNat 9 ((c * 68 + a * 4 + b) % 512)` against `68#9 * (0#7 ++ c) + 4#9 * (0#4 ++ a) + (0#6 ++ b)`) are unified inside a read of
+a variable memory function, the equation is then `rfl` -/
+theorem addr_unify_ok (M : BitVec 9 → BitVec 16) (c : BitVec 2) (a : BitVec 5) (b : BitVec 3) :
+    (M (BitVec.ofNat 9 ((c.toNat * 68 + a.toNat * 4 + b.toNat) % 512))).toNat = (M (68#9 * (0#7 ++ c) + 4#9 * (0#4 ++ a) + (0#6 ++ b))).toNat := by
+  ved_spell_unify
+  rfl
+
+set_option ved.mem.s94AddrNorm true in
+/-- kernel-checked: two spellings of one exponent are one exponent -/
+theorem pow_unify_ok (x : BitVec 3) : 2 ^ ((x.toNat + 7) % 8) = 2 ^ ((7 + x.toNat) % 8) := by
+  ved_spell_unify
+  rfl
+
+set_option ved.mem.s94ReadLift true in
+/-- kernel-checked: a read at an `if` address is the `if` of the reads (and its `toNat` the `if` of the `toNat`s) -/
+theorem read_lift_ok (f : BitVec 3 → BitVec 8) (p : Prop) [Decidable p] (a b : BitVec 3) :
+    (f (if p then a else b)).toNat = if p then (f a).toNat else (f b).toNat := by
+  ved_read_lift
+  rfl
+
+set_option ved.mem.s94OrDisj true in
+/-- kernel-checked: `(x ||| y) % 256 = x ||| y` for two bytes (the bound `x ||| y < 2 ^ 8` from `Nat.or_lt_two_pow`) -/
+theorem or_bounds_ok (x y : BitVec 8) : (x.toNat ||| y.toNat) % 256 = x.toNat ||| y.toNat := by
+  ved_or_bounds
+  omega
+
+set_option ved.mem.s94OrDisj true in
+/-- kernel-checked: the same for `&&&` with a mask below the power -/
+theorem and_bounds_ok (x : Nat) : (x &&& 120) % 128 = x &&& 120 := by
+  ved_or_bounds
+  omega
+
+/-- info: addr_unify / pow_unify / read_lift / or_bounds / gates controls: OFF refused, ON closes (counters), a false statement is refused, late failure restores the goal, the refuse seam refuses -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let tryT (stmt : Term) (tac : TSyntax `tactic) : TermElabM (Bool × Bool) := do
+    let ty ← elabTerm stmt none
+    Term.synthesizeSyntheticMVarsNoPostponing
+    let ty ← instantiateMVars ty
+    let mv ← mkFreshExprMVar ty
+    try
+      let gs ← Tactic.run mv.mvarId! (do Tactic.withoutRecover (Tactic.evalTactic tac))
+      pure (gs.isEmpty, true)
+    catch _ => pure (false, false)
+  let withOpt (o : Name) (v : Bool) (x : TermElabM (Bool × Bool)) : TermElabM (Bool × Bool) := withOptions (fun os => os.setBool o v) x
+  -- the address spellings
+  let ad (k : Nat) : TermElabM Term := `(∀ (M : BitVec 9 → BitVec 16) (c : BitVec 2) (a : BitVec 5) (b : BitVec 3),
+    (M (BitVec.ofNat 9 ((c.toNat * 68 + a.toNat * 4 + b.toNat + $(Syntax.mkNumLit (toString k))) % 512))).toNat = (M (68#9 * (0#7 ++ c) + 4#9 * (0#4 ++ a) + (0#6 ++ b))).toNat)
+  let adTac ← `(tactic| (intro M c a b; ved_spell_unify; rfl))
+  let (off, _) ← withOpt `ved.mem.s94AddrNorm false (tryT (← ad 0) adTac)
+  if off then throwError "addr: OFF: closed"
+  let h0 ← Tools.VedMemS94Addr.unifyHits.get
+  let (on, _) ← withOpt `ved.mem.s94AddrNorm true (tryT (← ad 0) adTac)
+  unless on do throwError "addr: ON: not closed"
+  unless (← Tools.VedMemS94Addr.unifyHits.get) == h0 + 1 do throwError "addr: ON: expected one unified pair"
+  -- a false statement (an address off by one): the two spellings are not one value, nothing is unified, the goal is not closed
+  let (bad, _) ← withOpt `ved.mem.s94AddrNorm true (tryT (← ad 1) adTac)
+  if bad then throwError "addr: a false statement was closed"
+  Tools.VedMemS94Addr.unifyFailLate.set true
+  let (late, _) ← withOpt `ved.mem.s94AddrNorm true (tryT (← ad 0) (← `(tactic| (intro M c a b; first | (ved_spell_unify; rfl) | skip))))
+  Tools.VedMemS94Addr.unifyFailLate.set false
+  if late then throwError "addr: late failure: the goal was closed"
+  Tools.VedMemS94Addr.unifyRefuse.set true
+  let (ref, _) ← withOpt `ved.mem.s94AddrNorm true (tryT (← ad 0) adTac)
+  Tools.VedMemS94Addr.unifyRefuse.set false
+  if ref then throwError "addr: the refuse seam closed the goal"
+  -- the exponents: a false statement (`+ 6`) is refused
+  let ex (k : Nat) : TermElabM Term := `(∀ (x : BitVec 3), 2 ^ ((x.toNat + 7) % 8) = 2 ^ ((x.toNat + $(Syntax.mkNumLit (toString k))) % 8))
+  let (e1, _) ← withOpt `ved.mem.s94AddrNorm true (tryT (← ex 7) (← `(tactic| (intro x; ved_spell_unify))))
+  let (e2, e2ok) ← withOpt `ved.mem.s94AddrNorm true (tryT (← ex 6) (← `(tactic| (intro x; ved_spell_unify; rfl))))
+  if e2 then throwError "pow: a false statement was closed"
+  -- read lift
+  let rl (bad : Bool) : TermElabM Term :=
+    if bad then `(∀ (f : BitVec 3 → BitVec 8) (p : Prop) [Decidable p] (a b : BitVec 3), (f (if p then a else b)).toNat = (f a).toNat)
+    else `(∀ (f : BitVec 3 → BitVec 8) (p : Prop) [Decidable p] (a b : BitVec 3), (f (if p then a else b)).toNat = if p then (f a).toNat else (f b).toNat)
+  let rlTac ← `(tactic| (intro f p _ a b; ved_read_lift; rfl))
+  let (roff, _) ← withOpt `ved.mem.s94ReadLift false (tryT (← rl false) rlTac)
+  if roff then throwError "lift: OFF: closed"
+  let l0 ← Tools.VedMemS94Addr.liftHits.get
+  let (ron, _) ← withOpt `ved.mem.s94ReadLift true (tryT (← rl false) rlTac)
+  unless ron do throwError "lift: ON: not closed"
+  unless (← Tools.VedMemS94Addr.liftHits.get) > l0 do throwError "lift: ON: counter"
+  let (rbad, _) ← withOpt `ved.mem.s94ReadLift true (tryT (← rl true) rlTac)
+  if rbad then throwError "lift: a false statement was closed"
+  Tools.VedMemS94Addr.liftFailLate.set true
+  let (rlate, _) ← withOpt `ved.mem.s94ReadLift true (tryT (← rl false) (← `(tactic| (intro f p _ a b; first | (ved_read_lift; rfl) | skip))))
+  Tools.VedMemS94Addr.liftFailLate.set false
+  if rlate then throwError "lift: late failure: the goal was closed"
+  Tools.VedMemS94Addr.liftRefuse.set true
+  let (rref, _) ← withOpt `ved.mem.s94ReadLift true (tryT (← rl false) rlTac)
+  Tools.VedMemS94Addr.liftRefuse.set false
+  if rref then throwError "lift: the refuse seam closed the goal"
+  -- `|||` bounds
+  let ob (m : Nat) : TermElabM Term := `(∀ (x y : BitVec 8), (x.toNat ||| y.toNat) % $(Syntax.mkNumLit (toString m)) = x.toNat ||| y.toNat)
+  let obTac ← `(tactic| (intro x y; ved_or_bounds; omega))
+  let (ooff, _) ← withOpt `ved.mem.s94OrDisj false (tryT (← ob 256) obTac)
+  if ooff then throwError "or: OFF: closed"
+  let o0 ← Tools.VedMemS94Addr.orHits.get
+  let (oon, _) ← withOpt `ved.mem.s94OrDisj true (tryT (← ob 256) obTac)
+  unless oon do throwError "or: ON: not closed"
+  unless (← Tools.VedMemS94Addr.orHits.get) > o0 do throwError "or: ON: counter"
+  let (obad, _) ← withOpt `ved.mem.s94OrDisj true (tryT (← ob 128) obTac)
+  if obad then throwError "or: a false statement (% 128) was closed"
+  Tools.VedMemS94Addr.orFailLate.set true
+  let (olate, _) ← withOpt `ved.mem.s94OrDisj true (tryT (← ob 256) (← `(tactic| (intro x y; first | (ved_or_bounds; omega) | skip))))
+  Tools.VedMemS94Addr.orFailLate.set false
+  if olate then throwError "or: late failure: the goal was closed"
+  Tools.VedMemS94Addr.orRefuse.set true
+  let (oref, _) ← withOpt `ved.mem.s94OrDisj true (tryT (← ob 256) obTac)
+  Tools.VedMemS94Addr.orRefuse.set false
+  if oref then throwError "or: the refuse seam closed the goal"
+  -- gates (`ved.mem.s94Gates`): off, every goal passes; on, a goal without a state variable / a variable power is refused
+  let noPow ← `(∀ (x : Nat), x = x)
+  let withPow ← `(∀ (x m : Nat), x % 2 ^ (m % 8) = x % 2 ^ (m % 8))
+  let (g0, g0ok) ← withOpt `ved.mem.s94Gates false (tryT noPow (← `(tactic| (intro x; ved_pow_gate))))
+  unless g0ok do throwError "gate: OFF: refused"
+  let (_, g1ok) ← withOpt `ved.mem.s94Gates true (tryT noPow (← `(tactic| (intro x; ved_pow_gate))))
+  if g1ok then throwError "gate: ON: a goal without a variable power passed"
+  let (_, g2ok) ← withOpt `ved.mem.s94Gates true (tryT withPow (← `(tactic| (intro x m; ved_pow_gate))))
+  unless g2ok do throwError "gate: ON: a goal with a variable power was refused"
+  let (_, g3ok) ← withOpt `ved.mem.s94Gates true (tryT noPow (← `(tactic| (intro x; ved_state_cheap_gate))))
+  if g3ok then throwError "gate: ON: a goal without a state variable passed"
+  let skipped0 ← Tools.VedMemS94Local.gateSkipped.get
+  let _ ← withOpt `ved.mem.s94Gates true (tryT noPow (← `(tactic| (intro x; ved_state_cheap_gate))))
+  unless (← Tools.VedMemS94Local.gateSkipped.get) == skipped0 + 1 do throwError "gate: skipped counter"
+  -- state split threshold (`ved.mem.s94StateMinConds`): two comparisons are enough for a split only with the option lowered
+  let two ← `(∀ (s : BitVec 3) (x : Nat), x < 10 → (if s.toNat = 0 then x + 1 else if s.toNat = 1 then x else 0) % 16 = (if s.toNat = 0 then x + 1 else if s.toNat = 1 then x else 0))
+  let (_, m4) ← withOpt `ved.mem.s94StateSplit true (tryT two (← `(tactic| (intro s x hx; ved_state_split))))
+  if m4 then throwError "min conds: a split on two comparisons with the default threshold"
+  let (_, m2) ← withOptions (fun os => (os.setBool `ved.mem.s94StateSplit true).insert `ved.mem.s94StateMinConds (DataValue.ofNat 2)) (tryT two (← `(tactic| (intro s x hx; ved_state_split))))
+  unless m2 do throwError "min conds: no split on two comparisons with the threshold 2"
+  logInfo m!"addr_unify / pow_unify / read_lift / or_bounds / gates controls: OFF refused, ON closes (counters), a false statement is refused, late failure restores the goal, the refuse seam refuses"
 
 end Tests.Ved.VedMemLocalCheck

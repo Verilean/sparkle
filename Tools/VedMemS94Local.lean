@@ -997,6 +997,13 @@ initialize stateSplitBranches : IO.Ref Nat ← IO.mkRef 0
 initialize stateSplitRefuse : IO.Ref Bool ← IO.mkRef false
 initialize stateSplitFailLate : IO.Ref Bool ← IO.mkRef false
 
+register_option ved.mem.s94Gates : Bool := {
+  defValue := false
+  descr := "ved_local_goal: a syntactic test before the separate attempts of ved.mem.s94StateSplit (a variable x with enough comparisons x.toNat = k in the target) and ved.mem.s94MulShift (a power 2 ^ e with a non-literal exponent in the target): a goal without it does not pay the attempt (default false)"
+}
+
+initialize gateSkipped : IO.Ref Nat ← IO.mkRef 0
+
 register_option ved.mem.s94StateMinConds : Nat := {
   defValue := 4
   descr := "ved_state_split: fewest comparisons `x.toNat = k` of one variable in the target that make a split worth it (default 4, the value of s94w)"
@@ -1150,6 +1157,24 @@ macro "ved_cond_norm" : tactic =>
 elab "ved_mul_opt_gate" : tactic => do
   unless ved.mem.s94MulShift.get (← getOptions) do throwError "ved_mul_opt_gate: option ved.mem.s94MulShift is off"
 
+/-- `ved_state_cheap_gate` (option `ved.mem.s94Gates`): the state attempt needs a variable with enough comparisons `x.toNat = k` in the target; no such variable: refused at once (the option off: no test) -/
+elab "ved_state_cheap_gate" : tactic => do
+  unless ved.mem.s94Gates.get (← getOptions) do return
+  let g ← getMainGoal
+  if (← stateSplitVar g).isNone then
+    gateSkipped.modify (· + 1)
+    throwError "ved_state_cheap_gate: no state variable in the target"
+
+/-- `ved_pow_gate` (option `ved.mem.s94Gates`): the multiply-shift attempt needs a power `2 ^ e` with a non-literal exponent in the target (the shift by a variable amount) -/
+elab "ved_pow_gate" : tactic => do
+  unless ved.mem.s94Gates.get (← getOptions) do return
+  let g ← getMainGoal
+  let tgt ← instantiateMVars (← g.getType)
+  let isVarPow (x : Expr) : Bool := x.isAppOfArity ``HPow.hPow 6 && !(x.getArg! 5).isAppOf ``OfNat.ofNat && !(x.getArg! 5).isRawNatLit
+  if (collectDag isVarPow tgt).isEmpty then
+    gateSkipped.modify (· + 1)
+    throwError "ved_pow_gate: no power with a variable exponent in the target"
+
 /-- `ved_state_late` / `ved_mul_late`: the test seams "the attempt failed after its work" (the caller restores the goal) -/
 elab "ved_state_late" : tactic => do
   if ← stateSplitFailLate.get then throwError "ved_state_late: failed after its work (test seam)"
@@ -1178,7 +1203,7 @@ macro "ved_state_branch" : tactic =>
 conjunctions of bounds cut to the atoms of the target (`ved_conj_prune`), then the ite tower decided by ONE case split on the value of the state variable (`ved_state_split`, `ved_state_simp`) and one
 `omega` per remaining branch; with no state variable (fewer than `stateSplitMinConds` comparisons `x.toNat = k` in the target) only the pruned context is used (`ved_mux`) -/
 macro "ved_local_close_state" : tactic =>
-  `(tactic| (ved_state_gate; ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *)
+  `(tactic| (ved_state_gate; ved_state_cheap_gate; ved_cone_clear; (try ved_mem_spell); (try ved_cone_opaque); (try ved_pack_extract); ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *)
              (try ved_conj_prune)
              first
              | (ved_state_split; ved_state_simp; all_goals ved_state_branch; ved_state_late)
@@ -1194,7 +1219,7 @@ elab "ved_mul_gate" : tactic => do
 the bounds of the variables, so that `x % 2^k = x` for the bounded factors (`Nat.mod_eq_of_lt` with `omega` as discharger) makes the nonlinear products `|a| * b` (and `2 ^ (m % 32)`) the same atom of both
 sides after the `if`s are split; no case split on the shift amount is needed (it is the same atom on both sides) -/
 macro "ved_local_close_mulshift" : tactic =>
-  `(tactic| (ved_mul_gate; ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); (try ved_atom_args)
+  `(tactic| (ved_mul_gate; ved_pow_gate; ved_cone_clear; (try ved_cone_opaque); (try ved_pack_extract); (try ved_atom_args)
              all_goals (ved_local_small; (try dsimp only at *); (try simp only [ite10_mod2] at *); (try ved_ite_div))
              (try ved_conj_prune)
              (try ved_cond_norm); (try ved_spell_unify); (try ved_read_lift); (try ved_read_bounds); ved_bv_bounds; (try simp only [mux_mod])
