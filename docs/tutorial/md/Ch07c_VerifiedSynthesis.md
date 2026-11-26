@@ -424,6 +424,11 @@ notes are in [`docs/VED-U1-MAIN.md`](../../VED-U1-MAIN.md); the reproduction
 steps of the whole release are in
 [Appendix C](../../research/appendix/C-Reproduction.md).
 
+For a step-by-step tutorial on writing circuits whose proofs go through (a register, two
+extensions, a small change that makes the automatic proof stop, and the ways past it that
+this snapshot supports), see
+[Writing circuits whose proofs go through](../../research/ProofFriendlyCircuits.md).
+
 ```lean
 end Notebooks.Ch07c
 ```

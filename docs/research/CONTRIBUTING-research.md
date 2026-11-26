@@ -47,6 +47,11 @@ The file contains one refused circuit on purpose; `#guard_msgs (error)` pins tha
 the exit status is 0 and the refusal prints nothing. A different exit status or a message diff
 means the result changed.
 
+New to the project? [ProofFriendlyCircuits.md](ProofFriendlyCircuits.md) is a tutorial with small
+runnable files in `docs/research/examples/tutorial/` (each run with `lake env lean`, each exits 0):
+what is accepted, one change that makes an entry refuse, and which ways past exist. It also says
+plainly that no entry takes a user's own lemma in this snapshot.
+
 ## Where things live
 
 | What | Path |

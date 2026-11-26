@@ -206,6 +206,7 @@ success condition in [OpenProblems.md](OpenProblems.md).
 | If you want… | Read |
 |---|---|
 | A guided example you can run | [Tutorial chapter 7c](../tutorial/md/Ch07c_VerifiedSynthesis.md) |
+| How to write circuits whose proofs go through: small runnable examples, a refusal and the ways past it | [ProofFriendlyCircuits.md](ProofFriendlyCircuits.md) |
 | What is proved, on which artifact, which lemmas are reused, worked examples | [PerCircuitVerification.md](PerCircuitVerification.md) |
 | Results by circuit family | [Coverage327.md](Coverage327.md) |
 | The general theorem: what was attempted, what is missing | [CompilerGeneralTheorem.md](CompilerGeneralTheorem.md) |
