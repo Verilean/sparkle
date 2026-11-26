@@ -97,6 +97,17 @@ first. On a clean 4-vCPU CI runner, the normal build took 83 s and `Tools.VedU1E
 (one run, [BuildAndCI.md](BuildAndCI.md)).
 Running the file itself took about 13 seconds once the target was built.
 
+How long you wait depends on what you do. Each figure gives two clean-runner samples at the
+release candidate (4 vCPU, no cache); the conditions are in
+[BuildAndCI.md, section 2](BuildAndCI.md#2-waiting-time-by-use-case).
+
+| You want to | Setup | Then, each time |
+|---|---|---|
+| write circuits in your own project that depends on Sparkle | 112 s / 82 s | 2.2 s / 1.6 s after a circuit edit |
+| develop Sparkle itself | 112 s / 83 s | 3.6 s / 2.7 s after a one-line edit; regression suite 48 s + 351 s (one sample) |
+| prove your own circuits with the existing entry commands | 173 s / 128 s | 2.1 s / 1.6 s for a small proof; 80 s / 60 s and 5.3 GB for a real IP leaf |
+| add lemmas or routes, each with a check | the above plus 13 to 15 min for the other tool libraries | 16 to 59 s to re-check after editing a lemma file; a pull request's VED job runs about 98 min |
+
 ```bash
 lake build Tools.VedU1Entry
 lake env lean docs/research/examples/Delay8.lean ; echo "exit $?"
