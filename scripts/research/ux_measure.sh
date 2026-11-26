@@ -84,14 +84,14 @@ annotate() {
 
 # ---- a0/a1: toolchain download ---------------------------------------------
 rm -rf "$WORK"
-if [ -z "${UX_SKIP_ELAN:-}" ]; then
-run a0 "elan install (no toolchain)" bash -c 'curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none'
-export PATH="$HOME/.elan/bin:$PATH"
-
 run a_clone "git clone + checkout $SHA" bash -c "git clone --quiet '$REPO_URL' '$WORK' && git -C '$WORK' checkout --quiet '$SHA'"
 cd "$WORK" || exit 1
 git rev-parse HEAD | tee "$OUT/head-$LABEL.txt"
 TC=$(cat lean-toolchain)
+if [ -z "${UX_SKIP_ELAN:-}" ]; then
+run a0 "elan install (no toolchain)" bash -c 'curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none'
+export PATH="$HOME/.elan/bin:$PATH"
+
 run a1 "elan toolchain install $TC" elan toolchain install "$TC"
 elan default "$TC" >/dev/null 2>&1
 else echo "UX_SKIP_ELAN set: toolchain steps skipped (debug runs only)"; fi
