@@ -64,7 +64,7 @@ run() {
 annotate() {
   local log=$1 verdict=NOT-accepted prof
   grep -q 'VED U1 OK' "$log" && verdict=accepted
-  prof=$(sed -E 's/^[0-9.]+ //' "$log" | awk '/cumulative profiling times/{f=1;next} f&&/^[ \t]+[a-zA-Z]/{gsub(/^[ \t]+/,"");printf "%s; ",$0} f&&/^[^ \t]/{f=0}')
+  prof=$(sed -E 's/^[0-9.]+ //' "$log" | awk '/cumulative profiling times/{f=1;next} f&&/^[ \t]+[a-zA-Z]/{l=$0;gsub(/^[ \t]+/,"",l);printf "%s; ",l;next} f{f=0}')
   awk -F'\t' -v OFS='\t' -v n="$verdict; $prof" 'NR>1{last=NR} {l[NR]=$0} END{for(i=1;i<=NR;i++){ if(i==last){split(l[i],c,"\t"); c[9]=c[9] " [" n "]"; l[i]=c[1];for(j=2;j<=9;j++)l[i]=l[i] OFS c[j]} print l[i]}}' "$TSV" > "$TSV.tmp" && mv "$TSV.tmp" "$TSV"
 }
 
