@@ -50,7 +50,7 @@ private def lakeRunner : SoCRunner := fun args => do
   return (r.exitCode, r.stdout ++ r.stderr)
 
 private def allExist (paths : Array String) : IO Bool :=
-  paths.allM fun p => System.FilePath.pathExists p
+  paths.allM fun (p : String) => System.FilePath.pathExists p
 
 private def lastLines (s : String) (n : Nat := 40) : String :=
   let ls := s.splitOn "\n"
