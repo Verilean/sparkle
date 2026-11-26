@@ -44,8 +44,11 @@ NOT import `Tools.DeepElab`, and nothing in `Sparkle/` is changed.
    `out_0_1`, …, left-first; Sparkle/Compiler/Elab.lean `splitReturnLeaves`).
    They must be EXACTLY the returned module's output names (else
    `multi-output`); widths are checked by `ShapeStmt`, every port's value by
-   `OutputsStmt`.  Register-free bodies only; structure results stay refused
-   at `table`;
+   `OutputsStmt`.  Bodies with registers: `Signal.loop` bodies
+   (`Tools/VedU1StructSeq.lean`), or ONE plain register with no loop whose
+   output ports are each the register or an input directly (`bundledRegPort?`);
+   other register bodies are refused at `multi-output`.  Structure results stay
+   refused at `table`;
 2. calls `synthesizeCombinational declName` exactly ONCE (the function
    `#synthesizeVerilog` calls; main has no inliner fuel guard) and keeps the
    returned `(m, design)`.  The guarantee is about that returned module, not
@@ -480,7 +483,7 @@ the single register of the delay shape (name, width), `none` for a
 register-free module. -/
 def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat))
     (inNames : List String := []) (eqs : Bool := false) (fStx? : Option Term := none) (helpers : Array Name := #[]) (inWidths : List Nat := [])
-    (tbl? : Option Name := none) (heavy : Nat := 0) :
+    (tbl? : Option Name := none) (heavy : Nat := 0) (regPort : String := "out") :
     TermElabM Syntax := do
   -- the declaration's own helper definitions (private `byte16`, `abbrev` constants,
   -- sub-modules), unfolded by `simp`; untrusted, the kernel checks the result.  The
@@ -693,15 +696,21 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
   | some (r, w) =>
     let rS := Syntax.mkStrLit r
     let wS := Syntax.mkNumLit (toString w)
+    -- the bundled-statement route (`regPort != "out"`) unfolds the product signal; a constant's script is unchanged
+    let bundleLemmas : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+      if regPort == "out" then pure #[] else
+      #[``Sparkle.Core.Signal.bundle2, ``Seq.seq, ``Signal.seq, ``Signal.ap, ``Functor.map, ``Signal.map,
+        ``Sparkle.Core.Signal.Signal.map, ``List.lookup, ``Option.getD_some, ``Option.getD_none].mapM fun n =>
+        `(Lean.Parser.Tactic.simpLemma| $(mkIdent n):ident)
     `(by
         have hord : OrderOk $M $B = true := by decide +kernel
         refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
         apply outputs_of_order $B hord
         apply outputs_of_step $C $M $B $f $O (by decide +kernel)
-          (fun ins s st => st $rS = srcOf $C $f ins "out" s)
+          (fun ins s st => st $rS = srcOf $C $f ins $(Syntax.mkStrLit regPort) s)
         · intro ins hok
           simp [st0, $C:ident, contractOf, regsOf, $M:ident, srcOf, applyIns, $fI:ident,
-            Signal.register, OTy.obs, PTy.obs, PTy.sig, encodeInit, mask, declWidth, Tools.VedU1SmallReg.regEn_zero]
+            Signal.register, OTy.obs, PTy.obs, PTy.sig, encodeInit, mask, declWidth, Tools.VedU1SmallReg.regEn_zero, $bundleLemmas,*]
         · intro ins hok s st mems hR
           have hin := hok.1 s
           have hrst := hok.2 s
@@ -710,7 +719,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
             widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, hrst, or_mod _ _ _ _ rfl,
-            Tools.VedU1SmallReg.regEn_succ, Tools.VedU1Lemmas.evalOp_mux_lit, Nat.shiftRight_eq_div_pow] at hR ⊢
+            Tools.VedU1SmallReg.regEn_succ, Tools.VedU1Lemmas.evalOp_mux_lit, Nat.shiftRight_eq_div_pow, $bundleLemmas,*] at hR ⊢
           have hlt : st $rS < 2 ^ $wS := by rw [hR]; exact BitVec.isLt _
           refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩
           try rw [← hR]
@@ -854,6 +863,22 @@ def regShape (m : Sparkle.IR.AST.Module) : Option (String × Nat) :=
   | [(r, _, _, _)] => some (r, declWidth m r)
   | _ => none
 
+/-- A module with exactly ONE register (the `regShape` delay) and an output port assigned the register's
+wire itself (`out_k = r`), every other output assigned an input directly: that port's name.  The bundled-statement route without a loop invariant uses it:
+`st r = srcOf C f ins <port> s`. -/
+def bundledRegPort? (m : Sparkle.IR.AST.Module) : Option String :=
+  match regsOf m.body with
+  | [(r, _, _, _)] =>
+    -- every output port is assigned directly the register's wire or an input: the scope of the proved shapes
+    let bare := m.outputs.all fun p => m.body.any fun s => match s with
+      | .assign o (.ref x) => o == p.name && (x == r || m.inputs.any (·.name == x))
+      | _ => false
+    if !bare then none else
+    m.body.findSome? fun s => match s with
+      | .assign o (.ref x) => if x == r && m.outputs.any (·.name == o) then some o else none
+      | _ => none
+  | _ => none
+
 /-- The synthesizer's output port names for the leaves of a result tree
 (`splitReturnLeaves`, Sparkle/Compiler/Elab.lean): a leaf is named by its
 prefix, `out` at the root; the two sides of a product get the suffixes `_0`
@@ -968,6 +993,16 @@ register_option ved.u1.firstAttemptHeartbeatsForTest : Nat := {
   defValue := 0
   descr := "VED U1 (test hook): cap (thousands) of the first-attempt script instead of the fixed one (0 = off)" }
 
+/-- the local heartbeat cap (thousands) of the `prelude` stage of the u1 sequential first attempt (`ved_stage_cap` around
+the part of the script before `intro_pre`): about twice the largest `prelude` of the first attempts that succeeded in
+the pr17 measurement (397k, R147); a bound for this measured set, not for every circuit.  The fallback is unchanged. -/
+def preludeCapHeartbeats : Nat := 800000
+
+/-- TEST HOOK (default 0 = off): replaces `preludeCapHeartbeats` (thousands) -/
+register_option ved.u1.preludeCapForTest : Nat := {
+  defValue := 0
+  descr := "VED U1 (test hook): cap (thousands) of the prelude stage of the first-attempt script instead of the fixed one (0 = off)" }
+
 /-- The heartbeat limit of the first attempt: `cap` is the cap in heartbeats; a context value of 0
 means unlimited, so the cap applies; a finite one is kept when it is below the cap. -/
 def firstAttemptLimit (ctx cap : Nat) : Nat := if ctx == 0 then cap else min ctx cap
@@ -976,10 +1011,13 @@ def firstAttemptLimit (ctx cap : Nat) : Nat := if ctx == 0 then cap else min ctx
 proof budget, and at most `firstAttemptHeartbeats` thousand heartbeats of it; any failure (exception,
 timeout, logged error, open term) puts the state back (messages and environment included) and
 returns `none`, so the caller runs the script it always ran. -/
-def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lean.Expr) := do
+def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) (stamps : Option Name := none) :
+    TermElabM (Option Lean.Expr) := do
   let saved ← saveState
   let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
   let hb0 ← IO.getNumHeartbeats
+  -- `VED_STAGE_STAMPS=1` (`stamps := some decl`): per-stage lines on stderr, see `Tools.VedU1ScriptSeq.stageLine`
+  if let some d := stamps then Tools.VedU1ScriptSeq.stageStart d.toString "u1_seq" "first" "prelude" hb0
   let capK := match ved.u1.firstAttemptHeartbeatsForTest.get (← getOptions) with
     | 0 => firstAttemptHeartbeats
     | n => n
@@ -992,14 +1030,107 @@ def tryScriptFirst (stx : Syntax) (expected : Lean.Expr) : TermElabM (Option Lea
           synthesizeSyntheticMVarsNoPostponing
           instantiateMVars e
       let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
-      if errs.length != errsBefore || pf.hasMVar || pf.hasFVar then pure none else pure (some pf))
-    fun _ => pure none
+      if errs.length != errsBefore || pf.hasMVar || pf.hasFVar then
+        if stamps.isSome then
+          Tools.VedU1ScriptSeq.stageFail (if errs.length != errsBefore then "logged_error" else "open_term")
+        pure none
+      else
+        if stamps.isSome then Tools.VedU1ScriptSeq.stageOk
+        pure (some pf))
+    fun e => do
+      if stamps.isSome then Tools.VedU1ScriptSeq.stageFail (Tools.VedU1ScriptSeq.stageReason e)
+      pure none
   if r.isNone then saved.restore (restoreInfo := true)
   return r
 
 /-- Is `e` already a `VED U1 REFUSED …` error? -/
 def isRefusal (e : Exception) : MetaM Bool := do
   return (← e.toMessageData.toString).startsWith "VED U1 REFUSED"
+
+/-- Debugging only (env `VED_KBISECT=file`, default unset; nothing else uses it): walk the closed proof term `pf` (DAG, binders
+entered with fresh locals), and for every application argument whose Meta-inferred type differs structurally from the binder type
+(the checks the kernel must make by definitional unfolding) run `Lean.Kernel.isDefEq` and log `#n size ms` lines (flushed BEFORE the
+check, so the last line of a killed run names the expensive one).  With `VED_KBISECT_DUMP=n` the two sides of check `n` are printed
+(truncated). -/
+partial def kBisect (path : String) (dump : Option Nat) (pf : Lean.Expr) : MetaM Unit := do
+  let h ← IO.FS.Handle.mk path .append
+  let seen ← IO.mkRef (∅ : Std.HashSet Lean.Expr)
+  let cnt ← IO.mkRef (0 : Nat)
+  let rec go (e : Lean.Expr) : MetaM Unit := do
+    if (← seen.get).contains e then return
+    seen.modify (·.insert e)
+    match e with
+    | .app .. =>
+      let f := e.getAppFn
+      let args := e.getAppArgs
+      go f
+      for a in args do go a
+      unless f.isLambda || f.isMVar do
+        let mut fty ← try inferType f catch _ => pure f
+        for a in args do
+          let fty' ← if fty.isForall then pure fty else (try whnf fty catch _ => pure fty)
+          match fty' with
+          | .forallE _ d b _ =>
+            let aty ← try inferType a catch _ => pure d
+            if !(aty == d) then
+              let n ← cnt.modify (· + 1) *> cnt.get
+              let hd (x : Lean.Expr) : String := toString (x.getAppFn.constName?.getD (if x.isProj then `proj else if x.isLambda then `lam else `_))
+              let sides := match d.eq?, aty.eq? with
+                | some (_, l1, r1), some (_, l2, r2) => s!" L={hd l1}~{hd l2} R={hd r1}~{hd r2}"
+                | _, _ => s!" T={hd d}~{hd aty}"
+              let heavy := if (d.find? (·.isAppOf ``ite)).isSome then " HEAVY" else ""
+              h.putStrLn s!"#{n} head={f.constName?.getD `_} sizeA={aty.approxDepth} sizeB={d.approxDepth}{sides}{heavy}"
+              h.flush
+              if dump == some n then
+                let sh (x : Lean.Expr) : MetaM String := withOptions
+                  (fun o => ((o.setBool `pp.deepTerms false).set `pp.deepTerms.threshold (4 : Nat)).setBool `pp.explicit true)
+                  do return ((toString (← ppExpr x)).take 6000).toString
+                h.putStrLn s!"DUMP expected(binder)= {← sh d}"
+                h.putStrLn s!"DUMP inferred(arg)  = {← sh aty}"
+                h.putStrLn s!"DUMP arg head = {(a.getAppFn.constName?.getD `_)} nargs={a.getAppNumArgs}; f = {f}"
+                h.putStrLn s!"DUMP arg = {← sh a}"
+                for (j, b) in a.getAppArgs.toList.zipIdx.map (fun (x, i) => (i, x)) do
+                  h.putStrLn s!"DUMP arg[{j}] type = {(← try sh (← inferType b) catch _ => pure "?")}"
+                -- drill down: the two sides of the `Eq`, then the left side delta-unfolded step by step
+                if let (some (_, l1, r1), some (_, l2, r2)) := (d.eq?, aty.eq?) then
+                  let tryK (lbl : String) (x y : Lean.Expr) : MetaM Unit := do
+                    h.putStrLn s!"DRILL {lbl} start"; h.flush
+                    let t0 ← IO.monoMsNow
+                    let r := Lean.Kernel.isDefEq (← getEnv) (← getLCtx) x y
+                    h.putStrLn s!"DRILL {lbl} {(← IO.monoMsNow) - t0} ms {match r with | .ok b => toString b | .error _ => "kernel-error"}"; h.flush
+                  tryK "rhs=rhs" r1 r2
+                  let mut x := l1
+                  for i in [0:10] do
+                    h.putStrLn s!"DRILL left[{i}] head={x.getAppFn.constName?.getD `_}: {(← sh x).take 400}"
+                    if ((← IO.getEnv "VED_KBISECT_RIGHT").bind String.toNat?) == some i then tryK s!"left[{i}]=right" x l2
+                    let xc ← whnfCore x
+                    let nx? ← if xc != x then pure (some xc) else unfoldDefinition? x
+                    match nx? with
+                    | some x' => tryK s!"left[{i}]=left[{i+1}]" x x'; x := x'
+                    | none => break
+                h.flush
+              let t0 ← IO.monoMsNow
+              let r := Lean.Kernel.isDefEq (← getEnv) (← getLCtx) aty d
+              let t1 ← IO.monoMsNow
+              h.putStrLn s!"#{n} done {t1 - t0} ms {match r with | .ok b => toString b | .error _ => "kernel-error"}"
+              h.flush
+            fty := b.instantiate1 a
+          | _ => break
+    | .lam n t b bi =>
+      go t
+      withLocalDecl n bi t fun x => go (b.instantiate1 x)
+    | .forallE n t b bi =>
+      go t
+      withLocalDecl n bi t fun x => go (b.instantiate1 x)
+    | .letE n t v b _ =>
+      go t; go v
+      withLetDecl n t v fun x => go (b.instantiate1 x)
+    | .mdata _ b => go b
+    | .proj _ _ b => go b
+    | _ => pure ()
+  go pf
+  h.putStrLn s!"VED KBISECT finished {← cnt.get} checks"
+  h.flush
 
 /-- The checker under the entry.  `decl` names the refusal; `stmt` is the
 term put into the statement (the entry: `decl` itself, or `@decl defaultDomain`); `m` is the module
@@ -1044,10 +1175,12 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     unless outNames.length == tbl.out.flat.length do
       refuse decl "multi-output"
         m!"{outNames.length} output port names for {tbl.out.flat.length} output projections"
-    -- registers under a bundled statement term: only a `Signal.loop` body (`Tools/VedU1StructSeq.lean`)
+    -- registers under a bundled statement term: a `Signal.loop` body (`Tools/VedU1StructSeq.lean`)
+    -- or one plain register with outputs wired to it / to inputs (`bundledRegPort?`)
     if !stmt.getAppFn.isConst && (regsOf m.body).length != 0 &&
-        !(← Tools.VedU1Uns.usesLoop decl (← helperConsts decl)) then
-      refuse decl "multi-output" m!"multi-output with registers is supported for `Signal.loop` bodies only"
+        !(← Tools.VedU1Uns.usesLoop decl (← helperConsts decl)) &&
+        (bundledRegPort? m).isNone then
+      refuse decl "multi-output" m!"multi-output with registers is supported for `Signal.loop` bodies and one plain register with outputs wired to it or to inputs only"
     -- the closed term of `m`, checked to denote `m` itself
     let mE := toExpr m
     let back ← withEvalBudget (evalModule mE)
@@ -1115,6 +1248,11 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
           else
           scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
             tblD? (heavy := if bodyHasSigned m.body then 1 else 0)
+        else if let some rp := (if (← Tools.VedU1Uns.usesLoop decl (← helperConsts decl)) then none else bundledRegPort? m) then
+          -- a bundled statement term with ONE plain register and no loop: the single-register script, its
+          -- invariant read at the output port the register drives (`bundledRegPort?`)
+          scriptFor nm decl 0 (regShape m) inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt)) (← helperConsts decl) widths
+            (regPort := rp)
         else if !(regsOf m.body).isEmpty then
           -- a bundled statement term (a structure / product result) with registers: one loop invariant,
           -- one equality per output port (`Tools/VedU1StructSeq.lean`)
@@ -1124,16 +1262,19 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
       | .term s => pure s
       | .built mk => try mk nm m catch e => refuse decl "proof" e.toMessageData
     -- first attempt: the per-statement multi-register script (`Tools/VedU1ScriptSeqGen.lean`)
-    let firstPf? : Option Lean.Expr ← do
+    -- `VED_STAGE_STAMPS=1` (default off, one getEnv): per-stage lines on stderr (`Tools.VedU1ScriptSeq.stageLine`)
+    let stamps := (← IO.getEnv "VED_STAGE_STAMPS") == some "1"
+    let (firstPf?, firstRan) : Option Lean.Expr × Bool ← do
       if let .generated := proof then
         let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
         if stmt.getAppFn.isConst && regs.length ≥ 2 && chainStx?.isNone then
           match ← Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body stmt.getAppFn.constName!
-              stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) with
-          | some sx => tryScriptFirst sx expected
-          | none => pure none
-        else pure none
-      else pure none
+              stmt.getAppNumArgs m b0 clkRst (dataPortsOf m clkRst) regs (← helperConsts stmt.getAppFn.constName!) stamps
+              (match ved.u1.preludeCapForTest.get (← getOptions) with | 0 => preludeCapHeartbeats | n => n) with
+          | some sx => pure (← tryScriptFirst sx expected (if stamps then some decl else none), true)
+          | none => pure (none, false)
+        else pure (none, false)
+      else pure (none, false)
     let errsBefore := (← Core.getMessageLog).toList.filter (·.severity == .error) |>.length
     -- a runtime limit (heartbeats, recursion depth) here is a `proof` refusal
     -- (the script is too costly), not the catch-all `checker`
@@ -1144,25 +1285,72 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     let pf ← match firstPf? with
       | some e => pure e
       | none =>
+        let fbStamps := stamps && firstRan
+        if fbStamps then Tools.VedU1ScriptSeq.stageStart decl.toString "u1" "fallback" "elab" (← IO.getNumHeartbeats)
         tryCatchRuntimeEx
           (withProofBudget do
           withoutErrToSorry do
             let e ← elabTermEnsuringType stx expected
             synthesizeSyntheticMVarsNoPostponing
             instantiateMVars e)
-          fun e => refuse decl "proof" e.toMessageData
+          fun e => do
+            if fbStamps then Tools.VedU1ScriptSeq.stageFail (Tools.VedU1ScriptSeq.stageReason e)
+            refuse decl "proof" e.toMessageData
+    -- `VED_MS_LOG` (debugging only, default unset): the proof is elaborated; the kernel starts next
+    -- a failure to write this log is absorbed: it never refuses or changes a proof
+    if let some path ← IO.getEnv "VED_MS_LOG" then
+     try
+      let h ← IO.FS.Handle.mk path .append
+      h.putStrLn s!"VED MS elaborated {← IO.monoMsNow} hb={(← IO.getNumHeartbeats) / 1000}k (kernel next)"
+      let mut seen : Std.HashSet Lean.Expr := {}
+      let mut todo : Array Lean.Expr := #[pf]
+      while !todo.isEmpty do
+        let x := todo.back!
+        todo := todo.pop
+        if seen.contains x then continue
+        seen := seen.insert x
+        match x with
+        | .app f a => todo := (todo.push a).push f
+        | .lam _ t b _ => todo := (todo.push b).push t
+        | .forallE _ t b _ => todo := (todo.push b).push t
+        | .letE _ t v b _ => todo := ((todo.push b).push v).push t
+        | .mdata _ b => todo := todo.push b
+        | .proj _ _ b => todo := todo.push b
+        | _ => pure ()
+      h.putStrLn s!"VED MS proof dag={seen.size}"
+      h.flush
+     catch _ => pure ()
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then
       let first ← match errs.drop errsBefore with
         | msg :: _ => msg.data.toString
         | [] => pure ""
+      if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageFail "logged_error"
       refuse decl "proof" m!"errors were logged while elaborating the proof; first: {first}"
-    if pf.hasMVar || pf.hasFVar then refuse decl "proof" m!"proof term is not closed"
+    if pf.hasMVar || pf.hasFVar then
+      if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageFail "open_term"
+      refuse decl "proof" m!"proof term is not closed"
+    if stamps && firstRan && firstPf?.isNone then Tools.VedU1ScriptSeq.stageOk
+    -- debugging only (default unset): a failure of the bisection tool never refuses or changes the proof
+    if let some path ← IO.getEnv "VED_KBISECT" then
+      try kBisect path ((← IO.getEnv "VED_KBISECT_DUMP").bind String.toNat?) pf catch _ => pure ()
+    if let some path ← IO.getEnv "VED_MS_LOG" then
+      try
+        let h ← IO.FS.Handle.mk path .append
+        h.putStrLn s!"VED MS kernel start {← IO.monoMsNow}"
+        h.flush
+      catch _ => pure ()
     -- the kernel, synchronously, with EXACTLY the expected type
     tryCatchRuntimeEx
       (withProofBudget <| withOptions (fun o => o.setBool `Elab.async false) do
         addDecl (.thmDecl { name := nm.thm, levelParams := [], type := expected, value := pf }))
       fun e => refuse decl "kernel" e.toMessageData
+    if let some path ← IO.getEnv "VED_MS_LOG" then
+      try
+        let h ← IO.FS.Handle.mk path .append
+        h.putStrLn s!"VED MS kernel end {← IO.monoMsNow}"
+        h.flush
+      catch _ => pure ()
     let some (.thmInfo ti) := (← getEnv).find? nm.thm
       | refuse decl "kernel" m!"{nm.thm} is not a theorem in the environment"
     unless ti.type == expected do refuse decl "type" m!"stored type differs from the expected statement"

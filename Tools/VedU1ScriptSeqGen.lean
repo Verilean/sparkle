@@ -675,13 +675,143 @@ def stmtNames : Stmt → List String
 private def dedup (xs : List String) : List String :=
   xs.foldl (fun acc x => if acc.contains x then acc else acc ++ [x]) []
 
+/-! ### per-stage stamps (default OFF)
+
+Measurement aid, `VED_STAGE_STAMPS=1`: one stderr line per event, prefix `VED STAGE` (and a flushed copy in the file `VED_STAGE_LOG`, if given).  The state is one
+`IO.Ref` (the attempt in progress); `ved_stage "name"` ends the current stage and begins `name`.  The
+script of `seqLoopScript` contains `ved_stage` tactics ONLY when it is asked to (`stamps := true`,
+decided by the caller once); otherwise the script is the one it always was.  Nothing here touches a
+proof, a budget or a limit.  A FAIL line carries a fixed reason code (`stageReason`), never a formatted
+message, so no goal is printed or formatted for it.  Every function here swallows its own IO errors and then
+clears the state: a failing log line never changes what the checker does next.
+The one global `IO.Ref` assumes one check at a time in a process (not re-entrant; the harness runs one
+case per process).  A reader treats an attempt without END/FAIL as `incomplete`, and a declaration
+without stage lines as `not_applicable`. -/
+
+structure StageCtx where
+  decl : String
+  route : String
+  attempt : String
+  ms0 : Nat
+  hb0 : Nat
+  msPrev : Nat
+  hbPrev : Nat
+  cur : String
+
+initialize stageCtx : IO.Ref (Option StageCtx) ← IO.mkRef none
+
+/-- the diagnostic file named by `VED_STAGE_LOG` (an absolute path; opened once in append mode, flushed per
+line): Lean captures `IO.eprintln` into the command's messages, which are lost when the process is killed, so
+the stamp lines are also written there.  A separate file, never the process's stderr: reopening `/dev/stderr`
+gives a second file description whose writes overwrite what the parent (e.g. the RSS guard) writes through its
+own descriptor of the same file.  `none` when the variable is unset/empty or the file cannot be opened; then
+the lines go to the messages only.  The messages stay the record of a finished command; the file is the copy
+that survives a kill, so a reader counts lines from ONE of the two (the file when it is given), never both. -/
+initialize stageErr : IO.Ref (Option (Option IO.FS.Handle)) ← IO.mkRef none
+
+/-- `key` of `/proc/self/status` (`VmRSS` / `VmHWM`, in kB) as text, `?` on any error -/
+def procStatusKb (key : String) : IO String := do
+  try
+    let txt ← IO.FS.readFile "/proc/self/status"
+    for l in txt.splitOn "\n" do
+      if l.startsWith (key ++ ":") then
+        let ds := ((l.drop (key.length + 1)).trimAscii.takeWhile Char.isDigit).toString
+        return if ds.isEmpty then "?" else ds
+    return "?"
+  catch _ => return "?"
+
+/-- the line to the `VED_STAGE_LOG` file (flushed); errors are swallowed -/
+def stageRawLine (line : String) : IO Unit := do
+  try
+    let h ← match ← stageErr.get with
+      | some h => pure h
+      | none =>
+        let path := (← IO.getEnv "VED_STAGE_LOG").getD ""
+        let h ← if path.isEmpty then pure none
+          else try some <$> IO.FS.Handle.mk path .append catch _ => pure none
+        stageErr.set (some h)
+        pure h
+    if let some h := h then
+      h.putStr (line ++ "\n")
+      h.flush
+  catch _ => pure ()
+
+/-- one line; `ms_delta` / `hb_delta` are since the previous line of the attempt (so the deltas of all
+lines add up to the last `rel`), `hb` in thousands of heartbeats; `reason` (FAIL only) is a fixed code (`stageFail`), never a formatted message -/
+def stageLine (stage ev : String) (reason : String := "") : IO Unit := do
+  let some c ← stageCtx.get | return
+  try
+    let ms ← IO.monoMsNow
+    let hb := (← IO.getNumHeartbeats) / 1000
+    let rss ← procStatusKb "VmRSS"
+    let hwm ← procStatusKb "VmHWM"
+    let line := s!"VED STAGE decl={c.decl} route={c.route} attempt={c.attempt} stage={stage} ev={ev} ms_rel={ms - c.ms0} ms_delta={ms - c.msPrev} hb_rel={hb - c.hb0 / 1000} hb_delta={hb - c.hbPrev} rss_kb={rss} hwm_kb={hwm}{if ev == "FAIL" then s!" reason={reason}" else ""}"
+    IO.eprintln line
+    stageRawLine line
+    stageCtx.set (some { c with msPrev := ms, hbPrev := hb })
+  catch _ => stageCtx.set none
+
+/-- the fixed reason code of a failed attempt (reads the exception's kind tag only, formats nothing) -/
+def stageReason (e : Lean.Exception) : String :=
+  if e.isMaxHeartbeat then "max_heartbeats"
+  else if e.isMaxRecDepth then "max_rec_depth"
+  else if e.isInterrupt then "interrupt"
+  else "exception"
+
+/-- begin an attempt (`hb0` in heartbeats: the value the attempt's budget counts from) -/
+def stageStart (decl route attempt first : String) (hb0 : Nat) : IO Unit := do
+  try
+    let ms ← IO.monoMsNow
+    stageCtx.set (some { decl, route, attempt, ms0 := ms, hb0, msPrev := ms, hbPrev := hb0 / 1000, cur := first })
+    stageLine "attempt" "BEGIN"
+    stageLine first "BEGIN"
+  catch _ => stageCtx.set none
+
+/-- end the current stage, begin `name` -/
+def stageNext (name : String) : IO Unit := do
+  let some c ← stageCtx.get | return
+  stageLine c.cur "END"
+  stageLine name "BEGIN"
+  if let some c ← stageCtx.get then stageCtx.set (some { c with cur := name })
+
+def stageOk : IO Unit := do
+  let some c ← stageCtx.get | return
+  stageLine c.cur "END"
+  stageLine "attempt" "END"
+  stageCtx.set none
+
+/-- the attempt failed in the stage last begun; `reason` is a fixed code (`stageReason`, `logged_error`,
+`open_term`) -/
+def stageFail (reason : String) : IO Unit := do
+  let some c ← stageCtx.get | return
+  stageLine c.cur "FAIL" reason
+  stageLine "attempt" "FAIL" reason
+  stageCtx.set none
+
+/-- `ved_stage "name"`: (only in a script generated with stamps) end the current stage and begin `name` -/
+elab "ved_stage " n:str : tactic => stageNext n.getString
+
+open Lean Elab Tactic in
+/-- `ved_stage_cap n t`: `t` with a local heartbeat cap of `n` thousand, never above what is left of the ambient
+budget (the rule of `ved_budget`, `Tools/VedU1Entry.lean`: local max = min(remaining ambient, n), at least 1; with an
+unlimited ambient budget the local one alone).  Unlike `ved_budget` the exhaustion is NOT turned into an ordinary
+failure: it is the same runtime exception the ambient budget raises, so the first attempt that contains it fails the
+way it fails when its own budget runs out (`tryScriptFirst`: state restored, the caller runs the script it always ran). -/
+elab "ved_stage_cap " n:num t:tactic : tactic => do
+  let hb ← IO.getNumHeartbeats
+  let loc := n.getNat * 1000
+  withTheReader Core.Context (fun c =>
+      let left := c.maxHeartbeats - (hb - c.initHeartbeats)
+      { c with maxHeartbeats := if c.maxHeartbeats == 0 then loc else max 1 (min left loc), initHeartbeats := hb })
+    (evalTactic t)
+
 /-- The script, or `none` when the module is outside its shape (a register whose input is not a
 plain wire, a data input that is not scalar, no clock/reset for the registers).
 `C M O B` are the checker's constants (contract, module, outputs, body), `F`/`nDom` the
 declaration, `b0` the arrangement stored as `B`, `regs` the registers `(name, width)`. -/
 def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b0 : List Stmt)
     (clkRst : Option (String × String)) (dataPorts : List Port) (regs : List (String × Nat))
-    (helpers : Array Name) : TermElabM (Option Syntax) := do
+    (helpers : Array Name) (stamps : Bool := false) (preludeCapK : Nat := 0) : TermElabM (Option Syntax) := do
   let some (clkN, rstN) := clkRst | return none
   -- registers: their input must be a plain wire, their reset the module's, their init non-negative
   let mut regInfo : Array (String × Nat × String × String × Int) := #[]
@@ -803,7 +933,7 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(Lean.Parser.Tactic.simpLemma| contractOf), ← `(Lean.Parser.Tactic.simpLemma| applyIns),
     ← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA
   let exReg := mk (#[applyL] ++ sigBase ++ hrgL ++ hwL ++ hEinL ++ hErL ++ #[hErstL] ++ hsL)
-  let closeTacs : Array (TSyntax `tactic) := #[
+  let closeBase : Array (TSyntax `tactic) := #[
     ← `(tactic| ved_omega_c_reset),
     ← `(tactic| ved_seq_unmdata),
     ← `(tactic| all_goals (try simp only [vedToNatAppend, BitVec.toNat_append, BitVec.toNat_ofNat, Nat.shiftLeft_eq])),
@@ -818,33 +948,50 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(tactic| all_goals (try simp only [Nat.mod_mul_mod, Nat.mul_mod_mod])),
     ← `(tactic| all_goals (try simp only [Tools.VedU1Loop.ved_mul_lit_nat])),
     ← `(tactic| ved_seq_close_each)]
+  -- stage stamps (only when asked): the stage of a stamp is what runs up to the next one
+  let stg (n : String) : TermElabM (Array (TSyntax `tactic)) :=
+    if stamps then do pure #[← `(tactic| ved_stage $(Syntax.mkStrLit n))] else pure #[]
+  let closeNames := #["omega_reset", "unmdata", "simp_append", "simp_reduce", "simp_mod_mod", "wide_simp",
+    "bit_simp", "or_lit", "pack_c1", "bits_facts", "mul_facts", "pack_c2", "mod_mul", "mul_lit_nat", "close_each"]
+  let closeTacs (pfx : String) : TermElabM (Array (TSyntax `tactic)) := do
+    let mut r : Array (TSyntax `tactic) := #[]
+    for i in [0:closeBase.size] do
+      r := r ++ (← stg s!"{pfx}close_{closeNames[i]!}")
+      r := r.push closeBase[i]!
+    return r
   let pats2 ← (hregs.toList).mapM fun h => `(Lean.Parser.Tactic.rcasesPatLo| $h:ident)
   let hPat : TSyntax `rcasesPat ← match pats2 with
     | [] => `(rcasesPat| _)
     | _ => `(rcasesPat| ⟨$[$(pats2.toArray)],*⟩)
   let mut tacs : Array (TSyntax `tactic) := #[]
+  tacs := tacs ++ (← stg "intro_pre")
   tacs := tacs.push (← `(tactic| intro $insI hok $sI st mems $hR))
   tacs := tacs ++ pre
   let hv0 := mkIdent `hv0
   tacs := tacs.push (← `(tactic| obtain ⟨$vI, $hv0⟩ : ∃ v, v = srcOf $Ci $f $insI "out" $sI := ⟨_, rfl⟩))
   tacs := tacs.push (← `(tactic| have $hv := $hv0))
+  tacs := tacs ++ (← stg "hv_aux")
   tacs := tacs.push (← `(tactic| ved_seq_aux $hv:ident (
       try dsimp only [$Oi:ident, $Mi:ident, $Bi:ident, Tools.VedU1Contract.declWidth, Tools.VedU1Contract.srcOf, $Ci:ident, Tools.VedU1Contract.contractOf, Tools.VedU1Contract.applyIns, $fI:ident,
         Sparkle.Core.Signal.Signal.map, Sparkle.Core.Signal.Signal.register, Sparkle.Core.Signal.Signal.beq, Sparkle.Core.Signal.Signal.seq, Sparkle.Core.Signal.Signal.ap, Sparkle.Core.Signal.bundle2, Functor.map, Seq.seq,
         Sparkle.Core.Signal.Signal.slt, Sparkle.Core.Signal.Signal.ult, Sparkle.Core.Signal.Signal.ule, Sparkle.Core.Signal.Signal.ashr, Sparkle.Core.Signal.Signal.lt, Sparkle.Core.Signal.Signal.le, Tools.VedU1Contract.OTy.obs, Tools.VedU1Contract.PTy.obs, Tools.VedU1Contract.PTy.sig, -Nat.reduceAdd, $(mk hsA),*] at $hv:ident
       ved_seq_simp [$Oi:ident, $Mi:ident, $Bi:ident, declWidth, srcOf, $Ci:ident, contractOf, applyIns, $fI:ident, $(mk hsA),*] at $hv:ident)))
+  tacs := tacs ++ (← stg "loop_R")
   tacs := tacs.push (← `(tactic| ved_loop_R $insI [$rNames,*] $rWidths,*))
   tacs := tacs.push (← `(tactic| obtain $hPat := $hR))
+  tacs := tacs ++ (← stg "gen_next")
   tacs := tacs.push (← `(tactic| ved_seq_gen $sI))
   tacs := tacs.push (← `(tactic| ved_seq_next $sI [$(mk (#[← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA)),*]))
+  tacs := tacs ++ (← stg "step_seq")
   tacs := tacs.push (← `(tactic| obtain ⟨E, hstep, hfr, hall⟩ := Tools.VedU1ScriptSeq.step_seq (declWidth $Mi) mems $Bi
     (Tools.VedU1Contract.seedIn $Mi $insI $sI st) (by decide +kernel) (by decide +kernel)))
   tacs := tacs ++ postStep
   tacs := tacs.push (← `(tactic| obtain $allPat := hall))
-  tacs := tacs ++ perStmt
+  tacs := tacs ++ (← stg "perStmt") ++ perStmt
+  tacs := tacs ++ (← stg "refine_split")
   tacs := tacs.push (← `(tactic| refine ⟨E, Tools.VedU1ScriptSeq.nextsOf (declWidth $Mi) E $Bi, mems, hstep, ?_, ?_⟩))
   -- outputs
-  let outTacs : Array (TSyntax `tactic) := #[
+  let outTacs : Array (TSyntax `tactic) := (← stg "out_head") ++ #[
     ← `(tactic| intro o ho),
     ← `(tactic| simp only [$Oi:ident, List.mem_cons, List.mem_singleton, List.not_mem_nil, or_false] at ho),
     ← `(tactic| subst ho),
@@ -853,13 +1000,13 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
     ← `(tactic| rw [$hv:ident]),
     ← `(tactic| simp only [$(mk hsL),*, -Nat.reduceAdd]),
     ← `(tactic| ved_seq_bools),
-    ← `(tactic| all_goals try (repeat' apply And.intro))] ++ closeTacs
-  let regTacs : Array (TSyntax `tactic) := #[
+    ← `(tactic| all_goals try (repeat' apply And.intro))] ++ (← closeTacs "out_")
+  let regTacs : Array (TSyntax `tactic) := (← stg "reg_head") ++ #[
     ← `(tactic| ved_seq_sub),
     ← `(tactic| ved_seq_simp [$exReg,*]),
     ← `(tactic| ved_seq_bools),
-    ← `(tactic| all_goals try (repeat' apply And.intro))] ++ closeTacs
-  let h0tacs : Array (TSyntax `tactic) := #[
+    ← `(tactic| all_goals try (repeat' apply And.intro))] ++ (← closeTacs "reg_")
+  let h0tacs : Array (TSyntax `tactic) := (← stg "h0") ++ #[
     ← `(tactic| intro $insI hok),
     ← `(tactic| ved_seq_next0 [$(mk (#[← `(Lean.Parser.Tactic.simpLemma| $fI:ident)] ++ hsA)),*]),
     ← `(tactic| ved_seq_sub),
@@ -869,11 +1016,17 @@ def seqLoopScript (C M O B F : Name) (nDom : Nat) (m : Sparkle.IR.AST.Module) (b
   let b1 ← `(tactic| · $outTacs*)
   let b2 ← `(tactic| · $regTacs*)
   let hblock : Array (TSyntax `tactic) := tacs ++ #[b1, b2]
+  -- the part before the first stage (`prelude`): with `preludeCapK > 0` under a local heartbeat cap
+  let preludeTacs : Array (TSyntax `tactic) := #[
+    ← `(tactic| have hord : OrderOk $Mi $Bi = true := by decide +kernel),
+    ← `(tactic| refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$Bi, hord⟩, ?_⟩),
+    ← `(tactic| apply Tools.VedU1Contract.outputs_of_order $Bi hord),
+    ← `(tactic| refine $oos $Ci $Mi $Bi $f $Oi (by decide +kernel) ?R ?h0 ?hstep)]
+  let preludeBlock : Array (TSyntax `tactic) ←
+    if preludeCapK == 0 then pure preludeTacs
+    else pure #[← `(tactic| ved_stage_cap $(Syntax.mkNumLit (toString preludeCapK)) ($preludeTacs*))]
   let stx ← `(by
-      have hord : OrderOk $Mi $Bi = true := by decide +kernel
-      refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$Bi, hord⟩, ?_⟩
-      apply Tools.VedU1Contract.outputs_of_order $Bi hord
-      refine $oos $Ci $Mi $Bi $f $Oi (by decide +kernel) ?R ?h0 ?hstep
+      $preludeBlock*
       case hstep =>
         $hblock*
       case h0 =>

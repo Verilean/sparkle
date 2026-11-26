@@ -151,11 +151,11 @@ def twoReg (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 
 /-- Run the checker on `twoReg` with caller budget 0 (unlimited) and `ved.u1.proofHeartbeats` 0, the
 first-attempt cap set to `cap` thousand (0 = the fixed cap), then check the stored type (`==`) and
 std3, and count the proof constants it added (the first attempt's per-statement theorems). -/
-def runTwoReg (tag : Name) (cap : Nat) : TermElabM Nat := do
+def runTwoReg (tag : Name) (cap : Nat) (preludeCap : Nat := 0) : TermElabM Nat := do
   let (m, _) ← Sparkle.Compiler.Elab.synthesizeCombinational ``twoReg
   let env0 ← getEnv
-  let thm ← withOptions (fun o => ((o.set `ved.u1.proofRecDepth (0 : Nat)).set `ved.u1.proofHeartbeats
-      (0 : Nat)).set `ved.u1.firstAttemptHeartbeatsForTest cap) <|
+  let thm ← withOptions (fun o => (((o.set `ved.u1.proofRecDepth (0 : Nat)).set `ved.u1.proofHeartbeats
+      (0 : Nat)).set `ved.u1.firstAttemptHeartbeatsForTest cap).set `ved.u1.preludeCapForTest preludeCap) <|
     Core.withCurrHeartbeats <| withTheReader Core.Context (fun c => { c with maxHeartbeats := 0 }) do
       checkU1 ``twoReg tag ``twoReg m .generated
   let nm := Names.ofBase tag
@@ -193,5 +193,90 @@ run_cmd expectRefused "proof" (checkerNames `ctlLow) do
   discard <| withOptions (fun o => (o.set `ved.u1.proofRecDepth (0 : Nat)).set `ved.u1.proofHeartbeats (0 : Nat)) <|
     Core.withCurrHeartbeats <| withTheReader Core.Context (fun c => { c with maxHeartbeats := 300000 }) do
       checkU1 ``twoReg `ctlLow ``twoReg m .generated
+
+/-! ## 4b. The local cap of the `prelude` stage (`ved_stage_cap`)
+
+`ved_stage_cap n t` runs `t` under a local budget of `n` thousand heartbeats that never exceeds what is left of the
+ambient one.  The fixed cap of the entry (`preludeCapHeartbeats`, 800k) leaves the first attempt of `twoReg`
+alone (the 'first attempt under the fixed cap succeeds' control above runs with it); a 1k cap on the prelude stops the
+first attempt at once and the fallback still proves the statement (same route observation as `ctlCap`).  The
+script carries the wrapper once when asked to and not at all by default. -/
+
+/-- info: prelude cap 1k: first attempt stopped in the prelude, flat script accepted, same stored type -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  if firstAttemptLeft (← runTwoReg `ctlPrel 0 1) then throwError "the prelude cap did not stop the first attempt"
+  logInfo "prelude cap 1k: first attempt stopped in the prelude, flat script accepted, same stored type"
+
+/-- the wrapper is in the script exactly when a cap is given -/
+def capCount (cap : Nat) : TermElabM Nat := do
+  let (m, _) ← Sparkle.Compiler.Elab.synthesizeCombinational ``twoReg
+  let nm := Names.ofBase `ctlPrelTxt
+  let clkRst := clkRstOf m
+  let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+  let hs ← helperConsts ``twoReg
+  let some stx ← Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body ``twoReg 0 m
+      (orderBody m.body) clkRst (dataPortsOf m clkRst) regs hs false cap | throwError "no script"
+  return ((toString stx).splitOn "ved_stage_cap").length - 1
+
+/-- info: ved_stage_cap in the script: default 0, cap 800000 1 -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let a ← capCount 0
+  let b ← capCount 800000
+  unless a == 0 && b == 1 do throwError "wrapper count {a} {b}"
+  logInfo m!"ved_stage_cap in the script: default {a}, cap 800000 {b}"
+
+-- the tactic directly: a goal that needs less than the cap passes
+example : 2 + 2 = 4 := by ved_stage_cap 100000 decide
+
+/-! ## 5. Stage stamps (`VED_STAGE_STAMPS`, default off)
+
+The switch is decided once by the entry and handed to `seqLoopScript` (`stamps`, default `false`): the
+script generated with the switch off (and by default) contains no `ved_stage` tactic, and is the same
+syntax tree whether `stamps` is given as `false` or left out; with the switch on the stamps are in it.
+The run-time lines (`VED STAGE …`) depend on time and heartbeats and are not checked here. -/
+
+def stampCount (stamps : Option Bool) : TermElabM (Nat × String) := do
+  let (m, _) ← Sparkle.Compiler.Elab.synthesizeCombinational ``twoReg
+  let nm := Names.ofBase `ctlStamp
+  let clkRst := clkRstOf m
+  let regs := (regsOf m.body).map fun r => (r.1, declWidth m r.1)
+  let hs ← helperConsts ``twoReg
+  let r ← if let some st := stamps then
+      Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body ``twoReg 0 m
+        (orderBody m.body) clkRst (dataPortsOf m clkRst) regs hs st
+    else
+      Tools.VedU1ScriptSeq.seqLoopScript nm.contract nm.mod nm.outs nm.body ``twoReg 0 m
+        (orderBody m.body) clkRst (dataPortsOf m clkRst) regs hs
+  let some stx := r | throwError "no script"
+  let txt := toString stx
+  return ((txt.splitOn "ved_stage").length - 1, txt)
+
+/-- info: stamps off: 0 `ved_stage`, equal to the default script; stamps on: 40 -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let (nOff, tOff) ← stampCount (some false)
+  let (nDef, tDef) ← stampCount none
+  let (nOn, _) ← stampCount (some true)
+  unless nOff == 0 && nDef == 0 && tOff == tDef do throwError "the switch-off script differs from the default one"
+  logInfo m!"stamps off: {nOff} `ved_stage`, equal to the default script; stamps on: {nOn}"
+
+/-! ## 6. A failed attempt's stamp reads only the exception's kind tag
+
+`stageReason` gives a fixed code and formats nothing: an exception whose message is lazy (here: one that
+records being formatted) is classified without the formatter running, both untagged and tagged as a
+heartbeat timeout.  `stageFail` with no attempt in progress is a no-op (and formats nothing either). -/
+
+/-- info: reasons: exception, max_heartbeats; formatter called: false -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let called ← IO.mkRef false
+  let lazyMsg : MessageData := .lazy (fun _ => do called.set true; pure m!"large goal")
+    (onMissingContext := fun _ => do called.set true; pure m!"large goal")
+  let r1 := Tools.VedU1ScriptSeq.stageReason (.error .missing lazyMsg)
+  let r2 := Tools.VedU1ScriptSeq.stageReason (.error .missing (.tagged `runtime.maxHeartbeats lazyMsg))
+  Tools.VedU1ScriptSeq.stageFail r1
+  logInfo m!"reasons: {r1}, {r2}; formatter called: {← called.get}"
 
 end Tests.Ved.U1SeqCheck

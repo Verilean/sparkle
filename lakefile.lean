@@ -328,6 +328,42 @@ lean_lib «Tools.VedU2HierBvAppend» where
 lean_lib «Tools.VedU2HierLoopRw» where
   roots := #[`Tools.VedU2HierLoopRw]
 
+lean_lib «Tools.VedU2HierMultiLoop» where
+  roots := #[`Tools.VedU2HierMultiLoop]
+
+lean_lib «Tools.VedU2HierMultiGen» where
+  roots := #[`Tools.VedU2HierMultiGen]
+
+lean_lib «Tools.VedU2HierMultiBundle» where
+  roots := #[`Tools.VedU2HierMultiBundle]
+
+lean_lib «Tools.VedU2HierMultiChain» where
+  roots := #[`Tools.VedU2HierMultiChain]
+
+lean_lib «Tools.VedComposeStep» where
+  roots := #[`Tools.VedComposeStep]
+
+lean_lib «Tools.VedComposeOrder» where
+  roots := #[`Tools.VedComposeOrder]
+
+lean_lib «Tools.VedComposeResearchCut» where
+  roots := #[`Tools.VedComposeResearchCut]
+
+lean_lib «Tools.VedComposePrelude» where
+  roots := #[`Tools.VedComposePrelude]
+
+lean_lib «Tools.VedComposeConnect» where
+  roots := #[`Tools.VedComposeConnect]
+
+lean_lib «Tools.VedComposeConnectGen» where
+  roots := #[`Tools.VedComposeConnectGen]
+
+lean_lib «Tools.VedComposeMultiLoop» where
+  roots := #[`Tools.VedComposeMultiLoop]
+
+lean_lib «Tools.VedComposeMultiCircuit» where
+  roots := #[`Tools.VedComposeMultiCircuit]
+
 lean_lib «Tools.VedU2HierXorAttr» where
   roots := #[`Tools.VedU2HierXorAttr]
 
@@ -451,6 +487,15 @@ lean_lib «Tools.VedU1MerkleWhnf» where
 lean_lib «Tools.VedU1StructSeqTac» where
   roots := #[`Tools.VedU1StructSeqTac]
 
+lean_lib «Tools.VedU1StructWires» where
+  roots := #[`Tools.VedU1StructWires]
+
+lean_lib «Tools.VedU1StructSlice» where
+  roots := #[`Tools.VedU1StructSlice]
+
+lean_lib «Tools.VedU1StructWireEqs» where
+  roots := #[`Tools.VedU1StructWireEqs]
+
 lean_lib «Tools.VedU1StructSeq» where
   roots := #[`Tools.VedU1StructSeq]
 
@@ -529,8 +574,35 @@ lean_lib «Tests.Ved.U1RegChainCheck» where
 lean_lib «Tests.Ved.VedMemCheck» where
   roots := #[`Tests.Ved.VedMemCheck]
 
+lean_lib «Tests.Ved.VedMemShapeCheck» where
+  roots := #[`Tests.Ved.VedMemShapeCheck]
+
+lean_lib «Tests.Ved.VedMemOrderCheck» where
+  roots := #[`Tests.Ved.VedMemOrderCheck]
+
+lean_lib «Tests.Ved.U1OrderFastCheck» where
+  roots := #[`Tests.Ved.U1OrderFastCheck]
+
+lean_lib «Tests.Ved.U1StructShareCheck» where
+  roots := #[`Tests.Ved.U1StructShareCheck]
+
+lean_lib «Tests.Ved.U1StructWireCheck» where
+  roots := #[`Tests.Ved.U1StructWireCheck]
+
+lean_lib «Tests.Ved.U1StructNamedCheck» where
+  roots := #[`Tests.Ved.U1StructNamedCheck]
+
+lean_lib «Tests.Ved.VedMemWidthCheck» where
+  roots := #[`Tests.Ved.VedMemWidthCheck]
+
 lean_lib «Tests.Ved.VedMemPackCheck» where
   roots := #[`Tests.Ved.VedMemPackCheck]
+
+lean_lib «Tests.Ved.VedMemCloseCheck» where
+  roots := #[`Tests.Ved.VedMemCloseCheck]
+
+lean_lib «Tests.Ved.VedSupplementCheck» where
+  roots := #[`Tests.Ved.VedSupplementCheck]
 
 lean_lib «Tests.Ved.VedMemWriteCheck» where
   roots := #[`Tests.Ved.VedMemWriteCheck]
@@ -1673,6 +1745,15 @@ lean_lib «Tests.IP.Net.HTTPTest» where
 lean_lib «Tests.Ved.U2HierStateCallCheck» where
   roots := #[`Tests.Ved.U2HierStateCallCheck]
 
+lean_lib «Tests.Ved.U2HierMultiCheck» where
+  roots := #[`Tests.Ved.U2HierMultiCheck]
+
+lean_lib «Tests.Ved.ComposeCheckUtil» where
+  roots := #[`Tests.Ved.ComposeCheckUtil]
+
+lean_lib «Tests.Ved.ComposeStepCheck» where
+  roots := #[`Tests.Ved.ComposeStepCheck]
+
 lean_lib «Tests.Ved.U2HierPartialDeepCheck» where
   roots := #[`Tests.Ved.U2HierPartialDeepCheck]
 
@@ -1733,8 +1814,56 @@ lean_lib «Tools.VedMem» where
 lean_lib «Tools.VedMemEntry» where
   roots := #[`Tools.VedMemEntry]
 
+lean_lib «Tools.VedSupplement» where
+  roots := #[`Tools.VedSupplement]
+
 lean_lib «Tools.VedMemLoop» where
   roots := #[`Tools.VedMemLoop]
 
+lean_lib «Tools.VedMemS94Diag» where
+  roots := #[`Tools.VedMemS94Diag]
+
+lean_lib «Tools.VedMemCausalProbe» where
+  roots := #[`Tools.VedMemCausalProbe]
+
 lean_lib «Tools.VedMemPack» where
   roots := #[`Tools.VedMemPack]
+
+lean_lib «Tools.VedMemShape» where
+  roots := #[`Tools.VedMemShape]
+
+lean_lib «Tools.VedMemNest» where
+  roots := #[`Tools.VedMemNest]
+
+lean_lib «Tools.VedMemOrder» where
+  roots := #[`Tools.VedMemOrder]
+
+lean_lib «Tools.VedU1OrderFast» where
+  roots := #[`Tools.VedU1OrderFast]
+
+lean_lib «Tools.VedMemWidth» where
+  roots := #[`Tools.VedMemWidth]
+
+lean_lib «Tests.Ved.ComposeConnectCheck» where
+  roots := #[`Tests.Ved.ComposeConnectCheck]
+
+lean_lib «Tests.Ved.ComposeDeadSlotCheck» where
+  roots := #[`Tests.Ved.ComposeDeadSlotCheck]
+
+lean_lib «Tools.VedComposeMultiOut» where
+  roots := #[`Tools.VedComposeMultiOut]
+
+lean_lib «Tools.VedH3ChildChainLemmas» where
+  roots := #[`Tools.VedH3ChildChainLemmas]
+
+lean_lib «Tools.VedU2HierMultiOut» where
+  roots := #[`Tools.VedU2HierMultiOut]
+
+lean_lib «Tests.Ved.MultiOutCheck» where
+  roots := #[`Tests.Ved.MultiOutCheck]
+
+lean_lib «Tests.Ved.MultiOutProbe» where
+  roots := #[`Tests.Ved.MultiOutProbe]
+
+lean_lib «Tools.VedU2HierMultiOutH» where
+  roots := #[`Tools.VedU2HierMultiOutH]

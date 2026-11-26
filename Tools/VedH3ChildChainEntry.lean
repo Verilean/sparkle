@@ -19,6 +19,10 @@ open Lean Elab Term Meta Sparkle.IR.AST Sparkle.IR.Semantics Tools.VedU1Contract
 deriving instance Lean.ToExpr for Stg
 deriving instance Lean.ToExpr for CData
 
+/-- a `|||` of two 16-bit values needs no `% 65536` (the prelude's masked `or` against the signal side's `|||`) -/
+theorem or_mod_16 (a b : Nat) (ha : a < 65536) (hb : b < 65536) : (a ||| b) % 65536 = a ||| b :=
+  Nat.mod_eq_of_lt (by simpa using Nat.or_lt_two_pow (n := 16) ha hb)
+
 /-- the first half of a stage at the head of `ss` -/
 def takeS1 : List Stmt → Option (String × String × String × String × String × String × String × String × List Stmt)
   | .assign a17 (.concat [.ref h0, .ref A]) :: .assign b17 (.concat [.ref h0', .ref B]) ::
@@ -120,7 +124,14 @@ def buildChain (stmtDecl : Name) (nDom : Nat) (nm : Names) (m : Sparkle.IR.AST.M
     inTacs := inTacs.push (← `(tactic| have $sdI : seedIn $M $insI $sI st $nS = $insI $sI $nS := by
         unfold seedIn; exact if_pos (by decide +kernel)))
     sdL := sdL.push (← `(Lean.Parser.Tactic.simpLemma| $sdI:term))
+    let hwI := mkIdent (Name.mkSimple s!"hw{k}")
+    inTacs := inTacs.push (← `(tactic| have $hwI : declWidth $M $nS = $wN := by decide +kernel))
+    sdL := sdL.push (← `(Lean.Parser.Tactic.simpLemma| $hwI:term))
     modL := modL.push (← `(Lean.Parser.Tactic.simpLemma| Nat.mod_eq_of_lt $bI:term))
+    if w ≤ 16 then
+      let bwI := mkIdent (Name.mkSimple s!"hbw{k}")
+      inTacs := inTacs.push (← `(tactic| have $bwI : $insI $sI $nS < 65536 := by omega))
+      modL := modL.push (← `(Lean.Parser.Tactic.simpLemma| $bwI:term))
   let sds : Syntax.TSepArray [``Lean.Parser.Tactic.simpStar, ``Lean.Parser.Tactic.simpErase, ``Lean.Parser.Tactic.simpLemma] "," :=
     Syntax.TSepArray.ofElems (sdL.map fun x => (⟨x.raw⟩ : TSyntax _))
   let mods : Syntax.TSepArray [``Lean.Parser.Tactic.simpStar, ``Lean.Parser.Tactic.simpErase, ``Lean.Parser.Tactic.simpLemma] "," :=
@@ -148,10 +159,12 @@ def buildChain (stmtDecl : Name) (nDom : Nat) (nm : Names) (m : Sparkle.IR.AST.M
             (seedIn $M $insI $sI st) = some env1 ∧ ($Dc).PreFacts env1 := by
         simp [Tools.VedH3ChildChain.CData.PreFacts, Tools.VedH3ChildChain.CData.stages, $Dc:ident,
           Sparkle.IR.Semantics.evalAssigns, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalOp,
+          Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.widthOf.go,
           Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.mask, $sds,*]
         omega
       obtain ⟨envF, hrun, hout⟩ := Tools.VedH3ChildChain.body_eval (declWidth $M) mems _ hok _ env1 hpre hf
       simp [Sparkle.IR.Semantics.evalAssigns, Sparkle.IR.Semantics.evalExpr, Sparkle.IR.Semantics.evalOp,
+        Sparkle.IR.Semantics.evalExpr.go, Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.widthOf.go,
         Sparkle.IR.Semantics.widthOf, Sparkle.IR.Semantics.mask, $sds,*, $Dc:ident] at hpre
       subst hpre
       have hasg : (($Dc).body).all Tools.VedU1Table.isAsg = true := by decide +kernel
@@ -173,7 +186,7 @@ def buildChain (stmtDecl : Name) (nDom : Nat) (nm : Names) (m : Sparkle.IR.AST.M
       simp only [$fI:ident, key]
       simp [Tools.VedH3ChildChain.onesStageSig_toNat, Sparkle.Core.Signal.Signal.map, BitVec.toNat_not,
         BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Tools.VedU1Lemmas.pure_val, Nat.shiftRight_eq_div_pow,
-        BitVec.toNat_append, Tools.VedU1Lemmas.toNat_append', $hlp,*, $mods,*])
+        BitVec.toNat_append, Tools.VedU1Lemmas.toNat_append', Tools.VedH3ChildChainEntry.or_mod_16, $hlp,*, $mods,*])
 
 /-- the proof source for a leaf that is an add-stage chain (`none`: not of this shape) -/
 def chainProofSrc? (cdecl : Name) (cdom : Nat) (cm : Sparkle.IR.AST.Module) : Option ProofSrc :=

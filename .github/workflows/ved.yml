@@ -71,7 +71,7 @@ jobs:
       run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
 
     - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
-      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1StructOutCheck Tests.Ved.U1StructSeqCheck Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck Tests.Ved.VedMemCheck Tests.Ved.VedMemWriteCheck
+      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1StructOutCheck Tests.Ved.U1StructSeqCheck Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck Tests.Ved.VedMemCheck Tests.Ved.VedMemWriteCheck Tests.Ved.VedMemShapeCheck Tests.Ved.VedMemOrderCheck Tests.Ved.VedMemWidthCheck
 
     - name: U1 Circuit-monad register loop (positives, xor chain; must-stay-refused controls)
       run: lake build Tests.Ved.U1CircuitLoopCheck
@@ -103,6 +103,12 @@ jobs:
     - name: Memory stage tactics (ved_pack_dag, ved_decide_small2, ved_ctrl_cases; ran / refused controls)
       run: lake build Tests.Ved.VedMemPackCheck
 
+    - name: Memory closing stage (ved_mem_addr Expr.replace path, clearSigHyps, ved_omega_t, ved_omega_n, ved_leaf_gate; refusal controls)
+      run: lake build Tests.Ved.VedMemCloseCheck
+
+    - name: User lemma for one memory-loop causal side condition (ved.mem.userLemma; isDefEq on the full goal type, strict audit; refusal controls)
+      run: lake build Tests.Ved.VedSupplementCheck
+
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
 
@@ -111,6 +117,18 @@ jobs:
 
     - name: "H2c-state (a child call on the parent's register state): copies, controls"
       run: lake build Tests.Ved.U2HierStateCallCheck
+
+    - name: "H3-open (several child instances on the parent's register state, the child output feeding the loop): loop knot, bundle reads; controls"
+      run: lake build Tests.Ved.U2HierMultiCheck
+
+    - name: "Composed step (ved.compose.step, shared bundle-slice walk): accepted, independent type == U2HRStmt, std3; new-path controls"
+      run: lake build Tests.Ved.ComposeStepCheck
+
+    - name: "Composed connection (ved.compose.connect, approved cone_connect_bn via reg_connect/out_connect): multiTwo/multiShared accepted, type == U2HRStmt, same artifact, std3; refused controls"
+      run: lake build Tests.Ved.ComposeConnectCheck
+
+    - name: "Multi-output statement candidate (U2HRStmtK, coincidence with U2HRStmt for single-output designs; ved.compose.multiOut shape stage and controls)"
+      run: lake build Tests.Ved.MultiOutCheck
 
     - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
       run: lake build Tests.Ved.U2HierPartialDeepCheck
@@ -187,7 +205,7 @@ jobs:
       run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
 
     - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
-      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1StructOutCheck Tests.Ved.U1StructSeqCheck Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck Tests.Ved.VedMemCheck Tests.Ved.VedMemWriteCheck
+      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1StructOutCheck Tests.Ved.U1StructSeqCheck Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck Tests.Ved.VedMemCheck Tests.Ved.VedMemWriteCheck Tests.Ved.VedMemShapeCheck Tests.Ved.VedMemOrderCheck Tests.Ved.VedMemWidthCheck
 
     - name: U1 Circuit-monad register loop (positives, xor chain; must-stay-refused controls)
       run: lake build Tests.Ved.U1CircuitLoopCheck
@@ -231,6 +249,12 @@ jobs:
     - name: Memory stage tactics (ved_pack_dag, ved_decide_small2, ved_ctrl_cases; ran / refused controls)
       run: lake build Tests.Ved.VedMemPackCheck
 
+    - name: Memory closing stage (ved_mem_addr Expr.replace path, clearSigHyps, ved_omega_t, ved_omega_n, ved_leaf_gate; refusal controls)
+      run: lake build Tests.Ved.VedMemCloseCheck
+
+    - name: User lemma for one memory-loop causal side condition (ved.mem.userLemma; isDefEq on the full goal type, strict audit; refusal controls)
+      run: lake build Tests.Ved.VedSupplementCheck
+
     - name: U1 on a real IP leaf (rconHW, representative, heavier)
       run: lake build Tests.Ved.U1RconCheck
 
@@ -239,6 +263,21 @@ jobs:
 
     - name: "H2c-state (a child call on the parent's register state): copies, controls"
       run: lake build Tests.Ved.U2HierStateCallCheck
+
+    - name: "H3-open (several child instances on the parent's register state, the child output feeding the loop): loop knot, bundle reads; controls"
+      run: lake build Tests.Ved.U2HierMultiCheck
+
+    - name: "Composed step (ved.compose.step, shared bundle-slice walk): accepted, independent type == U2HRStmt, std3; new-path controls"
+      run: lake build Tests.Ved.ComposeStepCheck
+
+    - name: "Composed connection (ved.compose.connect, approved cone_connect_bn via reg_connect/out_connect): multiTwo/multiShared accepted, type == U2HRStmt, same artifact, std3; refused controls"
+      run: lake build Tests.Ved.ComposeConnectCheck
+
+    - name: "Dead trailing register slot through #ved_u2_hier (ved.compose.multiCircuit): toy accepted, type == U2HRStmt, std3; live-slot and option-off refusals pinned"
+      run: lake build Tests.Ved.ComposeDeadSlotCheck
+
+    - name: "Multi-output statement candidate (U2HRStmtK, coincidence with U2HRStmt for single-output designs; ved.compose.multiOut shape stage and controls)"
+      run: lake build Tests.Ved.MultiOutCheck
 
     - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
       run: lake build Tests.Ved.U2HierPartialDeepCheck

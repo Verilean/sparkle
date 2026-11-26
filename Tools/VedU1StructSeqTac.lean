@@ -5,6 +5,7 @@ import Tools.VedU1LemmasExt1
 import Tools.VedU1Loop
 import Tools.VedU1ScriptSeqGen
 import Tools.VedU1MultiSeqLemmas
+import Tools.VedU1StructSlice
 
 /-!
 # Tactics of the structure-with-registers script (`Tools/VedU1StructSeq.lean`)
@@ -22,6 +23,85 @@ namespace Tools.VedU1StructSeqTac
 open Sparkle.IR.AST Sparkle.IR.Type Sparkle.IR.Semantics
 open Sparkle.Core.Domain Sparkle.Core.Signal
 open Tools.VedU1Contract Tools.VedU1Loop
+
+section
+open Lean Meta Elab Tactic
+
+/-- Default off (sparkle-ved-multiout unit 14): the stage simp sets use the proof-carrying wrappers `Tools.VedU1StructSlice.nr.<n>` of core's `rfl`
+lemmas (`kshapeNames`: `BitVec.toNat_add`, `extractLsb'_toNat`, `Option.getD_some`, …), which `simp` applies without a proof term; see
+`Tools/VedU1StructSlice.lean` (kernel cost of a large literal added to a symbolic operand). -/
+register_option ved.sseq.kshape : Bool := {
+  defValue := false
+  descr := "ved.sseq.kshape: extractLsb' toNat steps with a proof term, not by rfl (kernel cost, default off)"
+}
+
+/-- Control only (default 0 = off and inert; nothing in a proof route reads it otherwise): forces a RUNTIME failure (a heartbeat budget of 1) in
+one recovery site so that a test can show the handler is reached and the run continues through its restore / fallback.  Bits: 1 =
+`ved_wire_bits`-first of the ratio route of `ved_ss_pack_share` (the ratio route is forced too), 2 = the first per-wire hV simp of
+`ved_ss_wiresimp`, 4 = its atoms simp tried once under the failing budget and then run normally, 8 = its atoms simp only under the failing budget
+(the fallback is the skipped simp). -/
+register_option ved.sseq.ctlFail : Nat := {
+  defValue := 0
+  descr := "ved.sseq.ctlFail: control only, forces a heartbeat failure in a recovery site (bit mask 1/2/4/8; default 0 = off)"
+}
+
+/-- Control only: how often each recovery handler ran (0: `ved_wire_bits`-first runtime handler, 1: its outer failure handler, 2: hV simp
+handler, 3: atoms simp handler); `ctlHit` cannot fail and is not read by any proof route. -/
+initialize ctlReached : IO.Ref (Array Nat) ← IO.mkRef (Array.replicate 4 0)
+
+def ctlHit (k : Nat) : IO Unit := ctlReached.modify fun a => a.modify k (· + 1)
+
+/-- `x` under a heartbeat budget of 1 (a runtime failure) when `on`, unchanged otherwise -/
+def ctlHb {α : Type} (on : Bool) (x : TacticM α) : TacticM α :=
+  if !on then x else do
+    let hb ← IO.getNumHeartbeats
+    withTheReader Core.Context (fun c => { c with maxHeartbeats := 1, initHeartbeats := hb }) x
+
+/-- `stx` mentions the identifier `old` -/
+partial def hasIdent (old : Name) (stx : Lean.Syntax) : Bool :=
+  match stx with
+  | .ident _ _ n _ => n.eraseMacroScopes == old
+  | .node _ _ args => args.any (hasIdent old)
+  | _ => false
+
+/-- every occurrence of the identifier `old` in `stx` replaced by `new` -/
+partial def swapIdent (old new : Name) (stx : Lean.Syntax) : Lean.Syntax :=
+  match stx with
+  | .ident info _ n _ => if n.eraseMacroScopes == old then Lean.mkIdentFrom stx new else stx
+  | .node info k args => .node info k (args.map (swapIdent old new))
+  | _ => stx
+
+/-- `ved.sseq.kshape`: core's `rfl` lemmas (`Tools.VedU1StructSlice.kshapeNames`; `simp` records no proof term for them) are replaced in the
+`simp` call `stx` by the proof-carrying wrappers `nr.<n>`: swapped where the call names them, added where it does not, erased from the
+default simp set.  Identity when the option is off. -/
+def kshapeFix (stx : Lean.Syntax) : Lean.Elab.Tactic.TacticM Lean.Syntax := do
+  if !ved.sseq.kshape.get (← getOptions) then return stx
+  let names := Tools.VedU1StructSlice.kshapeNames
+  let mut stx'' := stx
+  let mut adds : Array (Lean.Syntax) := #[]
+  let defaults ← Lean.Meta.getSimpTheorems
+  for n in names do
+    let w := Tools.VedU1StructSlice.nrName n
+    if hasIdent n stx'' then stx'' := swapIdent n w stx''
+    else adds := adds.push (← `(tactic| simp [$(mkCIdent w):term])).raw
+    if defaults.isLemma (.decl n) then
+      let er ← `(tactic| simp [-$(mkIdent n):ident])
+      adds := adds.push er.raw
+  let lemOpt := stx''.getArg 4
+  let mut arr := if lemOpt.getNumArgs == 0 then #[] else (lemOpt.getArg 1).getArgs
+  for a in adds do
+    if !arr.isEmpty then arr := arr.push (Lean.mkAtom ",")
+    arr := arr ++ ((a.getArg 4).getArg 1).getArgs
+  let lemOpt' := if lemOpt.getNumArgs == 0
+    then Lean.mkNullNode #[Lean.mkAtom "[", Lean.mkNullNode arr, Lean.mkAtom "]"]
+    else lemOpt.setArg 1 ((lemOpt.getArg 1).setArgs arr)
+  return stx''.setArg 4 lemOpt'
+
+/-- `ved_kfix (simp …)`: the `simp` call through `kshapeFix` (option `ved.sseq.kshape`, default off: unchanged) -/
+elab "ved_kfix " "(" t:tactic ")" : tactic => do
+  Lean.Elab.Tactic.evalTactic (← kshapeFix t.raw)
+
+end
 
 syntax (name := vedSsCoreSimp) "ved_ss_core_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
 
@@ -49,14 +129,14 @@ syntax (name := vedSsWideSimp) "ved_ss_wide_simp " "[" Lean.Parser.Tactic.simpLe
 
 macro_rules
   | `(tactic| ved_ss_wide_simp [$ex,*] $[$loc]?) =>
-    `(tactic| simp [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
+    `(tactic| ved_kfix (simp [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?))
 
 
 syntax (name := vedSsLoopWideSimp) "ved_ss_loopw_simp " "[" Lean.Parser.Tactic.simpLemma,* "]" (Lean.Parser.Tactic.location)? : tactic
 
 macro_rules
   | `(tactic| ved_ss_loopw_simp [$ex,*] $[$loc]?) =>
-    `(tactic| simp -implicitDefEqProofs (maxSteps := 4000000) [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?)
+    `(tactic| ved_kfix (simp -implicitDefEqProofs (maxSteps := 4000000) [BitVec.extractLsb'_toNat, BitVec.toNat_ofNat, Nat.shiftRight_eq_div_pow, Nat.shiftLeft_eq, Tools.VedU1Lemmas.bit1_eq, Tools.VedU1Lemmas.toNat_append', BitVec.toNat_neg, BitVec.toInt_eq_toNat_cond, Sparkle.IR.Semantics.toSigned, Tools.VedU1Lemmas.or_hi_8, Tools.VedU1Lemmas.or_hi_16, Tools.VedU1Lemmas.or_hi_24, Tools.VedU1Lemmas.or_hi_32, Tools.VedU1Lemmas.or_hi_40, Tools.VedU1Lemmas.or_hi_48, Tools.VedU1Lemmas.or_hi_64, Tools.VedU1Lemmas.and_mod_r, Tools.VedU1Lemmas.and_mod_l, Tools.VedU1Lemmas.toNat_sshiftRight', Tools.VedU1Lemmas.toInt_ofNat_toSigned, Tools.VedU1Lemmas.beq_ofNat, Tools.VedU1Lemmas.toNat_decide_ite, Tools.VedU1Lemmas.toNat_not_decide_ite, Tools.VedU1Lemmas.toNat_ite_true, Tools.VedU1Lemmas.ofNat_eq_iff, Tools.VedU1Lemmas.ule_decide, Tools.VedU1Lemmas.ult_decide, Tools.VedU1Lemmas.xor_one_one, Nat.reduceXor, Nat.reduceOr, Nat.reduceAnd, apply_ite BitVec.toNat, -Nat.reduceAdd, $ex,*] $[$loc]?))
 
 
 syntax (name := vedSsLoopClose) "ved_ss_loop_close " "[" Lean.Parser.Tactic.simpLemma,* "]" : tactic
@@ -182,20 +262,54 @@ elab "ved_ss_leafwise" : tactic => do
 the goal to stderr (debugging the per-goal cost of the closing stage). -/
 elab "ved_ss_timed " t:tactic : tactic => do
   let g ← getMainGoal
-  let sz := (← instantiateMVars (← g.getType)).approxDepth
+  let tgt0 ← instantiateMVars (← g.getType)
+  let sz := tgt0.approxDepth
+  -- the pointer-memoised TREE size (`Tools.VedU1Loop.treeSizeVal`: the size the tree-walking tactics pay for) next to the
+  -- depth; one visit per pointer
+  let tree := Tools.VedU1Loop.treeSizeVal tgt0
+  let nh ← g.withContext do pure (← getLCtx).size
+  let hb0 ← IO.getNumHeartbeats
   if let some path ← IO.getEnv "VED_MS_LOG" then
-    let h ← IO.FS.Handle.mk path .append
-    h.putStrLn s!"VED MS start {← IO.monoMsNow} depth={sz}"
-    h.flush
+    try
+      let h ← IO.FS.Handle.mk path .append
+      h.putStrLn s!"VED MS start {← IO.monoMsNow} depth={sz} tree={tree} goals={(← getGoals).length} hbtotal={hb0 / 1000} tac={((t.raw.reprint.getD "").trimAscii.copy.take 70).toString}"
+      h.flush
+    catch _ => pure ()
   let t0 ← IO.monoMsNow
   let r ← try evalTactic t; pure true catch _ => pure false
   let t1 ← IO.monoMsNow
-  let msg := s!"VED MS goal {g.name} depth={sz} {t1 - t0}ms ok={r}"
+  let hb1 ← IO.getNumHeartbeats
+  -- distinct sub-terms (DAG) of the goal before / the first goal after: tree vs DAG says whether sharing is kept (debugging only)
+  let dagOf (e : Lean.Expr) : Nat := Id.run do
+    let mut seen : Std.HashSet Lean.Expr := {}
+    let mut todo := #[e]
+    while !todo.isEmpty do
+      let x := todo.back!
+      todo := todo.pop
+      if seen.contains x then continue
+      seen := seen.insert x
+      match x with
+      | .app f a => todo := (todo.push a).push f
+      | .lam _ t b _ => todo := (todo.push b).push t
+      | .forallE _ t b _ => todo := (todo.push b).push t
+      | .letE _ t v b _ => todo := ((todo.push b).push v).push t
+      | .mdata _ b => todo := todo.push b
+      | .proj _ _ b => todo := todo.push b
+      | _ => pure ()
+    return seen.size
+  let after ← match ← getGoals with
+    | g1 :: _ => do
+      let t1 ← instantiateMVars (← g1.getType)
+      pure s!" dag0={dagOf tgt0} after: tree={Tools.VedU1Loop.treeSizeVal t1} dag={dagOf t1}"
+    | [] => pure s!" dag0={dagOf tgt0} after: closed"
+  let msg := s!"VED MS goal {g.name} depth={sz} tree={tree} hyps={nh} {t1 - t0}ms hb={(hb1 - hb0) / 1000} ok={r}{after}"
   match ← IO.getEnv "VED_MS_LOG" with
   | some path =>
-    let h ← IO.FS.Handle.mk path .append
-    h.putStrLn msg
-    h.flush
+    try
+      let h ← IO.FS.Handle.mk path .append
+      h.putStrLn msg
+      h.flush
+    catch _ => pure ()
   | none => IO.eprintln msg
   unless r do throwError "ved_timed: failed"
 
@@ -249,6 +363,13 @@ elab "ved_ss_xor_ones" : tactic => withMainContext do
       done := true
     unless done do skip := skip.push t
 
+/-- Default off: the stage simp sets use `Tools.VedU1StructSlice.ved_mux_val_cond` (`Signal.mux` through `cond`, `Bool.cond_eq_ite` afterwards)
+instead of `Tools.VedU1Lemmas.mux_val` (see the lemma: `simp` loops on `mux (ule p s) (s - p) s`). -/
+register_option ved.sseq.muxCond : Bool := {
+  defValue := false
+  descr := "ved.sseq.muxCond: stage simp sets use the cond form of Signal.mux (default off)"
+}
+
 /-- `ved_ss_core_simp_big [lemmas] (at loc)?`: `ved_core_simp` with the simp step budget raised
 (`maxSteps`): a packed result with registers unfolds the whole body of every register and every
 projection in one `simp`. -/
@@ -264,15 +385,21 @@ elab "ved_ss_core_simp_big " "[" ex:Lean.Parser.Tactic.simpLemma,* "]" loc:(Lean
       ``Tools.VedU1MultiSeqLemmas.shr_val_scI, ``Tools.VedU1MultiSeqLemmas.shr_val_csI,
       ``Tools.VedU1MultiSeqLemmas.append_val_scI, ``Tools.VedU1MultiSeqLemmas.append_val_csI].mapM
       fun n => `(Lean.Parser.Tactic.simpLemma| $(mkCIdent n):term)
+  let muxC := ved.sseq.muxCond.get (← getOptions)
+  let more ← if muxC then do
+      pure (more ++ #[← `(Lean.Parser.Tactic.simpLemma| Bool.cond_eq_ite)])
+    else pure more
   let all : Syntax.TSepArray ``Lean.Parser.Tactic.simpLemma "," :=
     Syntax.TSepArray.ofElems (ex.getElems ++ more)
   let base ← match loc with
     | some l => `(tactic| ved_ss_core_simp [$all,*] $l:location)
     | none => `(tactic| ved_ss_core_simp [$all,*])
   let stx ← liftMacroM (expandMacros base)
+  let stx := if muxC then swapIdent ``Tools.VedU1Lemmas.mux_val ``Tools.VedU1StructSlice.ved_mux_val_cond stx else stx
   let tmpl ← `(tactic| simp (config := { maxSteps := 2000000 }) [Nat.add_zero])
   -- the `simp` node's second argument is its (empty) `optConfig`: put the raised one there
   let stx' := stx.setArg 1 (tmpl.raw.getArg 1)
+  let stx' ← kshapeFix stx'
   evalTactic stx'
 
 /-- `ved_ss_unfold [defs] t`: `ved_loop_unfold` for a loop whose body is a named definition
