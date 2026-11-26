@@ -191,7 +191,7 @@ These are **not** part of the numbers of the summary page.
 |---|---|---|---|
 | This release | code `{snap}`, measured at `fb7124fc` | 243 / 327 | approved ledger (reviewer, 2026-11-19) |
 | Earlier baseline | `d331ff24` (an earlier VED candidate, not `main`) | 43 / 327 | approved baseline of the ledger |
-| `main` | `6c29b9b8` | no same-SHA row-by-row measurement in this release | `main` has the deep route and the basic `#ved_u1` entry; it lacks the packed, hierarchy and `#ved_write_checked` entries of this snapshot |
+| `main` before the release | `6c29b9b8` | no same-SHA row-by-row measurement in this release | that `main` had the deep route and the basic `#ved_u1` entry; it lacked the packed, hierarchy and `#ved_write_checked` entries of this snapshot. Current `main` contains them and is not measured here |
 
 {routes}
 

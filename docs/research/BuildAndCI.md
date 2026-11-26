@@ -6,7 +6,7 @@ ID is given. Each CI number is the wall time of one job on a shared GitHub runne
 job's scope; none of them is the time a user's own build takes.
 
 Revisions: the release candidate is the code at `2bcf256b`; the baseline is `main` before it
-(`6c29b9b8`).
+(`6c29b9b8`, the parent of #163 on `main`).
 
 ## 1. What you build
 
