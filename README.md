@@ -11,8 +11,6 @@ theorem proving to hardware design.
 **Live docs & benchmarks:** the project publishes three hosted pages at
 [verilean.github.io/sparkle](https://verilean.github.io/sparkle/):
 
-- 🔬 [**Research release: verified synthesis**](docs/research/README.md) —
-  what the per-circuit proofs guarantee, a runnable example, results, open problems and how to contribute.
 - 📘 [**Tutorial (JupyterLite)**](https://verilean.github.io/sparkle/tutorial/) —
   the multi-chapter beginner course, runnable in-browser via xeus-lean.
   *(Known issue: some environments fail to boot the Lean kernel or load Sparkle;
@@ -54,6 +52,45 @@ available from a native `lake exe` build.
 
 See [docs/reference/Verification_Framework.md](docs/reference/Verification_Framework.md) for
 patterns and a worked Round-Robin Arbiter example (10 formal proofs).
+
+## Verified Synthesis: a Proof With Every Circuit (research release)
+
+`#synthesizeVerilog f` trusts the compiler. The verified entries (`#ved_u1`,
+`#ved_u1_deep`, `#ved_u1_packed`, `#ved_u2_hier`, `#ved_write_checked`)
+synthesise `f` once and, in the same command, build a theorem that Lean's
+kernel checks: **the module just returned computes what `f` computes**. When
+no proof can be built, the entry refuses (`VED U1 REFUSED f [stage]`) and
+returns nothing.
+
+```lean
+import Tools.VedU1Entry
+open Sparkle.Core.Domain Sparkle.Core.Signal
+
+def delay8 (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  Signal.register 0#8 x
+
+#ved_u1 delay8                 -- the module and the theorem delay8.ved_u1
+#print axioms delay8.ved_u1    -- [propext, Classical.choice, Quot.sound]
+```
+
+- **What the theorem covers:** every input whose values fit their bit widths,
+  with reset held low, at every clock cycle, for the returned module (Sparkle's
+  IR). With `#ved_write_checked`, the SystemVerilog file is written from that
+  checked module.
+- **What it does not cover:** the optimiser that runs afterwards, the printed
+  SystemVerilog text, timing, or a chip. Refused circuits have no claim.
+- **How far it gets today:** it is partial. On a fixed set of 327 commands it
+  proves 243 (real IP 168 of 220, regression circuits 75 of 107), measured at
+  the release snapshot. Large arithmetic circuits (for example some
+  elliptic-curve point operations), memories inside sub-modules and deeper
+  hierarchies are still mostly refused, and there is no general theorem for
+  the compiler.
+- **Try it:** `lake build Tools.VedU1Entry`, then
+  `lake env lean docs/research/examples/Delay8.lean`.
+
+Read [docs/research/](docs/research/README.md) for the exact statement, results,
+the [proof-friendly circuits tutorial](docs/research/ProofFriendlyCircuits.md),
+open problems and how to contribute.
 
 ## IP Catalog
 
