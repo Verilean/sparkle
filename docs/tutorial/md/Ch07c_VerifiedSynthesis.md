@@ -21,18 +21,28 @@ wire before reading it (§7c.2, §7c.4).  It is a statement about the IR
 module, not about the printed Verilog.  If no such theorem can be built,
 the command refuses and returns nothing.
 
-> **Status.**
+> **Status (research release, snapshot `2bcf256b`).**
 >
-> - The command lives in `Tools/VedU1Entry.lean` and
->   `Tools/VedU1Deep.lean`.  These are library targets of the Sparkle
->   repository, not part of the default build or the `Sparkle` umbrella.
->   You use them with `import Tools.VedU1Entry` inside the repository.
-> - The slice is deliberately small: one output, no memories, no
->   instances.  The automatic proof covers register-free bodies,
->   one-register delays, and (with `#ved_u1_deep`) one register whose
->   current value is the output.
-> - Everything outside that scope is *refused*, never accepted with a
->   weaker claim.
+> - The commands live in `Tools/VedU1Entry.lean`, `Tools/VedU1Deep.lean`
+>   and the related `Tools/Ved*.lean` entries.  These are library targets
+>   of the Sparkle repository, not part of the default build or the
+>   `Sparkle` umbrella.  You use them with `import Tools.VedU1Entry`
+>   inside the repository.
+> - This chapter teaches the single-output `#ved_u1` on small examples.
+>   At the snapshot the family also covers: several registers built by
+>   `Signal.loop`; several outputs (a `×`-tree of signals or a structure,
+>   one port per leaf); a result `Signal d (A × B)` packed into one port
+>   (`#ved_u1_packed`); modules with memories (`#ved_u1_mem`); a parent with
+>   instances (`#ved_u2_hier`); and `#ved_write_checked`, which writes
+>   exactly the checked design.  Their statements differ from `U1Stmt`
+>   (see [PerCircuitVerification](../../research/PerCircuitVerification.md)).
+> - **Scope of the release.**  243 of the 327 command rows of the
+>   fixed inventory are strict; the other 84 carry no claim.  The 327 are
+>   command rows, not IPs.  The production gate is **not** met.  See the
+>   [research release](../../research/README.md) and the
+>   [row-by-row table](../../research/appendix/F-AllCommandRows.md).
+> - Everything outside the covered scope is *refused*, never accepted
+>   with a weaker claim.
 
 The command blocks below are shown as `text` because they need the VED
 tools.  The real, CI-checked versions are in `Tests/Ved/U1EntryCheck.lean`
@@ -155,8 +165,9 @@ Some points to read carefully:
 `#ved_u1 f` returns the module only if every step below succeeds:
 
 1. **Read the table.** It reads the port table from `f`'s type.  A
-   declaration with more than one output is refused here, before synthesis
-   (`[multi-output]`).
+   declaration with several outputs is handled by the multi-output rule
+   (one port per leaf of the result); shapes the rule does not cover are
+   refused here, before synthesis (`[multi-output]` or `[table]`).
 2. **Synthesise once.** It calls `synthesizeCombinational f`, the same
    function `#synthesizeVerilog` calls, exactly once.
 3. **Register the artifact.** It registers the module as `f.ved_mod`.  It
@@ -386,11 +397,19 @@ The theorem is accepted all the same, by §7c.4.
   `#synthesizeVerilog` prints goes through `optimizeModule` and the
   printer, and is not covered.  Neither is the C simulator.
 - **Scope.**
-  - One output; multi-output declarations are refused.
-  - No memories and no instances.
+  - This chapter's statement `U1Stmt` has no memories and no instances;
+    memories, packed ports and hierarchies have their own statements
+    (`MemStmt`, `PackedStmt`, `U2HStmt` / `U2HRStmt`).
   - Runs with reset held at 0.
-- **Coverage.** This is a minimal entry.  It is not a claim that the IP
-  library is verified.
+- **Coverage.** 243 of 327 command rows are strict at the snapshot; that
+  is not a claim that the IP library is verified, and the 327 are rows,
+  not IPs.
+- **Other stages.** Nothing is proved about the optimiser, the printed
+  SystemVerilog or hardware: see the guarantee ladder in the
+  [research README](../../research/README.md#the-guarantee-ladder).
+- **The general compiler theorem** is a different, paused effort
+  ([the general theorem](../../research/CompilerGeneralTheorem.md)); this chapter's
+  per-circuit theorem is not a soundness theorem of the compiler.
 
 ## 7c.8 Running the checks yourself
 
@@ -401,7 +420,9 @@ lake build Tests.Ved.U1DeepCheck       # #ved_u1_deep on accK9 / natInit5
 ```
 
 CI builds the same targets in `.github/workflows/ved.yml`.  The design
-notes are in `docs/VED-U1-MAIN.md`.
+notes are in [`docs/VED-U1-MAIN.md`](../../VED-U1-MAIN.md); the reproduction
+steps of the whole release are in
+[Appendix C](../../research/appendix/C-Reproduction.md).
 
 ```lean
 end Notebooks.Ch07c

@@ -40,6 +40,7 @@ automatically.
 | 5 | Verilog Generation | [`md/Ch05_Verilog.md`](md/Ch05_Verilog.md) |
 | 6 | Proofs: LTL Invariants | [`md/Ch06_LTL.md`](md/Ch06_LTL.md) |
 | 7 | Proofs: Equivalence Checking | [`md/Ch07_Equivalence.md`](md/Ch07_Equivalence.md) |
+| 7b | Equivalence across number types (FP, fixed-point, quantisation) | [`md/Ch07b_FpQuantEquivalence.md`](md/Ch07b_FpQuantEquivalence.md) |
 | 7c | Synthesis With a Proof Attached (`#ved_u1`) | [`md/Ch07c_VerifiedSynthesis.md`](md/Ch07c_VerifiedSynthesis.md) |
 | 8 | Netlist Generation with Yosys | [`md/Ch08_Yosys.md`](md/Ch08_Yosys.md) |
 | 8b | Three Ways to Simulate, One Interface (pure-Lean / JIT / Verilator) | [`md/Ch08b_Simulation.md`](md/Ch08b_Simulation.md) |
@@ -114,3 +115,9 @@ the synthesis-safety rules every ` ```lean ` cell must follow.
 that builds `xlean-convert` from upstream xeus-lean, runs
 `build-from-md.sh`, and then `lake build TutorialNotebooks`.  Any
 chapter whose code cells stop typechecking will fail CI.
+
+## Research release
+
+The verified-synthesis work behind Chapter 7c (per-circuit proofs, the paused compiler
+general theorem, the row-by-row coverage table, related work and open problems) is described
+in [`docs/research/README.md`](../research/README.md).

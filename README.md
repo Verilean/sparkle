@@ -11,6 +11,8 @@ theorem proving to hardware design.
 **Live docs & benchmarks:** the project publishes three hosted pages at
 [verilean.github.io/sparkle](https://verilean.github.io/sparkle/):
 
+- 🔬 [**Research release: verified synthesis**](docs/research/README.md) —
+  what the per-circuit proofs guarantee, a runnable example, results, open problems and how to contribute.
 - 📘 [**Tutorial (JupyterLite)**](https://verilean.github.io/sparkle/tutorial/) —
   the multi-chapter beginner course, runnable in-browser via xeus-lean.
   *(Known issue: some environments fail to boot the Lean kernel or load Sparkle;

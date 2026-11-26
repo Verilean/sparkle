@@ -1,0 +1,98 @@
+name: Research UX measurement
+
+# What does a NEW USER of the research release wait for?  Runs the published
+# instructions (README Quick Start, tutorial Ch07c, downstream smoke) on a clean
+# GitHub runner, no cache restore, at fixed SHAs, and uploads one TSV per
+# revision (scripts/research/ux_measure.sh documents every step).
+#
+# Deliberately NOT triggered by main pushes or pull requests: it is run by
+# dispatching it, or by pushing a branch named research/ux-*.
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_sha:
+        description: 'Baseline revision (main before PR #163)'
+        default: '6c29b9b8b4bed436afcc0a3f23a6335bfbc751a1'
+      candidate_sha:
+        description: 'Release candidate (PR #163 head)'
+        default: '2bcf256bad61cf42292f560eaa9ed0fe313ba5ff'
+      baseline_expect:
+        description: 'Expected non-accepted proofs at the baseline (space-separated STEP=refused)'
+        default: 'e2=refused'
+      candidate_expect:
+        description: 'Expected non-accepted proofs at the candidate'
+        default: ''
+  push:
+    branches:
+      - 'research/ux-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: research-ux-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  measure:
+    name: measure (${{ matrix.label }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # expect: proofs whose expected outcome is not "accepted" (the baseline
+          # predates the keccakRcHW proof, so its refusal is expected, not a pass)
+          - label: baseline
+            sha: ${{ github.event.inputs.baseline_sha || '6c29b9b8b4bed436afcc0a3f23a6335bfbc751a1' }}
+            expect: ${{ github.event.inputs.baseline_expect || 'e2=refused' }}
+          - label: candidate
+            sha: ${{ github.event.inputs.candidate_sha || '2bcf256bad61cf42292f560eaa9ed0fe313ba5ff' }}
+            expect: ${{ github.event.inputs.candidate_expect || '' }}
+    steps:
+      # Only the measurement script comes from the pushed branch; the measured
+      # revision is cloned from scratch by the script itself.
+      - name: Checkout (measurement script only)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/research
+          fetch-depth: 1
+
+      - name: Clean-user state
+        run: |
+          rm -rf "$HOME/.elan" "$HOME/.cache/lake" "$HOME/.lake"
+          echo "elan: $(command -v elan || echo none)   lean: $(command -v lean || echo none)"
+          nproc; free -g; df -h /
+
+      - name: Measure (clone, toolchain, build, proofs), then verify
+        env:
+          UX_EXPECT: ${{ matrix.expect }}
+        run: |
+          scripts/research/ux_measure.sh "${{ matrix.label }}" "${{ matrix.sha }}" \
+            "$RUNNER_TEMP/ux" "https://github.com/${{ github.repository }}.git"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ${{ matrix.label }} (${{ matrix.sha }})"
+            echo '```'
+            column -t -s$'\t' "$RUNNER_TEMP/ux/ux-${{ matrix.label }}.tsv" | cut -c1-220 || true
+            cat "$RUNNER_TEMP/ux/verdict-${{ matrix.label }}.txt" 2>/dev/null || echo "VERDICT: none (measurement did not finish)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload TSV and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-ux-${{ matrix.label }}
+          path: |
+            ${{ runner.temp }}/ux/*.tsv
+            ${{ runner.temp }}/ux/env-*.txt
+            ${{ runner.temp }}/ux/verdict-*.txt
+            ${{ runner.temp }}/ux/head-*.txt
+            ${{ runner.temp }}/ux/*.log
+            ${{ runner.temp }}/ux/*.time
+            ${{ runner.temp }}/ux/*.lean
