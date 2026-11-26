@@ -89,15 +89,16 @@ Condition: you work in a clone of the repository.
 |---|---|
 | Setup: clone, `elan` + toolchain, dependencies, `lake build` | 112 s / 83 s |
 | `lake build` again, nothing changed / after a one-line library edit | 1.4 s / 1.0 s, and 3.6 s / 2.7 s |
-| The regression suite: `lake build IP.RV32.SoCVerilog`, then `lake test` | 48 s + 351 s (one sample, run 45783205628), rc 0 |
+| The regression suite, as measured at the snapshot (which needed `lake build IP.RV32.SoCVerilog` first; current `main` generates those files inside `lake test`, so only the second step is needed there): `lake build IP.RV32.SoCVerilog`, then `lake test` | 48 s + 351 s (one sample, run 45783205628), rc 0 |
 | A pull request's VED job (`ved-pr`) | 5851 s (98 min) in run 44539786136 |
 
 About the regression suite:
-- It runs only after the SoC build (README "Testing"). Without that build, on a fresh clone,
+- At the snapshot it ran only after the SoC build. Without that build, on a fresh clone,
   `lake test` exits 1: 24 checks fail because they read `verilator/generated_soc.sv` and
   `generated_soc_cppsim.h`, which that build writes. Both samples of run 45777577786 showed this,
-  and so did a run on a development machine. `main` has the same dependency.
-- Making the suite self-contained is a separate follow-up.
+  and so did a run on a development machine. Current `main` (since #168) removes this dependency:
+  `lake test` writes those files itself when they are missing (README "Testing").
+- The numbers in this page were measured at the snapshot, with the separate SoC build.
 - Its time has one sample only, because the two earlier attempts ran it without the SoC build.
 
 The `ved-pr` figure is the run time of that one job on the code `2bcf256b`. It is not the time a
