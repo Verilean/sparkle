@@ -103,8 +103,11 @@ jobs:
     - name: Memory stage tactics (ved_pack_dag, ved_decide_small2, ved_ctrl_cases; ran / refused controls)
       run: lake build Tests.Ved.VedMemPackCheck
 
-    - name: Memory closing stage (ved_mem_addr Expr.replace path, clearSigHyps, ved_omega_t, ved_omega_n, ved_leaf_gate; refusal controls)
+    - name: Memory closing stage (ved_mem_addr Expr.replace path, clearSigHyps, ved_omega_t, ved_omega_n, ved_ctrl_or_gate; refusal controls)
       run: lake build Tests.Ved.VedMemCloseCheck
+
+    - name: Real memory entry next to asynchronous ved_ctrl_or_gate runs (Elab.async on; per-call leaf-failure flag)
+      run: lake build Tests.Ved.VedCtrlAsyncCheck
 
     - name: User lemma for one memory-loop causal side condition (ved.mem.userLemma; isDefEq on the full goal type, strict audit; refusal controls)
       run: lake build Tests.Ved.VedSupplementCheck
@@ -249,8 +252,11 @@ jobs:
     - name: Memory stage tactics (ved_pack_dag, ved_decide_small2, ved_ctrl_cases; ran / refused controls)
       run: lake build Tests.Ved.VedMemPackCheck
 
-    - name: Memory closing stage (ved_mem_addr Expr.replace path, clearSigHyps, ved_omega_t, ved_omega_n, ved_leaf_gate; refusal controls)
+    - name: Memory closing stage (ved_mem_addr Expr.replace path, clearSigHyps, ved_omega_t, ved_omega_n, ved_ctrl_or_gate; refusal controls)
       run: lake build Tests.Ved.VedMemCloseCheck
+
+    - name: Real memory entry next to asynchronous ved_ctrl_or_gate runs (Elab.async on; per-call leaf-failure flag)
+      run: lake build Tests.Ved.VedCtrlAsyncCheck
 
     - name: User lemma for one memory-loop causal side condition (ved.mem.userLemma; isDefEq on the full goal type, strict audit; refusal controls)
       run: lake build Tests.Ved.VedSupplementCheck
