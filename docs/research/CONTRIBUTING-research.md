@@ -5,15 +5,15 @@ Sparkle. For adding an ordinary IP to the library (simulation tests, the Verilog
 CI listing), read the root [CONTRIBUTING.md](../../CONTRIBUTING.md). Start with the
 [overview](README.md) and pick a task from [OpenProblems.md](OpenProblems.md). All file
 paths below are paths in the reader's checkout named in the
-[snapshot box](README.md#snapshot-box): the branch `docs/research-release` (later the merge
-commit), which holds the code, these pages, the scripts and the example. The commit `2bcf256b`
+[snapshot box](README.md#snapshot-box): the commit `3af3889f` on `main` (the merge of the
+release pull request), which holds the code, these pages, the scripts and the example. The commit `2bcf256b`
 holds only the code and cannot run these commands.
 
 ## Build
 
 ```bash
 git clone https://github.com/Verilean/sparkle && cd sparkle
-git checkout docs/research-release   # the reader's checkout of the snapshot box (code + pages + example)
+git checkout 3af3889f                # the reader's checkout of the snapshot box (code + pages + example)
 lake build Tools.VedU1Entry                                     # the verified entries
 ```
 
