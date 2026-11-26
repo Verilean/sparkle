@@ -57,8 +57,8 @@ each attempt on a new runner. Both values are given as "sample 1 / sample 2". Th
 `research-ux-candidate-attempt1` and `research-ux-candidate-attempt2`, with `ux-candidate.tsv`
 listing every step.
 
-**How the two samples differ.** Sample 2 was shorter on every step, by between 17% (the deep-route
-library) and 40% (the real IP's library). These are observations only: the cause, such as
+**How the two samples differ.** Sample 2 was shorter on every step; for example, by about 17% for
+the deep-route library and about 40% for the real IP's library. These are observations only: the cause, such as
 differences between runners, was not separated. Two values do not show how stable these times are
 and do not give an upper bound.
 
