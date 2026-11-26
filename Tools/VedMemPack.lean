@@ -620,19 +620,6 @@ elab "ved_omega_n" : tactic => do
     saved.restore
     evalTactic (← `(tactic| ved_omega_t))
 
-/-- set when the leaf of `ved_ctrl_cases` fails (a data goal after the control cases that `omega` could not prove), the context has a
-hypothesis of `omegaHypMaxTree` nodes or more, and the residual has at least two DISTINCT subterms `(a % m) / k` with a literal `k`.
-A heuristic refusal rule: it does not check the width (16 bit or other) nor that the `a % m` are spellings of the same sum.
-Cleared by `ved_ctrl_cases` on entry and on success, and by `ved_leaf_gate` when it reads it. -/
-initialize ctrlLeafFailed : IO.Ref Bool ← IO.mkRef false
-
-/-- `t` unless the last `ved_ctrl_cases` ended on a failing leaf: the leafwise closers of such a goal do not end (`omega`'s elimination has no
-heartbeat check, so a local cap does not bound it: R034 goal 54 ran the rest of the 900 s), the refusal comes back at once -/
-elab "ved_leaf_gate " t:tactic : tactic => do
-  if ← ctrlLeafFailed.modifyGet fun b => (b, false) then
-    throwError "ved_leaf_gate: ved_ctrl_cases ended on a failing leaf, leafwise closers skipped"
-  evalTactic t
-
 /-- `ved_pack_simp` with `ved_omega_s` as side-condition prover (the plain one reads the 1.6e8-node signal hypotheses at every side condition) -/
 macro "ved_pack_simp_c" : tactic =>
   `(tactic| simp (disch := first | ved_omega_s | fail) only
@@ -825,7 +812,7 @@ def mkCtrlSimp : TacticM CtrlSimp := do
   let r ← mkSimpContext stx false
   return ⟨r.ctx, r.simprocs⟩
 
-partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lean.Expr)) (vars : List (Name × Name × Nat)) : TacticM Unit := do
+partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lean.Expr)) (failed : IO.Ref Bool) (vars : List (Name × Name × Nat)) : TacticM Unit := do
   match vars with
   | [] =>
     let g ← getMainGoal
@@ -861,16 +848,16 @@ partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lea
         for e in Tools.VedU1WireShare.collectDag (fun e => e.isAppOfArity ``HDiv.hDiv 6 && (e.getArg! 5).nat?.isSome
             && (e.getArg! 4).isAppOfArity ``HMod.hMod 6) ty do
           unless sums.contains (e.getArg! 4) do sums := sums.push (e.getArg! 4)
-        ctrlLeafFailed.set (bigHyp && sums.size ≥ 2)
+        failed.set (bigHyp && sums.size ≥ 2)
         throw e
       cache.modify fun m => m.insert ty (Lean.Expr.mvar g)
   | (vn, bn, n) :: rest =>
     let g ← getMainGoal
     let lctx ← g.withContext getLCtx
-    let (some ld, some hv) := (lctx.findFromUserName? vn, lctx.findFromUserName? bn) | ctrlCases sc cache rest
+    let (some ld, some hv) := (lctx.findFromUserName? vn, lctx.findFromUserName? bn) | ctrlCases sc cache failed rest
     let v := ld.fvarId
     let tgt ← instantiateMVars (← g.getType)
-    if !(tgt.containsFVar v) then ctrlCases sc cache rest
+    if !(tgt.containsFVar v) then ctrlCases sc cache failed rest
     else
       let abs := tgt.abstract #[mkFVar v]
       let motive := Lean.Expr.lam `v (mkConst ``Nat) abs .default
@@ -888,11 +875,11 @@ partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lea
         match r with
         | none => setGoals []
         | some (_, g') => setGoals [g']
-        unless (← getGoals).isEmpty do ctrlCases sc cache rest
+        unless (← getGoals).isEmpty do ctrlCases sc cache failed rest
         done := done ++ (← getGoals)
       setGoals done
 
-def ctrlCasesCore : TacticM Unit := withMainContext do
+def ctrlCasesCore (failed : IO.Ref Bool) : TacticM Unit := withMainContext do
   let tgt ← instantiateMVars (← getMainTarget)
   let isAtom := fun (e : Lean.Expr) =>
     (e.isAppOfArity ``BitVec.toNat 2 && (e.getArg! 1).isFVar)
@@ -939,16 +926,37 @@ def ctrlCasesCore : TacticM Unit := withMainContext do
     k := k + 1
   let sc ← mkCtrlSimp
   let cache ← IO.mkRef {}
-  ctrlCases sc cache vars
+  ctrlCases sc cache failed vars
 
-elab "ved_ctrl_cases" : tactic => do
+/-- `ved_ctrl_cases` for one closing run: `failed` is set when the leaf of the case split fails (a data goal after the control cases that
+`omega` could not prove), the context has a hypothesis of `omegaHypMaxTree` nodes or more, and the residual has at least two DISTINCT
+subterms `(a % m) / k` with a literal `k`.  A heuristic refusal rule: it does not check the width (16 bit or other) nor that the `a % m` are
+spellings of the same sum.  `failed` belongs to the caller (one `IO.mkRef` per call, never shared between goals or declarations). -/
+def ctrlCasesRun (failed : IO.Ref Bool) : TacticM Unit := do
   let dump := (← IO.getEnv "VED_DUMP_DIR").isSome
-  -- the flag `ved_leaf_gate` reads describes THIS call only (a leaf failure that an earlier call caught must not gate a later goal)
-  ctrlLeafFailed.set false
-  try clearSigHyps; ctrlCasesCore; ranLog.modify (·.push "ctrl_cases"); ctrlLeafFailed.set false
+  failed.set false
+  try clearSigHyps; ctrlCasesCore failed; ranLog.modify (·.push "ctrl_cases"); failed.set false
   catch e =>
     if dump then Tools.VedMemLoop.dbgLog s!"ctrl_cases: {(← e.toMessageData.toString).take 300}"
     throw e
+
+elab "ved_ctrl_cases" : tactic => do ctrlCasesRun (← IO.mkRef false)
+
+/-- the refusal of `ved_ctrl_or_gate` -/
+def ctrlGateMsg : String := "ved_leaf_gate: ved_ctrl_cases ended on a failing leaf, leafwise closers skipped"
+
+/-- `first | ved_ctrl_cases | t`, except that `t` is skipped (the refusal comes back at once) when `ved_ctrl_cases` ended on a failing leaf
+(`ctrlCasesRun`'s flag): the leafwise closers of such a goal do not end (`omega`'s elimination has no heartbeat check, so a local cap does
+not bound it: R034 goal 54 ran the rest of the 900 s).  The flag is a per-call `IO.Ref`, so declarations elaborated in parallel
+(`Elab.async`) cannot clear or consume each other's. -/
+elab "ved_ctrl_or_gate " t:tactic : tactic => do
+  let failed ← IO.mkRef false
+  let saved ← saveState
+  try ctrlCasesRun failed
+  catch _ =>
+    if ← failed.get then throwError ctrlGateMsg
+    saved.restore
+    evalTactic t
 
 /-- the proof caches of the closing tactics are emptied (see `ved_hstep_fallback_reset`) -/
 def hstepResetCaches : MetaM Unit := do
