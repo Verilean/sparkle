@@ -1,5 +1,7 @@
 # U1 strict entry on main (PR-2)
 
+> Historical design record. Describes branch `ved/u1-main` (stacked on PR #147), merged with an earlier PR; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 This branch, `ved/u1-main`, is stacked on PR #147 (`ved/main-intro` `4845255b`). It brings the U1 entry from `par/ved-plan` `0a36bae0` to main.
 
 ## What U1 is

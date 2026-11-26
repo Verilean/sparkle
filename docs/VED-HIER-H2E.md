@@ -1,5 +1,7 @@
 # VED-HIER-H2E: open parents R210 / R228 and the nested export's budget
 
+> Historical design record. Describes the unit branch of the H2 hierarchy work, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 Real-IP rows R210 `synth_arpResponderByte` and R228 `synth_icmpRequesterByte` are accepted strict by `#ved_u2_hier`
 (stored type `==` `U2HRStmt`, axioms within `propext`, `Classical.choice`, `Quot.sound`, no statement or hypothesis change).
 

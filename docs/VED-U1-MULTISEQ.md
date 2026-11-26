@@ -1,5 +1,7 @@
 # U1 packed result with registers (`Signal d (A × B)` over a `Signal.loop`; sparkle-ved-mo-seq)
 
+> Historical design record. Describes the unit branch of issue `sparkle-ved-mo-seq`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 Scope: a declaration whose result is a product inside ONE `Signal` (the synthesizer packs it into the single
 port `out`, docs/VED-U1-PACKED.md §1) and whose body has registers (`Signal.loop` state).  Before this
 unit `#ved_u1_packed` refused such a body at `[packed]` ("registers are not supported"), `#ved_u1` at

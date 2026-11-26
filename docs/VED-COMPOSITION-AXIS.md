@@ -1,5 +1,7 @@
 # VED: decomposition and composition as the basic axis (2026-11-23)
 
+> Historical design record. Describes a design rule recorded on 2026-11-23 (no code), merged with PR #167; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 User direction, recorded by the reviewer on Issue `sparkle-ved-proof-compose` (comment of 2026-11-23). This file states it as the design rule for VED work. It changes no code, no accepted result and no ledger count.
 
 ## The rule

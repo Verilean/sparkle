@@ -1,5 +1,7 @@
 # U1 packed port: `Signal d (A × B)` (design, sparkle-ved-packed)
 
+> Historical design record. Describes the unit branch of issue `sparkle-ved-packed`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 ## 1. The compiler's packing rule (investigated, not assumed)
 
 A `Signal d T` whose `T` is a product is ONE wire, the concatenation of its leaves.

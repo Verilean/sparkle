@@ -1,5 +1,7 @@
 # `#verify_elab_deep` on main: initial introduction
 
+> Historical design record. Describes branch `ved/main-intro` (based on `main` at `1614cee8`), merged with an earlier PR; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 This branch (`ved/main-intro`, based on main `1614cee8`) brings `#verify_elab_deep` and a strict axiom audit to main. It is the **initial introduction** only. Extending coverage is separate work, and so is the release decision.
 
 ## What is added

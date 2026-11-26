@@ -1,5 +1,7 @@
 # VED 階層（複数 module）U1 の設計相談 v1（sparkle-ved-hier）
 
+> Historical design record. Describes `main` at `6c29b9b8` (before #163); line numbers cited here are from that commit, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 前提: main 6c29b9b8。U1 は返却 IR に対する strict（reset=0、order-free）。基準文書 §2（階層を分母から除かない）、§3、§5、§7。
 
 ## 1. いまの事実

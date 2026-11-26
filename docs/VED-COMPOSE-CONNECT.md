@@ -1,5 +1,7 @@
 # VED-COMPOSE-CONNECT: the returned IR's cones connected to the open parent's deep cones (small examples)
 
+> Historical design record. Describes branch `ved/compose-connect1` (base `425119c7`), merged with PR #167; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 Issue `sparkle-ved-compose-connect`, branch `ved/compose-connect1` (base 425119c7 = `ved/proof-compose` 6ff184d4 + the approved
 research ca892a1f).  Option `ved.compose.connect` (default `false`).  New files: `Tools/VedComposeConnect.lean`,
 `Tools/VedComposeConnectGen.lean`, `Tests/Ved/ComposeConnectCheck.lean`; edited: `lakefile.lean` (four stanzas), a one-field

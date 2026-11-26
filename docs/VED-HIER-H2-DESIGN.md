@@ -1,5 +1,7 @@
 # VED 階層 H2 設計: register を持つ子と親の register（sparkle-ved-hier2）
 
+> Historical design record. Describes branch `ved/hier-h1` at `2a8ff165` (PR #157), merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 これは設計文書であり実装ではない。`Sparkle/` と `Tools/` は変更していない。
 基準: ved/hier-h1 2a8ff165（PR #157、H1 実装）。前提文書: docs/VED-HIER-DESIGN-v1.md（§7 裁定、§8 実装）。
 H2 の裁定 §7.5: 「状態は instance path ごとに独立。同時更新・初期値・reset=0/clock 範囲を別途定義」。

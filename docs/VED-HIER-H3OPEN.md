@@ -1,5 +1,7 @@
 # VED-HIER-H3OPEN: several child instances on the parent's register state, the child output feeding the loop
 
+> Historical design record. Describes the unit branch of the H3 hierarchy work, merged with PR #167; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 Rows R193 `synth_sha512Block_out0` and R194 `synth_sha512Block_done` (`Tests/IP/Crypto/SHA512BlockHWTest.lean`).  The
 statement `U2HRStmt` is unchanged (`Tools/VedU2HierReg.lean`, `Tools/VedU2HierStmt.lean`: no diff).
 

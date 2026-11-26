@@ -1,5 +1,7 @@
 # VED 階層 H2c: 子の data 入力が親の net（親 data 入力だけから計算される wire）のとき
 
+> Historical design record. Describes branch `ved/hier2-h2b` at `a8f3b7d2`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 基準: ved/hier2-h2b a8f3b7d2（H2b）。設計: docs/VED-HIER-H2-DESIGN.md（§2.1 の F2、§11、§12）、docs/VED-HIER-H2B.md。
 本文書は実装記録であり、文の凍結、327 行への加算、hierarchical strict の inventory 主張、release を主張しない。小例は 327 に加算しない。
 

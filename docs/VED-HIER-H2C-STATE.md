@@ -1,5 +1,7 @@
 # VED 階層 H2c-state: 子の call 引数が親の register の（更新前）状態のとき
 
+> Historical design record. Describes branch `int/ved-cand12` at `08fbcd2f`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 基準: int/ved-cand12 08fbcd2f（H2b、H2c の導出 net、U1 の定数表経路を含む）。設計: docs/VED-HIER-H2-DESIGN.md、docs/VED-HIER-H2C.md、および reviewer の設計指示のうち
 本文書の「限定した方法」（組合せ子限定、更新前 state、実 child、1 つの帰納法での合成補題）。本文書は実装記録で、文の凍結、327 行への加算、hierarchical strict の inventory 主張、release を主張しない。
 

@@ -1,5 +1,7 @@
 # VED 階層 H2 単位3: H2a end-to-end（register なし親・register 子の複数 instance）
 
+> Historical design record. Describes local integration branch `int/h2a`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 基準: int/h2a（H2 単位2 `ved/hier2-sem` + 単位1 `ved/hier2-open` + PR #160 `ved/multireg` のローカル統合）。
 設計: docs/VED-HIER-H2-DESIGN.md。本文書は実装記録であり、文の凍結、327 行への加算、hierarchical strict
 の inventory 主張、release を主張しない。小例（`parTwo` 等）は 327 に加算しない。

@@ -1,5 +1,7 @@
 # VED U1: single-module large DAG goals (R83 R84 R212 R103)
 
+> Historical design record. Describes the unit branch of issue `sparkle-ved-u1-wire-share`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+
 Issue `sparkle-ved-u1-wire-share`.  The original declarations of the real-IP rows
 
 | row | declaration | what makes the goal large |
