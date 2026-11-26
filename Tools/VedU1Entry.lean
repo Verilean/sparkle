@@ -44,8 +44,11 @@ NOT import `Tools.DeepElab`, and nothing in `Sparkle/` is changed.
    `out_0_1`, …, left-first; Sparkle/Compiler/Elab.lean `splitReturnLeaves`).
    They must be EXACTLY the returned module's output names (else
    `multi-output`); widths are checked by `ShapeStmt`, every port's value by
-   `OutputsStmt`.  Register-free bodies only; structure results stay refused
-   at `table`;
+   `OutputsStmt`.  Bodies with registers: `Signal.loop` bodies
+   (`Tools/VedU1StructSeq.lean`), or ONE plain register with no loop whose
+   output ports are each the register or an input directly (`bundledRegPort?`);
+   other register bodies are refused at `multi-output`.  Structure results stay
+   refused at `table`;
 2. calls `synthesizeCombinational declName` exactly ONCE (the function
    `#synthesizeVerilog` calls; main has no inliner fuel guard) and keeps the
    returned `(m, design)`.  The guarantee is about that returned module, not
@@ -480,7 +483,7 @@ the single register of the delay shape (name, width), `none` for a
 register-free module. -/
 def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat))
     (inNames : List String := []) (eqs : Bool := false) (fStx? : Option Term := none) (helpers : Array Name := #[]) (inWidths : List Nat := [])
-    (tbl? : Option Name := none) (heavy : Nat := 0) :
+    (tbl? : Option Name := none) (heavy : Nat := 0) (regPort : String := "out") :
     TermElabM Syntax := do
   -- the declaration's own helper definitions (private `byte16`, `abbrev` constants,
   -- sub-modules), unfolded by `simp`; untrusted, the kernel checks the result.  The
@@ -693,15 +696,21 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
   | some (r, w) =>
     let rS := Syntax.mkStrLit r
     let wS := Syntax.mkNumLit (toString w)
+    -- the bundled-statement route (`regPort != "out"`) unfolds the product signal; a constant's script is unchanged
+    let bundleLemmas : Array (TSyntax ``Lean.Parser.Tactic.simpLemma) ←
+      if regPort == "out" then pure #[] else
+      #[``Sparkle.Core.Signal.bundle2, ``Seq.seq, ``Signal.seq, ``Signal.ap, ``Functor.map, ``Signal.map,
+        ``Sparkle.Core.Signal.Signal.map, ``List.lookup, ``Option.getD_some, ``Option.getD_none].mapM fun n =>
+        `(Lean.Parser.Tactic.simpLemma| $(mkIdent n):ident)
     `(by
         have hord : OrderOk $M $B = true := by decide +kernel
         refine ⟨by decide +kernel, by decide +kernel, by decide +kernel, ⟨$B, hord⟩, ?_⟩
         apply outputs_of_order $B hord
         apply outputs_of_step $C $M $B $f $O (by decide +kernel)
-          (fun ins s st => st $rS = srcOf $C $f ins "out" s)
+          (fun ins s st => st $rS = srcOf $C $f ins $(Syntax.mkStrLit regPort) s)
         · intro ins hok
           simp [st0, $C:ident, contractOf, regsOf, $M:ident, srcOf, applyIns, $fI:ident,
-            Signal.register, OTy.obs, PTy.obs, PTy.sig, encodeInit, mask, declWidth, Tools.VedU1SmallReg.regEn_zero]
+            Signal.register, OTy.obs, PTy.obs, PTy.sig, encodeInit, mask, declWidth, Tools.VedU1SmallReg.regEn_zero, $bundleLemmas,*]
         · intro ins hok s st mems hR
           have hin := hok.1 s
           have hrst := hok.2 s
@@ -710,7 +719,7 @@ def scriptFor (nm : Names) (F : Name) (nDom : Nat) (reg? : Option (String × Nat
             Sparkle.IR.Semantics.evalList, Sparkle.IR.Semantics.evalExpr.go,
             widthOf, seedIn, applyNexts, $O:ident, $M:ident, $B:ident, declWidth, srcOf, $C:ident, contractOf, applyIns, $fI:ident,
             Signal.register, OTy.obs, PTy.obs, PTy.sig, mask, hrst, or_mod _ _ _ _ rfl,
-            Tools.VedU1SmallReg.regEn_succ, Tools.VedU1Lemmas.evalOp_mux_lit, Nat.shiftRight_eq_div_pow] at hR ⊢
+            Tools.VedU1SmallReg.regEn_succ, Tools.VedU1Lemmas.evalOp_mux_lit, Nat.shiftRight_eq_div_pow, $bundleLemmas,*] at hR ⊢
           have hlt : st $rS < 2 ^ $wS := by rw [hR]; exact BitVec.isLt _
           refine ⟨_, _, ⟨rfl, rfl⟩, ?_⟩
           try rw [← hR]
@@ -852,6 +861,22 @@ this only picks the script variant). -/
 def regShape (m : Sparkle.IR.AST.Module) : Option (String × Nat) :=
   match regsOf m.body with
   | [(r, _, _, _)] => some (r, declWidth m r)
+  | _ => none
+
+/-- A module with exactly ONE register (the `regShape` delay) and an output port assigned the register's
+wire itself (`out_k = r`), every other output assigned an input directly: that port's name.  The bundled-statement route without a loop invariant uses it:
+`st r = srcOf C f ins <port> s`. -/
+def bundledRegPort? (m : Sparkle.IR.AST.Module) : Option String :=
+  match regsOf m.body with
+  | [(r, _, _, _)] =>
+    -- every output port is assigned directly the register's wire or an input: the scope of the proved shapes
+    let bare := m.outputs.all fun p => m.body.any fun s => match s with
+      | .assign o (.ref x) => o == p.name && (x == r || m.inputs.any (·.name == x))
+      | _ => false
+    if !bare then none else
+    m.body.findSome? fun s => match s with
+      | .assign o (.ref x) => if x == r && m.outputs.any (·.name == o) then some o else none
+      | _ => none
   | _ => none
 
 /-- The synthesizer's output port names for the leaves of a result tree
@@ -1150,10 +1175,12 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
     unless outNames.length == tbl.out.flat.length do
       refuse decl "multi-output"
         m!"{outNames.length} output port names for {tbl.out.flat.length} output projections"
-    -- registers under a bundled statement term: only a `Signal.loop` body (`Tools/VedU1StructSeq.lean`)
+    -- registers under a bundled statement term: a `Signal.loop` body (`Tools/VedU1StructSeq.lean`)
+    -- or one plain register with outputs wired to it / to inputs (`bundledRegPort?`)
     if !stmt.getAppFn.isConst && (regsOf m.body).length != 0 &&
-        !(← Tools.VedU1Uns.usesLoop decl (← helperConsts decl)) then
-      refuse decl "multi-output" m!"multi-output with registers is supported for `Signal.loop` bodies only"
+        !(← Tools.VedU1Uns.usesLoop decl (← helperConsts decl)) &&
+        (bundledRegPort? m).isNone then
+      refuse decl "multi-output" m!"multi-output with registers is supported for `Signal.loop` bodies and one plain register with outputs wired to it or to inputs only"
     -- the closed term of `m`, checked to denote `m` itself
     let mE := toExpr m
     let back ← withEvalBudget (evalModule mE)
@@ -1221,6 +1248,11 @@ def checkU1E (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST.
           else
           scriptFor nm stmt.getAppFn.constName! stmt.getAppNumArgs (regShape m) inNames (bodyHasEq m.body) none (← helperConsts stmt.getAppFn.constName!) widths
             tblD? (heavy := if bodyHasSigned m.body then 1 else 0)
+        else if let some rp := (if (← Tools.VedU1Uns.usesLoop decl (← helperConsts decl)) then none else bundledRegPort? m) then
+          -- a bundled statement term with ONE plain register and no loop: the single-register script, its
+          -- invariant read at the output port the register drives (`bundledRegPort?`)
+          scriptFor nm decl 0 (regShape m) inNames (bodyHasEq m.body) (some (← Term.exprToSyntax stmt)) (← helperConsts decl) widths
+            (regPort := rp)
         else if !(regsOf m.body).isEmpty then
           -- a bundled statement term (a structure / product result) with registers: one loop invariant,
           -- one equality per output port (`Tools/VedU1StructSeq.lean`)

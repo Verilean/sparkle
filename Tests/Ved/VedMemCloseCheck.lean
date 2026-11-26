@@ -30,6 +30,7 @@ open Sparkle.Core.Domain Sparkle.Core.Signal
 
 set_option linter.unusedSimpArgs false
 set_option linter.unusedVariables false
+set_option ved.mem.causalDagMaskCheck true
 
 /-! ## ved_mem_addr on a goal of 2.7e8 tree nodes -/
 
@@ -689,10 +690,11 @@ set_option ved.mem.loopGate 1 in
 #guard_msgs in
 run_cmd liftTermElabM <| storedOk ``lgF
 
--- (b) option ON, gate 1, the walk refuses (inner loop): the loopGate text (tree 1469; the gate is reached only because the walk failed)
-/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.lgH [proof]: ved_loop_unfold_mem: the loop has 1469 tree nodes, more than the configured limit ved.mem.loopGate (1); raise it with `set_option ved.mem.loopGate N` or disable the gate with `set_option ved.mem.loopGate 0` -/
+-- (b) option ON, gate 1, the walk refuses (causalDagBudget 1; since the inner-`Signal.loop` rule the walk closes lgH within its default budget): the loopGate text (tree 1677; the gate is reached only because the walk failed)
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.lgH [proof]: ved_loop_unfold_mem: the loop has 1677 tree nodes, more than the configured limit ved.mem.loopGate (1); raise it with `set_option ved.mem.loopGate N` or disable the gate with `set_option ved.mem.loopGate 0` -/
 #guard_msgs in
 set_option ved.mem.causalDag true in
+set_option ved.mem.causalDagBudget 1 in
 set_option ved.mem.loopGate 1 in
 #ved_u1_mem lgH
 
@@ -800,10 +802,15 @@ present, exactly:
   first alternative of `ved_causal []`), axioms within std3.
 * `causalDagOff`: option off, `ved_causal_dag` refuses at once with its fixed text; `causalSimpMem`: option off, `ved_causal []`
   runs the simp path and closes the same goal.
-* `innerLoopMem` (REAL FALLBACK): option on, a memory whose read address is an inner `Signal.loop` driven by the state.  The walk
-  has no rule for a loop and refuses (`innerLoopMemDirect`: `ved_causal_dag` alone fails with the fixed text `ved_causal_dag: loop`),
-  `ved_causal []` closes the same goal through the simp path (`ved_causal_simp`, `ved_loop_congr`): stored type `==` the statement,
-  axioms within std3.
+* `innerLoopMem`, `innerLoopMemDirect`: option on, a memory whose read address is an inner `Signal.loop` driven by the state.  The
+  walk closes it (`ved_causal_dag` alone; `innerLoopMem` through `ved_causal []`): stored type `==` the statement, axioms within
+  std3.  The inner loop is a `Tools.VedMemNest.loop_val_congr_le` step whose two premises are walked (under `a b`, and under
+  `t' (t' < k) a b hab`), no whole-goal simp.  `nestedLoopMem` (two nested inner loops) and `loopReadsMem` (an inner loop whose
+  body reads a `memState` of its own state) are closed by the walk too.
+* `ignoredRead` (REAL FALLBACK): a loop read at cycle `t+1` whose body adds `s1.map` of a function that is constant by a Boolean
+  identity.  The walk reaches `s1.val (t'+1)` against `s2.val (t'+1)` for `t' < t+1`, `h` gives cycles `≤ t` only, the
+  bound is not proved and the walk refuses (`ignoredReadDirect`: the fixed text `ved_causal_dag: bound not proved`);
+  `ved_causal []` closes the same goal through the simp path (`ved_causal_simp`, `ved_loop_congr`).
 * `ved_walk_fallback` (STATE RESTORATION): after the failed walk the goal list, the metavariable context (counter, declarations,
   assignments) and the heartbeat clock/limit that the fallback sees are those from before the walk; the fingerprint check itself
   is shown to see a change (`ved_fp_changes`).
@@ -863,14 +870,12 @@ local macro "innerLoopMemStmt" : term => `(∀ {dom : DomainConfig} (wd : Signal
         = (Signal.memory s2 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
           Signal.register 0#4 (Signal.mux (s2.map (fun x => x.getLsbD 0)) (st + 1#4) st))).val (t + 1))
 
--- the walk alone refuses (no rule for a loop; the text is fixed)
-/-- error: ved_causal_dag: loop -/
-#guard_msgs in
+-- the walk alone closes it (`loop_val_congr_le`, premises walked)
 theorem innerLoopMemDirect : innerLoopMemStmt := by
   intro dom wd we
   set_option ved.mem.causalDag true in ved_causal_dag
 
-/-- option on: the walk is tried, fails, and the simp path closes the goal -/
+/-- option on: the walk closes it as the first alternative of `ved_causal` -/
 theorem innerLoopMem : innerLoopMemStmt := by
   intro dom wd we
   set_option ved.mem.causalDag true in ved_causal []
@@ -884,6 +889,64 @@ run_cmd liftTermElabM do
   let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
   unless axs.all (std.contains ·) do throwError "innerLoopMem: axioms {axs}"
   logInfo "innerLoopMem: type exact, axioms within std3"
+
+/-! ### two nested inner loops, an inner loop reading a `memState` -/
+
+set_option hygiene false in
+local macro "nestedLoopMemStmt" : term => `(∀ {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool)
+    (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s1.map (fun x => x.getLsbD 0))
+            (Signal.loop fun (st2 : Signal dom (BitVec 4)) => Signal.register 0#4 (st2 + st)) st))).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s2.map (fun x => x.getLsbD 0))
+            (Signal.loop fun (st2 : Signal dom (BitVec 4)) => Signal.register 0#4 (st2 + st)) st))).val (t + 1))
+
+/-- two nested inner loops (the inner one driven by the state of the middle one, which is driven by the outer state): closed by the walk -/
+theorem nestedLoopMem : nestedLoopMemStmt := by
+  intro dom wd we
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+set_option hygiene false in
+local macro "loopReadsMemStmt" : term => `(∀ {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool)
+    (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s1.map (fun x => x.getLsbD 0))
+            ((Signal.memory st (Signal.register 0#8 wd) we (Signal.register 0#4 st)).map (fun (x : BitVec 8) => x.extractLsb' 0 4)) st))).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 (Signal.mux (s2.map (fun x => x.getLsbD 0))
+            ((Signal.memory st (Signal.register 0#8 wd) we (Signal.register 0#4 st)).map (fun (x : BitVec 8) => x.extractLsb' 0 4)) st))).val (t + 1))
+
+/-- an inner loop whose body reads a `memState` of the loop's own state: closed by the walk -/
+theorem loopReadsMem : loopReadsMemStmt := by
+  intro dom wd we
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+/-! ### the unsupported shape that remains: a read of the outer signal the walk cannot bound (REAL FALLBACK)
+
+The loop (read at cycle `t+1`, not through a memory) adds `s1.map (fun x => if (x.getLsbD 0 && !x.getLsbD 0) = true then 1#4
+else 0#4)`, a function that is constant `0#4` by a Boolean identity.  The walk compares the two sides argument by argument and
+reaches `s1.val (t'+1)` against `s2.val (t'+1)` for the inner time `t' < t+1`: `h` gives only cycles `≤ t`, so for `t' = t` the
+bound is not proved and the walk refuses (it does not know the identity).  The simp path (`ved_causal_simp`) rewrites it away first and closes the goal. -/
+
+set_option hygiene false in
+local macro "ignoredReadStmt" : term => `(∀ {dom : DomainConfig}
+    (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 st + s1.map (fun x => if (x.getLsbD 0 && !x.getLsbD 0) = true then 1#4 else 0#4)).val (t + 1)
+        = (Signal.loop fun (st : Signal dom (BitVec 4)) =>
+          Signal.register 0#4 st + s2.map (fun x => if (x.getLsbD 0 && !x.getLsbD 0) = true then 1#4 else 0#4)).val (t + 1))
+
+/-- error: ved_causal_dag: bound not proved -/
+#guard_msgs in
+theorem ignoredReadDirect : ignoredReadStmt := by
+  intro dom
+  set_option ved.mem.causalDag true in ved_causal_dag
+
+/-- option on: the walk is tried, refuses, and the simp path closes the goal -/
+theorem ignoredRead : ignoredReadStmt := by
+  intro dom
+  set_option ved.mem.causalDag true in ved_causal []
 
 /-! ### state after a failed walk -/
 
@@ -914,8 +977,8 @@ example : ∀ n : Nat, n = n := by ved_fp_changes (intro n); rfl
 
 /-- the walk makes progress (`intro`, `rcases`) before it fails at the loop; the fallback sees the state from before it, and the
 simp path then closes the goal (the whole state is the one `ved_causal []` itself relies on) -/
-theorem innerLoopMemRestored : innerLoopMemStmt := by
-  intro dom wd we
+theorem innerLoopMemRestored : ignoredReadStmt := by
+  intro dom
   set_option ved.mem.causalDag true in
   ved_walk_fallback 200000 (ved_causal_dag) || (ved_causal_simp [])
 
@@ -944,13 +1007,677 @@ theorem sharedPair {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signa
         = (Signal.memory (⟨fun _ => s2.val 0⟩ : Signal dom (BitVec 4)) wd we (⟨fun _ => s2.val 0⟩ : Signal dom (BitVec 4))).val (t + 1) := by
   set_option ved.mem.causalDag true in ved_causal_dag
 
+/-! ### scope levels: a proof is stored in the outermost scope whose binders it does not mention
+
+`dagCacheLevels` (the cache itself, with real binder variables): a proof that mentions no binder of the scope `s1` it was found in is
+stored in the root and a sibling scope `s2` reads it, and it type-checks in `s2`'s context; a proof that mentions the binder `x`
+of `s1` stays in `s1` (a sibling does not read it, and checking it where `x` is not in scope fails: the control is a real one).
+-/
+
+/-- info: dagCacheLevels ok -/
+#guard_msgs in
+open Tools.VedMemLoop in
+run_cmd liftTermElabM do
+  dgHits.set {}
+  let c ← DagCache.new
+  let s1 ← c.scope
+  let s2 ← c.scope
+  let kFree : Expr × Expr := (mkNatLit 1, mkNatLit 2)
+  let kBind : Expr × Expr := (mkNatLit 3, mkNatLit 4)
+  let pFree := mkApp (mkConst ``Nat.le_refl) (mkNatLit 5)
+  let sh := c.sh
+  -- the proof that mentions the binder, built under the binder of `s1`
+  let pBind ← withLocalDeclD `x (mkConst ``Nat) fun x => do
+    s1.reg #[x]
+    let p := mkApp (mkConst ``Nat.le_refl) x
+    let m ← termMask sh p
+    unless m == 2 do throwError "mask of a proof of a depth-1 variable is {m}, not 2"
+    s1.store kBind p m
+    unless (← s1.find? kBind) == some p do throwError "the own scope lost the binder proof"
+    unless (← s2.find? kBind).isNone do throwError "a binder proof reached a sibling"
+    unless (← c.find? kBind).isNone do throwError "a binder proof reached the root"
+    -- the control is real: the proof does not check where `x` is not in scope
+    return p
+  let bad ← try Meta.check pBind; pure false catch _ => pure true
+  unless bad do throwError "the binder proof checks outside its scope (control void)"
+  -- a closed proof built in `s1` goes to the root and is served to the sibling
+  let mFree ← termMask sh pFree
+  unless mFree == 0 do throwError "mask of a closed proof is {mFree}"
+  s1.store kFree pFree mFree
+  let some (e, found) ← s2.findE? kFree | throwError "the sibling does not read the promoted proof"
+  unless found.depth == 0 do throwError "the promoted proof is not in the root"
+  unless e.by_ == s1.id do throwError "wrong inserter"
+  Meta.check e.proof
+  let h ← Tools.VedMemLoop.dgHits.get
+  unless h.promoted == 1 do throwError "promoted counter {h.promoted}"
+  logInfo "dagCacheLevels ok"
+
+elab "ved_hits_reset" : tactic => Tools.VedMemLoop.dgHits.set {}
+elab "ved_hits_show " tag:str : tactic => do
+  let h ← Tools.VedMemLoop.dgHits.get
+  logInfo m!"{tag.getString} own={h.own} ancestor={h.ancestor} shared={h.shared} inserts={h.inserts} promoted={h.promoted}"
+elab "ved_hits_expect_shared " n:num : tactic => do
+  let h ← Tools.VedMemLoop.dgHits.get
+  unless h.shared ≥ n.getNat do throwError "sibling-shared hits {h.shared} < {n.getNat} (promoted {h.promoted})"
+elab "ved_hits_expect_no_shared" : tactic => do
+  let h ← Tools.VedMemLoop.dgHits.get
+  unless h.shared == 0 do throwError "sibling-shared hits {h.shared}, expected none"
+
+set_option Elab.async false in
+/-- the same pair under the `memState` binders of the address and of the data side (siblings): the walk with the mask check on
+(every stored proof is traversed and its mask compared with the composed one); the pair is promoted to the root and the second
+side is served by it (a sibling-shared hit); the kernel accepts the theorem -/
+theorem sharedPairShared {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory (⟨fun _ => s1.val 0⟩ : Signal dom (BitVec 4)) wd we (⟨fun _ => s1.val 0⟩ : Signal dom (BitVec 4))).val (t + 1)
+        = (Signal.memory (⟨fun _ => s2.val 0⟩ : Signal dom (BitVec 4)) wd we (⟨fun _ => s2.val 0⟩ : Signal dom (BitVec 4))).val (t + 1) := by
+  ved_hits_reset
+  set_option ved.mem.causalDag true in set_option ved.mem.causalDagMaskCheck true in ved_causal_dag
+  ved_hits_show "sharedPairShared"
+  ved_hits_expect_shared 1
+
+set_option Elab.async false in
+/-- end to end, proofs that DO use binder variables: the three sibling sides of this memory read the state signal (`s1.val j` under the
+binder `j`, proved by `h j` with the bound from `hj`).  Those proofs mention `j`/`hj`: none is promoted and none is served to a sibling (promoted 0, shared 0; the mask check, which compares
+every stored proof's traversed mask with the composed one, would fail otherwise; a promoted proof that escaped its binders would fail the
+kernel too); whatever closed pairs the walk shares are served; the theorem is kernel-accepted with its exact statement -/
+theorem siblingBinderProofs {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  ved_hits_reset
+  set_option ved.mem.causalDag true in set_option ved.mem.causalDagMaskCheck true in ved_causal_dag
+  ved_hits_show "siblingBinderProofs"
+  ved_hits_expect_no_shared
+
 /-- info: causal controls: axioms within std3 -/
 #guard_msgs in
 run_cmd liftTermElabM do
   let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
-  for n in [``innerLoopMemRestored, ``sharedPair, ``causalDagMemMacro, ``causalSimpMem] do
+  for n in [``innerLoopMemRestored, ``ignoredRead, ``nestedLoopMem, ``loopReadsMem, ``innerLoopMemDirect, ``sharedPair, ``sharedPairShared, ``siblingBinderProofs, ``causalDagMemMacro, ``causalSimpMem] do
     let axs ← collectAxioms n
     unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
   logInfo "causal controls: axioms within std3"
+
+/-! ## `ved.mem.causalDagBudget`: the local cap of the walk -/
+
+/-- info: causalDagBudget default 200000 -/
+#guard_msgs in
+run_cmd do
+  logInfo m!"causalDagBudget default {Tools.VedMemLoop.ved.mem.causalDagBudget.get (← getOptions)}"
+
+/-- with a tiny cap the walk is refused (the `fail_if_success`: it runs out of its local budget), `ved_causal` then closes the goal by the
+`ved_causal_simp` fallback -/
+theorem causalBudgetTiny {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in
+  set_option ved.mem.causalDagBudget 1 in
+  (fail_if_success ved_causal_budget (ved_causal_dag))
+  set_option ved.mem.causalDag true in
+  set_option ved.mem.causalDagBudget 1 in
+  ved_causal []
+
+/-- the same goal with the default cap: the walk closes it (the macro without the fallback alternative) -/
+theorem causalBudgetDefault {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in ved_causal_budget (ved_causal_dag)
+
+/-- 0 = no local cap: the walk closes it under the ambient budget only -/
+theorem causalBudgetZero {dom : DomainConfig} (wd : Signal dom (BitVec 8)) (we : Signal dom Bool) :
+    ∀ (t : Nat) (s1 s2 : Signal dom (BitVec 4)), (∀ k, k ≤ t → s1.val k = s2.val k) →
+      (Signal.memory s1 wd we (Signal.register 0#4 s1)).val (t + 1)
+        = (Signal.memory s2 wd we (Signal.register 0#4 s2)).val (t + 1) := by
+  set_option ved.mem.causalDag true in set_option ved.mem.causalDagBudget 0 in ved_causal_budget (ved_causal_dag)
+
+/-- info: causal budget controls: axioms within std3 -/
+#guard_msgs in
+run_cmd liftTermElabM do
+  let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
+  for n in [``causalBudgetTiny, ``causalBudgetDefault, ``causalBudgetZero] do
+    let axs ← collectAxioms n
+    unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
+  logInfo "causal budget controls: axioms within std3"
+
+
+/-! ### `ved.mem.h0Dag` (sparkle-ved-mem-h0-dag): the base case h0 closed without simp over the registers' inputs
+
+h0's goals are `st0 c m name = (X.val 0).proj.toNat`, `X` a bundle of `Signal.register init x` (the loop body, huge on R033, sits in the `x`).  With the
+option ON `ved_h0_dag_close` closes each by one `isDefEq` (the value at time 0 of a register is its init; the inputs `x` are never visited) as the FIRST
+alternative inside `ved_h0_budget`; the old `ved_loop_simp` step is the fallback.  Controls: (1) ON, `h0Budget 10000`: accepted (the old step, controls
+above, is refused under that limit, observed: the old step needs between 10000 and 30000 thousand heartbeats on this design, the closer fewer than 5000); (2) OFF, `h0Budget 10000`: the old step's refusal unchanged (the option is
+off by default); (3) ON, the closer refused (test seam `h0DagRefuse`): the old step is the fallback: accepted, and under `h0Budget 10000` the old step's
+refusal text (the old step ran). -/
+
+def h0K {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := lgA start writeEn writeAddr writeData
+def h0L {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := lgA start writeEn writeAddr writeData
+def h0M {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := lgA start writeEn writeAddr writeData
+def h0N {dom : DomainConfig} (start : Signal dom Bool) (writeEn : Signal dom Bool)
+    (writeAddr : Signal dom (BitVec 4)) (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := lgA start writeEn writeAddr writeData
+
+-- (1) ON, h0Budget 10000
+#guard_msgs (drop info) in
+set_option ved.mem.h0Dag true in
+set_option ved.mem.h0Budget 10000 in
+#ved_u1_mem h0K
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.h0K -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``h0K
+
+-- (2) OFF (explicit), h0Budget 10000: the old step's refusal
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.h0L [proof]: ved_h0_budget: the base case (h0) did not finish within min(local ved.mem.h0Budget, remaining ambient budget) = 10000 heartbeats (units of maxHeartbeats): the local limit ved.mem.h0Budget = 10000 was the smaller one (the remaining ambient budget was not smaller); raise `maxHeartbeats` or `set_option ved.mem.h0Budget N`, or disable the local limit with `set_option ved.mem.h0Budget 0` -/
+#guard_msgs in
+set_option ved.mem.h0Dag false in
+set_option ved.mem.h0Budget 10000 in
+#ved_u1_mem h0L
+
+-- (3) ON, the closer refuses: old step is the fallback
+run_cmd Tools.VedMemLoop.h0DagRefuse.set true
+
+#guard_msgs (drop info) in
+set_option ved.mem.h0Dag true in
+set_option ved.mem.h0Budget 0 in
+#ved_u1_mem h0M
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.h0M -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``h0M
+
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.h0N [proof]: ved_h0_budget: the base case (h0) did not finish within min(local ved.mem.h0Budget, remaining ambient budget) = 10000 heartbeats (units of maxHeartbeats): the local limit ved.mem.h0Budget = 10000 was the smaller one (the remaining ambient budget was not smaller); raise `maxHeartbeats` or `set_option ved.mem.h0Budget N`, or disable the local limit with `set_option ved.mem.h0Budget 0` -/
+#guard_msgs in
+set_option ved.mem.h0Dag true in
+set_option ved.mem.h0Budget 10000 in
+#ved_u1_mem h0N
+
+run_cmd Tools.VedMemLoop.h0DagRefuse.set false
+
+/-! ### `ved.mem.hstepDag` (sparkle-ved-mem-hstep): the step case's `obtain` and the hypotheses' simp as targeted rewrites
+
+The step case of the memory loop takes the invariant `hR` apart with `obtain ⟨hreg*, hM*, hL*⟩ := hR` (R033: 95 components, observed 426 s: each
+`cases` step abstracts the goal) and then runs `ved_loop_simp [..] at hreg* hM* hL* hD*` (every hypothesis re-simplifies the same loops).  With the
+option ON `ved_obtain_dag` takes `hR` apart by projections and `ved_hnorm_dag` simplifies each distinct loop of the hypotheses once; the old tactics
+are the fallback.  Controls: (1) ON, packed: accepted (stored type == statement, std3), the log `hstepRan` has `obtain_dag` and `hnorm_dag`;
+(2) OFF (explicit): accepted, nothing ran; (3) ON, both refuse (test seam `hstepRefuse`): the old tactics are the fallback, accepted, nothing ran;
+(4) ON, unpacked entry: accepted, both ran. -/
+
+declare_signal_state HState
+  | fsm  : BitVec 2  := 0#2
+  | sub  : BitVec 3  := 0#3
+  | last : BitVec 16 := 0#16
+
+def hsA {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) :=
+  let state := Signal.loop fun state =>
+    let fsm := HState.fsm state
+    let sub := HState.sub state
+    let isRow := fsm === (1#2 : Signal dom _)
+    let sub4 := 0#1 ++ sub
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn sub4
+    let fsmNext := Signal.mux start (Signal.pure 1#2) fsm
+    let subNext := sub + 1#3
+    let lastNext := Signal.mux isRow (inputCoeff + 1#16) (HState.last state)
+    bundleAll! [Signal.register 0#2 fsmNext, Signal.register 0#3 subNext, Signal.register 0#16 lastNext]
+  bundle2 (HState.last state) (HState.sub state)
+
+def hsB {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsC {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsD {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  let state := Signal.loop fun state =>
+    let fsm := HState.fsm state
+    let sub := HState.sub state
+    let isRow := fsm === (1#2 : Signal dom _)
+    let sub4 := 0#1 ++ sub
+    let inputCoeff := Signal.memoryComboRead writeAddr writeData writeEn sub4
+    let fsmNext := Signal.mux start (Signal.pure 1#2) fsm
+    let subNext := sub + 1#3
+    let lastNext := Signal.mux isRow (inputCoeff + 1#16) (HState.last state)
+    bundleAll! [Signal.register 0#2 fsmNext, Signal.register 0#3 subNext, Signal.register 0#16 lastNext]
+  HState.last state
+
+def storedPackedOk (decl : Name) : TermElabM Unit := do
+  let (stmt, _) ← Tools.VedU1Contract.specialiseDomain decl
+  let thm := decl ++ `ved_mem
+  let ti ← getConstInfo thm
+  let expected := mkAppN (Lean.mkConst ``Tools.VedMemEntry.MemPackedStmt)
+    #[Lean.mkConst (decl ++ `ved_contract), Lean.mkConst (decl ++ `ved_mod), stmt]
+  unless ti.type == expected do throwError "{thm}: stored type differs from the statement"
+  let axs ← collectAxioms thm
+  let std : List Name := [``propext, ``Classical.choice, ``Quot.sound]
+  unless axs.all (std.contains ·) && std.all (axs.contains ·) do throwError "{thm}: axioms {axs}"
+  logInfo m!"stored type == statement, axioms std3: {decl}"
+
+def guardLogCheck (want : List String) : CommandElabM Unit := do
+  let got := (← Tools.VedMemLoop.hstepGuardLog.get).toList
+  unless got == want do throwError "guard log: {got}, expected {want}"
+  logInfo m!"guard log: {got}"
+
+def hstepRanCheck (want : List String) : CommandElabM Unit := do
+  let got := (← Tools.VedMemLoop.hstepRan.get).toList
+  unless got == want do throwError "hstepRan: {got}, expected {want}"
+  logInfo m!"hstep ran: {got}"
+
+/-- info: hstepDag default false -/
+#guard_msgs in
+run_cmd do
+  logInfo m!"hstepDag default {Tools.VedMemLoop.ved.mem.hstepDag.get (← getOptions)}"
+
+-- (1) ON, packed
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepDag true in
+#ved_u1_mem_packed hsA
+
+/-- info: hstep ran: [obtain_dag, hnorm_dag] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["obtain_dag", "hnorm_dag"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsA -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsA
+
+-- (2) OFF (explicit)
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepDag false in
+#ved_u1_mem_packed hsB
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsB -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsB
+
+-- (3) ON, both refuse: the old tactics are the fallback
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepRefuse.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepDag true in
+#ved_u1_mem_packed hsC
+run_cmd Tools.VedMemLoop.hstepRefuse.set false
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsC -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsC
+
+-- (4) ON, unpacked
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepDag true in
+#ved_u1_mem hsD
+
+/-- info: hstep ran: [obtain_dag, hnorm_dag] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["obtain_dag", "hnorm_dag"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsD -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``hsD
+
+
+/-! ### `ved.mem.hstepNorm` (sparkle-ved-mem-hstep, second unit): the simps of the step case do not normalise the loops; the goal's loops are made the hypotheses' loops
+
+The goal's `srcOf` loop (the declaration with its lets and name lookups, the state spelled as the product) and the hypotheses' loop (`R`: lets inlined, names
+literal, the state `HState`) are the same loop only by definitional unfolding: `ved_hstep_unify` replaces the goal's by the hypotheses'.  The option is
+`false` by default; the old script is the fallback. -/
+
+def hsE {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsF {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsG {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsH {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsI {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16) := hsD start writeEn writeAddr writeData
+
+def hsJ {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
+def hsK {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsL {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsM {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsN {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsO {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsP {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsQ {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+def hsR {dom : DomainConfig} (start writeEn : Signal dom Bool) (writeAddr : Signal dom (BitVec 4))
+    (writeData : Signal dom (BitVec 16)) : Signal dom (BitVec 16 × BitVec 3) := hsA start writeEn writeAddr writeData
+
+def hnormStatsCheck : CommandElabM Unit := do
+  let (c, _) ← Tools.VedMemLoop.hnormStats.get
+  unless c ≥ 1 do throwError "hnormStats: no loop of the goal was made a loop of a hypothesis"
+  logInfo m!"hstep_unify converted at least one loop"
+
+/-- info: hstepNorm default false -/
+#guard_msgs in
+run_cmd do
+  logInfo m!"hstepNorm default {Tools.VedMemLoop.ved.mem.hstepNorm.get (← getOptions)}"
+
+def declWidthHitsCheck (atLeast : Bool) : CommandElabM Unit := do
+  let n ← Tools.VedMemLoop.declWidthHits.get
+  if atLeast then
+    unless n ≥ 1 do throwError "declWidthHits: {n}, expected the table to answer at least one `declWidth M \"wire\"`"
+    logInfo m!"declWidth answered from the table"
+  else
+    unless n == 0 do throwError "declWidthHits: {n}, expected 0"
+    logInfo m!"declWidth table not used"
+
+def bindStrictHitsCheck (atLeast : Bool) : CommandElabM Unit := do
+  let n ← Tools.VedMemLoop.bindStrictHits.get
+  if atLeast then
+    unless n ≥ 1 do throwError "bindStrictHits: {n}, expected at least one `Option.bind` step in order"
+    logInfo m!"Option.bind evaluated in order"
+  else
+    unless n == 0 do throwError "bindStrictHits: {n}, expected 0"
+    logInfo m!"Option.bind in order not used"
+
+-- (5) hstepNorm ON, packed
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.declWidthHits.set 0
+run_cmd Tools.VedMemLoop.bindStrictHits.set 0
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsE
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: hstep_unify converted at least one loop -/
+#guard_msgs in
+run_cmd hnormStatsCheck
+
+/-- info: declWidth answered from the table -/
+#guard_msgs in
+run_cmd declWidthHitsCheck true
+
+/-- info: Option.bind evaluated in order -/
+#guard_msgs in
+run_cmd bindStrictHitsCheck true
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsE -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsE
+
+-- (6) hstepNorm ON and hstepDag ON, unpacked
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.hstepDag true in
+#ved_u1_mem hsI
+
+/-- info: hstep ran: [obtain_dag, norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["obtain_dag", "norm_skip"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsI -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedOk ``hsI
+
+-- (7) OFF (explicit), hstepDag on: the first unit's tactics, no norm_skip
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm false in
+set_option ved.mem.hstepDag true in
+#ved_u1_mem_packed hsF
+
+/-- info: hstep ran: [obtain_dag, hnorm_dag] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["obtain_dag", "hnorm_dag"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsF -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsF
+
+-- (8) ON, the new branch refuses: the old script closes
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepRefuse.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsH
+run_cmd Tools.VedMemLoop.hstepRefuse.set false
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsH -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsH
+
+-- (9) OFF (default), nothing of the new branch
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.declWidthHits.set 0
+run_cmd Tools.VedMemLoop.bindStrictHits.set 0
+#guard_msgs (drop info) in
+#ved_u1_mem_packed hsG
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsG -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsG
+
+/-- info: declWidth table not used -/
+#guard_msgs in
+run_cmd declWidthHitsCheck false
+
+/-- info: Option.bind in order not used -/
+#guard_msgs in
+run_cmd bindStrictHitsCheck false
+
+
+-- (10) ON, the new branch fails LATE (after its tail stages, test seam `hstepFailLate`): the old script closes and the kernel accepts the result.
+-- Before `ved_hstep_fallback_reset` the kernel said "unknown constant _private._stdin.0._proof_N": the global proof caches (`proofCache`,
+-- `ved_omega_c`'s) kept proofs that mention auxiliary lemmas of the failed branch, which the state restore had removed from the environment.
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepFailLate.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsJ
+run_cmd Tools.VedMemLoop.hstepFailLate.set false
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsJ -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsJ
+
+-- (11) ON, the new branch ends with a HEARTBEAT TIMEOUT (runtime exception, test seam `hstepTimeoutLate`): `first` would let it propagate and the proof
+-- would be refused (the strict-row regression of ved-hstep7); `ved_hstep_guard` restores the state and the old script closes.
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsK
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set false
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsK -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsK
+
+-- (12) ON, the local cap of the new branch (`ved.mem.hstepNewBudget`, here 1 thousand heartbeats) is exceeded for real: the branch is abandoned, the old script closes.
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+set_option ved.mem.hstepNewBudget 1 in
+#ved_u1_mem_packed hsL
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsL -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsL
+
+-- (13) ON, the new branch is forced to fail late (heartbeat timeout seam): the old script closes on what is left of the ambient budget (no refund), the stored
+-- type is the statement; the guard log says the new branch was abandoned.
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepGuardLog.set #[]
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsM
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set false
+
+/-- info: hstep ran: [] -/
+#guard_msgs in
+run_cmd hstepRanCheck []
+
+/-- info: guard log: [new abandoned, old closed] -/
+#guard_msgs in
+run_cmd guardLogCheck ["new abandoned", "old closed"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsM -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsM
+
+/-! ### `ved_hstep_guard` contract (sparkle-ved-mem-hstep, review of 93b85dc2)
+
+The guard wraps the whole step case: a new branch that returns normally but leaves a goal (partial progress; skip) is a failure, state and proof caches are
+restored and the old script runs; if the old script cannot close it either, the declaration is refused and the refusal names the step case.  The old script
+runs on what is left of the ambient budget (no refund): a fixed small `maxHeartbeats` that the new branch uses part of and new + old would exceed is refused
+with the heartbeat error.  With `ved.mem.hstepNorm` off the new branch is not tried at all (guard log empty). -/
+
+-- (14) ON, the new branch makes partial progress and returns with a goal left (test seam `hstepPartial`): NEW is abandoned, OLD closes, stored type exact, std3
+run_cmd Tools.VedMemLoop.hstepRan.set #[]
+run_cmd Tools.VedMemLoop.hstepGuardLog.set #[]
+run_cmd Tools.VedMemLoop.hstepPartial.set true
+#guard_msgs (drop info) in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsN
+run_cmd Tools.VedMemLoop.hstepPartial.set false
+
+/-- info: hstep ran: [norm_skip] -/
+#guard_msgs in
+run_cmd hstepRanCheck ["norm_skip"]
+
+/-- info: guard log: [new abandoned, old closed] -/
+#guard_msgs in
+run_cmd guardLogCheck ["new abandoned", "old closed"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsN -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsN
+
+-- (15) ON, the new branch leaves a goal and the old script cannot close either (test seam `hstepOldFail`): REFUSED, naming the step case; no theorem added
+run_cmd Tools.VedMemLoop.hstepGuardLog.set #[]
+run_cmd Tools.VedMemLoop.hstepPartial.set true
+run_cmd Tools.VedMemLoop.hstepOldFail.set true
+/-- error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.hsO [proof]: errors were logged while elaborating the proof; first: ved_hstep_guard: the step case (hstep) is not closed: the new branch was abandoned (new branch left 1 goal(s) (1 of them new) of the step case) and the old script failed: ved_hstep_fallback: the old script fails (test seam) -/
+#guard_msgs in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsO
+run_cmd Tools.VedMemLoop.hstepPartial.set false
+run_cmd Tools.VedMemLoop.hstepOldFail.set false
+
+/-- info: guard log: [new abandoned, old failed] -/
+#guard_msgs in
+run_cmd guardLogCheck ["new abandoned", "old failed"]
+
+/-- info: no theorem Tests.Ved.VedMemCloseCheck.hsO.ved_mem -/
+#guard_msgs in
+run_cmd do
+  if (← getEnv).contains (``hsO ++ `ved_mem) then throwError "theorem added"
+  logInfo m!"no theorem {``hsO ++ `ved_mem}"
+
+-- (16) default (option off): the new branch is not tried (guard log empty) and the old script closes
+run_cmd Tools.VedMemLoop.hstepGuardLog.set #[]
+#guard_msgs (drop info) in
+#ved_u1_mem_packed hsP
+
+/-- info: guard log: [] -/
+#guard_msgs in
+run_cmd guardLogCheck []
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsP -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsP
+
+-- (17) a small fixed `maxHeartbeats` (120000, units of 1000 heartbeats; `ved.u1.proofHeartbeats 0`: the entry's 8000000 floor is off): the new branch (forced to fail late) uses part of it (observed 71161), new + old
+-- (observed 72535k + 87906k) would exceed it.  No refund: REFUSED with the heartbeat error (the old script is not given the new branch's heartbeats back).
+run_cmd Tools.VedMemLoop.hstepGuardLog.set #[]
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set true
+/--
+error: VED U1 REFUSED Tests.Ved.VedMemCloseCheck.hsQ [proof]: (deterministic) timeout at `«tactic execution»`, maximum number of heartbeats (120000) has been reached
+
+Note: Use `set_option maxHeartbeats <num>` to set the limit.
+
+Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.
+-/
+#guard_msgs in
+set_option maxHeartbeats 120000 in
+set_option ved.u1.proofHeartbeats 0 in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsQ
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set false
+
+/-- info: guard log: [new abandoned, old failed] -/
+#guard_msgs in
+run_cmd guardLogCheck ["new abandoned", "old failed"]
+
+/-- info: no theorem Tests.Ved.VedMemCloseCheck.hsQ.ved_mem -/
+#guard_msgs in
+run_cmd do
+  if (← getEnv).contains (``hsQ ++ `ved_mem) then throwError "theorem added"
+  logInfo m!"no theorem {``hsQ ++ `ved_mem}"
+
+-- (18) the same with room (400000): accepted (new + old within the ambient budget), stored type exact, std3; new <= 120000 < new + old (sanity of (17))
+run_cmd Tools.VedMemLoop.hstepGuardLog.set #[]
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set true
+#guard_msgs (drop info) in
+set_option maxHeartbeats 400000 in
+set_option ved.u1.proofHeartbeats 0 in
+set_option ved.mem.hstepNorm true in
+#ved_u1_mem_packed hsR
+run_cmd Tools.VedMemLoop.hstepTimeoutLate.set false
+
+/-- info: guard log: [new abandoned, old closed] -/
+#guard_msgs in
+run_cmd guardLogCheck ["new abandoned", "old closed"]
+
+/-- info: stored type == statement, axioms std3: Tests.Ved.VedMemCloseCheck.hsR -/
+#guard_msgs in
+run_cmd liftTermElabM <| storedPackedOk ``hsR
+
+/-- info: new < 120000k < new + old -/
+#guard_msgs in
+run_cmd do
+  let (n, o) ← Tools.VedMemLoop.hstepGuardHb.get
+  unless n / 1000 < 120000 && 120000 < (n + o) / 1000 do throwError "heartbeats new {n} old {o} do not straddle 120000k"
+  logInfo m!"new < 120000k < new + old"
 
 end Tests.Ved.VedMemCloseCheck
