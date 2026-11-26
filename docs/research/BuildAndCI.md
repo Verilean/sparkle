@@ -46,7 +46,93 @@ per-circuit guarantee (`Tools.VedU1Contract`) and the entry commands were never 
 What a user runs on demand, not normally: one research check (`lake build Tests.Ved.<Check>`),
 the full list of VED checks (the `ved-full` CI job), `lake test`, and the API docs.
 
-## 2. Measured waiting time on a clean machine
+## 2. Waiting time by use case
+
+Each row is the waiting time of one kind of user, measured at the release candidate `2bcf256b`. The
+measurement ran on clean GitHub runners (`ubuntu-latest`, 4 vCPU, 15 GB): no cache, a fresh
+`elan`, a fresh clone. Workflow run 45777577786 was run twice on the same script commit, each
+attempt on a new runner, and both values are given as "sample 1 / sample 2". Sample 2 was 25-35%
+faster on every step: that is the difference between two runners. Two values do not show how stable
+these times are or give an upper bound. Section 3 has every step.
+
+### A. You write circuits in your own project that depends on Sparkle
+
+Condition: `elan` and the toolchain are installed, and the project files already exist. The
+project files are a `lakefile.toml` that requires Sparkle at a fixed commit, plus one circuit, as
+in `.github/workflows/downstream-smoke.yml`.
+
+| What you wait for | Sample 1 / sample 2 |
+|---|---|
+| Setup: `elan` + toolchain download, `lake update`, first `lake build` (compiles Sparkle and your circuit) | 112 s / 82 s |
+| After editing your circuit: `lake build` | 2.2 s / 1.6 s |
+
+### B. You develop Sparkle itself
+
+Condition: you work in a clone of the repository.
+
+| What you wait for | Sample 1 / sample 2 |
+|---|---|
+| Setup: clone, `elan` + toolchain, dependencies, `lake build` | 112 s / 83 s |
+| `lake build` again, nothing changed / after a one-line library edit | 1.4 s / 1.0 s, and 3.6 s / 2.7 s |
+| The regression suite: `lake build IP.RV32.SoCVerilog`, then `lake test` | 48 s + 351 s (one sample, run 45783205628), rc 0 |
+| A pull request's VED job (`ved-pr`) | 5851 s (98 min) in run 44539786136 |
+
+About the regression suite:
+- It runs only after the SoC build (README "Testing"). Without that build, on a fresh clone,
+  `lake test` exits 1: 24 checks fail because they read `verilator/generated_soc.sv` and
+  `generated_soc_cppsim.h`, which that build writes. Both samples of run 45777577786 showed this,
+  and so did a run on a development machine. `main` has the same dependency.
+- Making the suite self-contained is a separate follow-up.
+- Its time has one sample only, because the two earlier attempts ran it without the SoC build.
+
+The `ved-pr` figure is the run time of that one job on the code `2bcf256b`. It is not the time a
+pull request waits in total, which also includes queueing and review. The goal of about 20
+minutes for required CI is not met (section 6).
+
+### C. You get proofs for your own circuits with the existing entry commands
+
+Condition: you work in a clone of the repository, because the entry commands are used inside it.
+Using them from your own project, as a dependency, is not documented and was not measured.
+
+| What you wait for | Sample 1 / sample 2 |
+|---|---|
+| Setup: B's setup plus `lake build Tools.VedU1Entry` | 173 s / 128 s |
+| A short proof: `#ved_u1` on the tutorial's 8-bit register | 2.1 s / 1.6 s |
+| A real IP proof: `#ved_u1` on the Keccak round-constant table | 80 s / 60 s, peak memory 5.3 GB |
+
+If the real IP's library is not built yet, its build comes first: 48 s / 29 s.
+
+### D. You add lemmas, statements or routes, each with a check file
+
+This is the path of [CONTRIBUTING-research.md](CONTRIBUTING-research.md). Every time in this table
+is an **additional** cost, measured in this order after C's setup and C's two proofs. None of them
+is a cold build on its own.
+
+| What you wait for | Sample 1 / sample 2 |
+|---|---|
+| The other tool libraries: the deep route (`Tools.VedU1Deep`) | 770 s / 639 s |
+| The other tool libraries: hierarchies (`Tools.VedU2HierRegEntry`) | 47 s / 33 s |
+| The checks the contributing page names: hierarchy (`Tests.Ved.U2HierRegCheck`) | 218 s / 149 s |
+| The checks the contributing page names: writer (`Tests.Ved.WriteCheckedCheck`) | 119 s / 88 s |
+| Re-check after editing a lemma file near the entry (`Tools/VedU1WireShare.lean`) | 23 s / 16 s |
+| Re-check after editing a shared foundation file (`Tools/VedU1Contract.lean`, which every entry imports) | 59 s / 43 s |
+| A pull request's VED job | as in B |
+
+Each re-check rebuilds `Tools.VedU1Entry` and the entry's check (`Tests.Ved.U1EntryCheck`):
+- **The edit:** one trivial theorem appended to the file. This stands in for the cost of
+  re-checking what depends on that file. It is not the time needed to write a new, hard proof.
+- **Before each edit:** the same targets were built, unchanged.
+- **After it:** the edit was reverted, and a rebuild returned to the same time before the next edit
+  started.
+- **Evidence:** the logs show that the edited module and the check were really rebuilt
+  (`Built Tools.VedU1WireShare`, `Built Tests.Ved.U1EntryCheck`).
+
+Two times cannot be reproduced with public steps:
+- **Re-measuring rows of the 327-command table:** the generator and the raw data are not public
+  (appendix C).
+- **Writing a new proof:** depends on the proof, and is not measured.
+
+## 3. Measured waiting time on a clean machine, step by step
 
 Workflow `.github/workflows/research-ux.yml`, run 45765909458 (2026-11-26) on two fresh `ubuntu-latest` runners,
 one per revision. Each runner:
@@ -130,7 +216,7 @@ Run 45765909458 used the script before the verdict step was added. Its saved TSV
 re-judged with `ux_verdict.py`: the baseline passes with `--expect e2=refused` and fails without
 it, and the candidate passes.
 
-## 3. CI, per workflow, at the release candidate `2bcf256b`
+## 4. CI, per workflow, at the release candidate `2bcf256b`
 
 Runs of the pull request (event `pull_request`) and one dispatched `ved-full` run.
 
@@ -173,7 +259,7 @@ Two consequences follow:
 - `ved-full`, the job that checks all VED targets, never runs on a pull request or a push to
   main. It runs only weekly or on request.
 
-## 4. Proposal: how to split CI
+## 5. Proposal: how to split CI
 
 This is a proposal. No workflow is changed by this page.
 
@@ -202,7 +288,7 @@ Rules that keep the split honest:
 - **Docs PRs.** Add a `paths-ignore` for `docs/**` and `**/*.md` to `build.yml` and
   `downstream-smoke.yml`, and give the docs checks above their own small job.
 
-## 5. Targets, from the measurements
+## 6. Targets, from the measurements
 
 Rules, in order:
 
@@ -217,7 +303,7 @@ Rules, in order:
    rv32 IP group (723 s). That suggests a goal of about 20 minutes for required CI.
 
    Today `ved-pr` takes 5851 s, and its longest step alone takes 1408 s, so the goal is not met.
-   Whether a matrix can reach it depends on the open work in section 4: splitting the longest
+   Whether a matrix can reach it depends on the open work in section 5: splitting the longest
    step and sharing the built dependencies. Until a matrix trial with the same checks has been
    measured, 20 minutes stays a goal and not a gate.
 3. **Long steps:** a single required step above 10 minutes is a candidate for splitting. Lake
