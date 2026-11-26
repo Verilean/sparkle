@@ -1131,7 +1131,7 @@ chain went:
 (`puthex32` register corruption or UART byte framing).
 
 Full postmortem in
-[`BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md).
+[`BitNet_LTL_Investigation.md`](ip-catalog/BitNet_LTL_Investigation.md).
 
 ### Lessons
 
