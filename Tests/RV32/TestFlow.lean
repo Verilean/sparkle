@@ -38,24 +38,86 @@ private def toolAvailable (name : String) : IO Bool := do
 that module (Lake 4.32.1 does not fetch `needs` of a lib or exe).  When they
 are missing (fresh clone), build the module; if they are still missing (its
 olean was replayed from a cache), elaborate the file directly.  Each step is
-printed, and a failure leaves the files missing so the checks below fail. -/
-private def ensureSoCFiles (paths : Array String) : IO Unit := do
-  let missing : IO Bool := do
-    for p in paths do
-      unless ← System.FilePath.pathExists p do return true
-    return false
+printed.  A non-zero exit is a failure even if the files were written, the
+direct elaboration runs only after a successful build that left them missing,
+and the result (`some` diagnostic on failure) becomes a test below. -/
+abbrev SoCRunner := Array String → IO (UInt32 × String)
+
+/-- Runs `lake ARGS`; returns the exit code and stdout followed by stderr
+(Lean reports elaboration errors on stdout). -/
+private def lakeRunner : SoCRunner := fun args => do
+  let r ← IO.Process.output { cmd := "lake", args }
+  return (r.exitCode, r.stdout ++ r.stderr)
+
+private def allExist (paths : Array String) : IO Bool :=
+  paths.allM fun p => System.FilePath.pathExists p
+
+private def lastLines (s : String) (n : Nat := 40) : String :=
+  let ls := s.splitOn "\n"
+  "\n".intercalate (ls.drop (ls.length - n))
+
+def ensureSoCFiles (paths : Array String) (run : SoCRunner := lakeRunner) :
+    IO (Option String) := do
+  if ← allExist paths then return none
   let steps : Array (Array String) :=
     #[#["build", "IP.RV32.SoCVerilog"], #["env", "lean", "IP/RV32/SoCVerilog.lean"]]
   for args in steps do
-    unless ← missing do return
-    IO.println s!"TestFlow: generated SoC files missing; running lake {" ".intercalate args.toList}"
-    let r ← IO.Process.output { cmd := "lake", args }
-    IO.println s!"TestFlow: lake {args[0]!} exited {r.exitCode}"
-    unless r.exitCode == 0 do IO.eprintln r.stderr
+    let cmd := s!"lake {" ".intercalate args.toList}"
+    IO.println s!"TestFlow: generated SoC files missing; running {cmd}"
+    let (rc, out) ← run args
+    IO.println s!"TestFlow: {cmd} exited {rc}"
+    if rc != 0 then
+      return some s!"{cmd} exited {rc}:\n{lastLines out}"
+    if ← allExist paths then return none
+  return some "generated SoC files still missing after lake build and lake env lean"
+
+/-- Controls for `ensureSoCFiles` with a fake runner in a scratch directory:
+a failing step is a failure even when it wrote the files, a failed build does
+not fall through to the direct elaboration, and files still missing after
+two successful steps are a failure. -/
+def ensureControls : IO TestSeq := do
+  let dir : System.FilePath := ".lake/testflow-ensure"
+  let paths := #[(dir / "a.sv").toString, (dir / "b.h").toString]
+  let write : IO Unit := do
+    IO.FS.createDirAll dir
+    for p in paths do IO.FS.writeFile p "x"
+  -- `script[i]` is (writes the files?, exit code) for the i-th call
+  let case (script : Array (Bool × UInt32)) : IO (Option String × Nat) := do
+    if ← dir.pathExists then IO.FS.removeDirAll dir
+    let calls ← IO.mkRef 0
+    let run : SoCRunner := fun _ => do
+      let i ← calls.modifyGet fun i => (i, i + 1)
+      let (w, rc) := script.getD i (false, 0)
+      if w then write
+      return (rc, "fake output")
+    let r ← ensureSoCFiles paths run
+    return (r, ← calls.get)
+  let (writeFail, n1) ← case #[(true, 1)]
+  let (buildFail, n2) ← case #[(false, 1), (true, 0)]
+  let (fallbackOk, n3) ← case #[(false, 0), (true, 0)]
+  let (fallbackFail, _) ← case #[(false, 0), (true, 1)]
+  let (stillMissing, n5) ← case #[(false, 0), (false, 0)]
+  if ← dir.pathExists then IO.FS.removeDirAll dir
+  return group "SoC file generation controls" (
+    test "step writes the files but exits 1: failure, no fallback"
+      (writeFail.isSome && n1 == 1) $
+    test "build fails: failure, direct elaboration not run"
+      (buildFail.isSome && n2 == 1) $
+    test "build ok but files missing, direct elaboration writes them: success"
+      (fallbackOk.isNone && n3 == 2) $
+    test "direct elaboration writes the files but exits 1: failure"
+      fallbackFail.isSome $
+    test "both steps ok but files still missing: failure"
+      (stillMissing.isSome && n5 == 2)
+  )
 
 /-- Verify generated Verilog and CppSim files exist with expected content -/
 def synthTests : IO TestSeq := do
-  ensureSoCFiles #["verilator/generated_soc.sv", "verilator/generated_soc_cppsim.h"]
+  let genErr ← ensureSoCFiles #["verilator/generated_soc.sv", "verilator/generated_soc_cppsim.h"]
+  if let some e := genErr then IO.eprintln s!"TestFlow: SoC file generation failed: {e}"
+  let genTest := test (match genErr with
+      | none => "generated SoC files present or generated"
+      | some e => s!"SoC file generation failed: {e}") genErr.isNone
   -- Check generated SV file
   let svPath := "verilator/generated_soc.sv"
   let svExists ← System.FilePath.pathExists svPath
@@ -67,6 +129,7 @@ def synthTests : IO TestSeq := do
   let cppContent ← if cppExists then IO.FS.readFile cppPath else pure ""
 
   return group "Verilog Compilation" (
+    genTest ++
     group "Generated SystemVerilog" (
       test "generated_soc.sv exists" svExists $
       test "file is non-empty" (svContent.length > 0) $
@@ -268,13 +331,14 @@ def flowTests : IO TestSeq := do
   IO.println ""
   IO.println "--- RV32 SoC Flow Tests ---"
 
+  let ensureCtl ← ensureControls
   let synth ← synthTests
   let leanSim ← leanSimTests
   let cppSim ← cppSimTests
   let verilator ← verilatorTests
 
   return group "RV32 SoC Flow Tests" (
-    synth ++ leanSim ++ cppSim ++ verilator
+    ensureCtl ++ synth ++ leanSim ++ cppSim ++ verilator
   )
 
 end Sparkle.Tests.RV32.TestFlow
