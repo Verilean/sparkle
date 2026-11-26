@@ -47,9 +47,13 @@ jobs:
           - label: baseline
             sha: ${{ github.event.inputs.baseline_sha || '6c29b9b8b4bed436afcc0a3f23a6335bfbc751a1' }}
             expect: ${{ github.event.inputs.baseline_expect || 'e2=refused' }}
+            usecases: ''
           - label: candidate
             sha: ${{ github.event.inputs.candidate_sha || '2bcf256bad61cf42292f560eaa9ed0fe313ba5ff' }}
             expect: ${{ github.event.inputs.candidate_expect || '' }}
+            # use cases B and D (lake test, research tools, checks, edit cycles):
+            # measured on the candidate only
+            usecases: '1'
     steps:
       # Only the measurement script comes from the pushed branch; the measured
       # revision is cloned from scratch by the script itself.
@@ -68,6 +72,7 @@ jobs:
       - name: Measure (clone, toolchain, build, proofs), then verify
         env:
           UX_EXPECT: ${{ matrix.expect }}
+          UX_USECASES: ${{ matrix.usecases }}
         run: |
           scripts/research/ux_measure.sh "${{ matrix.label }}" "${{ matrix.sha }}" \
             "$RUNNER_TEMP/ux" "https://github.com/${{ github.repository }}.git"
@@ -87,7 +92,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: research-ux-${{ matrix.label }}
+          # one artifact per attempt: re-running a job gives an independent second sample
+          name: research-ux-${{ matrix.label }}-attempt${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/ux/*.tsv
             ${{ runner.temp }}/ux/env-*.txt

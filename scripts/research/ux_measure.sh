@@ -21,6 +21,8 @@
 #   d2 #ved_u1 delay8          synthesis + proof elaboration + kernel (profiler split)
 #   e1 build IP.Crypto.Keccak256HW   the real IP's library
 #   e2 #ved_u1 keccakRcHW      representative real-IP strict proof (profiler split)
+#   u_* (UX_USECASES=1 only)  use cases B and D: lake test, research tools,
+#                              two checks, two edit cycles (see the block below)
 #
 # No cache is restored and nothing is read from outside the clone.  Peak RSS is
 # GNU time's "Maximum resident set size": the largest single process of the
@@ -217,12 +219,48 @@ for t in Tests.Ved.U1EntryCheck Tests.Ved.U1KeccakRcCheck; do
   fi
 done
 
+# ---- use cases B and D (only with UX_USECASES=1) -----------------------------
+# Fixed order, after all steps above (so Sparkle, Tools.VedU1Entry and
+# Tests.Ved.U1EntryCheck are already built). The tool and check builds are the
+# ADDITIONAL cost after that preparation, not a cold build on their own. The edit
+# steps rebuild after appending one trivial theorem to a Tools file: this
+# approximates the cost of re-checking what depends on that file. It is not the
+# time needed to write a new, hard proof. Before each edit the targets are built
+# (u_pre*); after the edit is reverted, they are built again (u_post*), and only
+# then does the next edit start. The verdict checks in the log that the edited
+# module and the check were really rebuilt.
+if [ -n "${UX_USECASES:-}" ]; then
+  NOTE="B: Sparkle developer's regression suite (Tests.AllTests)"
+  run u_test "lake test" lake test
+  NOTE="D: additional cost after the steps above"
+  run u_deep "lake build Tools.VedU1Deep" lake build Tools.VedU1Deep
+  NOTE="D: additional cost after the steps above"
+  run u_hier "lake build Tools.VedU2HierRegEntry" lake build Tools.VedU2HierRegEntry
+  NOTE="D: CONTRIBUTING-research check"
+  run u_chk_hier "lake build Tests.Ved.U2HierRegCheck" lake build Tests.Ved.U2HierRegCheck
+  NOTE="D: CONTRIBUTING-research check"
+  run u_chk_write "lake build Tests.Ved.WriteCheckedCheck" lake build Tests.Ved.WriteCheckedCheck
+  i=0
+  for f in Tools/VedU1WireShare.lean Tools/VedU1Contract.lean; do
+    i=$((i+1))
+    NOTE="D: targets built before edit $i"
+    run "u_pre$i" "lake build Tools.VedU1Entry Tests.Ved.U1EntryCheck (before editing $f)" lake build Tools.VedU1Entry Tests.Ved.U1EntryCheck
+    printf '\ntheorem uxProbeEdit%s : (1 : Nat) + 1 = 2 := rfl\n' "$i" >> "$f"
+    NOTE="D: edit $i: one trivial theorem appended to $f"
+    run "u_edit$i" "lake build Tools.VedU1Entry Tests.Ved.U1EntryCheck after editing $f" lake build Tools.VedU1Entry Tests.Ved.U1EntryCheck
+    git checkout --quiet -- "$f"
+    NOTE="D: edit $i reverted"
+    run "u_post$i" "lake build Tools.VedU1Entry Tests.Ved.U1EntryCheck (after reverting $f)" lake build Tools.VedU1Entry Tests.Ved.U1EntryCheck
+  done
+fi
+
 echo; column -t -s$'\t' "$TSV" | cut -c1-200
 
 # ---- verification (separate from collection) --------------------------------
 EXPECT_ARGS=()
 for e in ${UX_EXPECT:-}; do EXPECT_ARGS+=(--expect "$e"); done
 SKIP=(); [ -n "${UX_SKIP_ELAN:-}" ] && SKIP=(--skip-elan)
+[ -n "${UX_USECASES:-}" ] && SKIP+=(--usecases)
 echo
 python3 -I "$SCRIPT_DIR/ux_verdict.py" "$TSV" --logs "$OUT" "${EXPECT_ARGS[@]}" "${SKIP[@]}" | tee "$OUT/verdict-$LABEL.txt"
 exit "${PIPESTATUS[0]}"
