@@ -671,6 +671,14 @@ lean_exe «tutorial-mermaid-test» where
   srcDir := "tutorial-extended"
   supportInterpreter := true
 
+-- `Tests/RV32/TestFlow.lean` reads verilator/generated_soc.sv and
+-- generated_soc_cppsim.h, which `IP.RV32.SoCVerilog` writes when it is
+-- elaborated (#writeDesign); build it first so `lake test` works on a fresh
+-- clone.  (`needs` on the `test` exe is not fetched by Lake 4.32.1.)
+lean_lib «Tests.RV32.TestFlow» where
+  roots := #[`Tests.RV32.TestFlow]
+  needs := #[`+IP.RV32.SoCVerilog]
+
 lean_lib «Tests» where
   -- Test circuits library
 
@@ -1513,14 +1521,10 @@ lean_exe «iverilog-roundtrip-test» where
   root := `Tests.Drivers.IVerilogSimMain
   supportInterpreter := true
 
--- `Tests/RV32/TestFlow.lean` reads verilator/generated_soc.sv and
--- generated_soc_cppsim.h, which `IP.RV32.SoCVerilog` writes when it is
--- elaborated (#writeDesign); build it first so `lake test` works on a fresh clone.
 @[test_driver]
 lean_exe «test» where
   root := `Tests.AllTests
   supportInterpreter := true
-  needs := #[`+IP.RV32.SoCVerilog]
 
 
 lean_exe «ecdsa-sign-small-jit-dbg» where
