@@ -31,6 +31,9 @@ open Sparkle.Core.Domain Sparkle.Core.Signal
 set_option linter.unusedSimpArgs false
 set_option linter.unusedVariables false
 set_option ved.mem.causalDagMaskCheck true
+-- `Tools.VedMemPack.ctrlLeafFailed` and the other closing-stage caches are process-global refs that the controls below set, read and clear;
+-- declarations elaborated in parallel (`Elab.async`) race on them (a concurrent `ved_ctrl_cases` clears the flag between a control's failing call and its check)
+set_option Elab.async false
 
 /-! ## ved_mem_addr on a goal of 2.7e8 tree nodes -/
 
