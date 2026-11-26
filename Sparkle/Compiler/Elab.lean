@@ -2184,7 +2184,24 @@ mutual
             if e' != e then translateExprToWire e' hint (isTopLevel := isTopLevel) (isNamed := isNamed)
             else translateExprToWireApp e hint isNamed
 
-    | .proj _ idx eStruct => do
+    | .proj sName idx eStruct => do
+      -- A raw `.proj` of a `@[hardware_module]` call (e.g. `r <~ m.done`) must use the
+      -- sub-module's port map; the packed-product slice below would read its first port.
+      let mut recArg := eStruct
+      if recArg.isFVar then
+        let fvarMap ← CompilerM.liftMetaM (sparkleFvarValueMap.get : IO _)
+        match fvarMap.get? recArg.fvarId!.name with
+        | some v => recArg := v
+        | none =>
+          if let some v ← CompilerM.liftMetaM (do
+              return (← getLCtx).find? recArg.fvarId! >>= (·.value?)) then
+            recArg := v
+      if let some recName := recArg.getAppFn.constName? then
+        let env ← CompilerM.liftMetaM getEnv
+        let fields := Lean.getStructureFields env sName
+        if Sparkle.Compiler.isHardwareModule env recName ∧ idx < fields.size then
+          let projApp ← CompilerM.liftMetaM (Lean.Meta.mkProjection eStruct fields[idx]!)
+          return ← translateExprToWire projApp hint (isTopLevel := isTopLevel) (isNamed := isNamed)
       -- Try iota reduction first: if `eStruct` reduces to a
       -- `Prod.mk a b`, replace `.proj idx (Prod.mk a b)` with
       -- the chosen component.  Without this, value-level Prods
