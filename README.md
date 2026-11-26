@@ -73,18 +73,22 @@ def delay8 (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 
 #print axioms delay8.ved_u1    -- [propext, Classical.choice, Quot.sound]
 ```
 
-- **What the theorem covers:** every input whose values fit their bit widths,
-  with reset held low, at every clock cycle, for the returned module (Sparkle's
-  IR). With `#ved_write_checked`, the SystemVerilog file is written from that
-  checked module.
+- **What the theorem covers:** the returned module (Sparkle's IR), run from its
+  declared initial state, under any admissible evaluation order of its netlist
+  (every wire written before it is read): for every input whose values fit
+  their bit widths, with reset held low, at every clock cycle. It is not a
+  claim about an arbitrary starting state, or about the body in an order that
+  has not been checked. With `#ved_write_checked`, the SystemVerilog file is
+  written from that checked module.
 - **What it does not cover:** the optimiser that runs afterwards, the printed
   SystemVerilog text, timing, or a chip. Refused circuits have no claim.
 - **How far it gets today:** it is partial. On a fixed set of 327 commands it
   proves 243 (real IP 168 of 220, regression circuits 75 of 107), measured at
   the release snapshot. Large arithmetic circuits (for example some
   elliptic-curve point operations), memories inside sub-modules and deeper
-  hierarchies are still mostly refused, and there is no general theorem for
-  the compiler.
+  hierarchies are still mostly refused. An unconditional compiler-correctness
+  theorem for everything the compiler accepts is not finished
+  ([why](docs/research/CompilerGeneralTheorem.md)).
 - **Try it:** `lake build Tools.VedU1Entry`, then
   `lake env lean docs/research/examples/Delay8.lean`.
 
