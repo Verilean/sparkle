@@ -15,7 +15,8 @@ open Sparkle.Core Sparkle.Core.Domain Sparkle.Core.Signal
 /-! ## (A) one value becomes a pair -/
 
 /-- A counter in the style of example 2 (a `Signal.loop` of two registers: it adds `d` while
-`en` is high) that ALSO reports a flag "the count has reached 255": the result is the pair
+`en` is high) that ALSO reports a flag that becomes true one cycle after the count is observed
+at 255 and then stays true: the result is the pair
 (count, flag). -/
 def countFlag (en : Signal defaultDomain Bool) (d : Signal defaultDomain (BitVec 8)) :
     Signal defaultDomain (BitVec 8 × Bool) :=

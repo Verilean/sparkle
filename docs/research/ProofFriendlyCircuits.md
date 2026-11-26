@@ -58,7 +58,7 @@ takes about 12 s just to load the library, so the whole-file times below are mos
 | Item | Time |
 |---|---|
 | `lake build Tools.VedU1Entry` | 60 s on a clean 4-vCPU runner; 52 s this machine |
-| `lake build Tools.VedU2HierRegEntry`, cold (its modules not built yet) | 6 min 53 s this machine, one run; not measured on a clean runner |
+| `lake build Tools.VedU2HierRegEntry`, cold (its modules not built yet) | 6 min 53 s this machine, one run. Not comparable with [BuildAndCI.md, section 2 D](BuildAndCI.md#2-waiting-time-by-use-case) (47 s / 33 s on clean runners), which is an additional cost measured after the other tools and the test suite were already built |
 | `lake build Tools.VedU1PackedEntry` | 50 s this machine |
 
 Every file also checks the axioms of every theorem it accepts: `#print axioms` under
@@ -74,7 +74,7 @@ Quot.sound, propext]`) lists the same three.
 flowchart LR
   ins["input streams<br/>every data value fits its width<br/>rst = 0 at every cycle<br/>clk value arbitrary"]
   src["Lean source meaning<br/>the declaration applied to the stream,<br/>read at cycle t"]
-  ir["returned IR module<br/>runModule of the module,<br/>started in its initial state, K cycles"]
+  ir["returned IR module, its netlist<br/>in ANY well-ordered arrangement<br/>(each wire written before it is read),<br/>runModule from its initial state, K cycles"]
   eq(["outputs equal<br/>for every stream, every K, every t &lt; K"])
   ins --> src
   ins --> ir
@@ -92,7 +92,9 @@ IR semantics. *Text alternative.* Input streams feed two boxes, "Lean source mea
 stream and every time.
 
 **In plain words.** Take any input sequence whose values fit their bit widths, with the reset
-line held at 0. Run the returned module for any number of cycles. At every cycle, the module's
+line held at 0. Take the returned module's statements in any order in which every wire is
+written before it is read (a "well-ordered arrangement" of the same netlist). Run it for any
+number of cycles. At every cycle, the module's
 outputs are exactly what your Lean function gives at that cycle. The right-hand side is
 computed from your function itself, not from a copy. The theorem is built for each circuit and
 checked by Lean's kernel each time.
@@ -112,6 +114,11 @@ def OutputsOn (c : Contract) (m : Module) (b : List Stmt) (f : c.table.Ty) : Pro
     runModule (declWidth m) b (seedFwd m K ins) K (st0 c m) (fun _ _ => 0) = some envs ∧
     ∀ t, t < K → ∀ o ∈ c.outputs, ∃ env, envs[t]? = some env ∧ env o.name = srcOf c f ins o.name t
 
+-- Tools/VedU1Contract.lean:464 and :468  (the order clauses)
+def OrderStmt (m : Module) : Prop := ∃ b, OrderOk m b = true
+def OutputsStmt (c : Contract) (m : Module) (f : c.table.Ty) : Prop :=
+  ∀ b, b.Perm m.body → Sparkle.IR.Reorder.WO [] b → OutputsOn c m b f
+
 -- Tools/VedU1Contract.lean:494
 def U1Stmt (c : Contract) (m : Module) (f : c.table.Ty) : Prop :=
   CorrStmt c ∧ ShapeStmt c m ∧ WidthStmt c m ∧ OrderStmt m ∧ OutputsStmt c m f
@@ -128,9 +135,23 @@ Reading the conditions off these lines:
 | **Run length** | Every `K`: the statement is about all prefixes of all lengths. |
 | **Artifact** | `m`, the module returned by the **same** synthesis run (the entry registers it as `f.ved_mod` and checks that this closed term evaluates back to the returned value). |
 
-The other four clauses of `U1Stmt` (`CorrStmt`, `ShapeStmt`, `WidthStmt`, `OrderStmt`) say
-that the module's ports and widths match the declaration's type and that its body is a
-well-formed netlist; they are decided by computation. Chapter
+**The order of the statements.** `OutputsOn` takes the list `b` of statements it runs. The
+theorem does not run the body `m.body` as it is printed:
+- **`OutputsStmt` quantifies over arrangements.** It covers every list `b` that is a permutation
+  of `m.body` (`b.Perm m.body`) and well-ordered (`WO [] b`: every wire is written before it is
+  read).
+- **`OrderStmt` makes it non-vacuous.** It says that such an arrangement exists, so the
+  statement is not about an empty set of runs. The checker finds one and decides it by
+  computation.
+- **Why the order does not matter.** All well-ordered arrangements of the same netlist give the
+  same run (`runModule_perm`, used by `outputs_of_order`, `Tools/VedU1Contract.lean:474`).
+- **Using the body as printed.** If you want the statement for `m.body` in its printed order,
+  you also need `woCheck [] m.body = true`: the printed body is itself well-ordered. That is
+  decidable, and then `outputs_body` (line 488) gives `OutputsOn c m m.body f`. Example 6 does
+  exactly this; its `hwo` is that check.
+
+The other three clauses of `U1Stmt` (`CorrStmt`, `ShapeStmt`, `WidthStmt`) say that the
+module's ports and widths match the declaration's type; they are decided by computation. Chapter
 [7c](../tutorial/md/Ch07c_VerifiedSynthesis.md#7c2-what-the-theorem-says) reads them one by one.
 
 ## 3. Where the guarantee ends
@@ -226,7 +247,8 @@ section 2 (8-bit input, reset held at 0, one clock, initial value 0).
 **Time and budget.** The `#ved_u1` took 2.2 s on a clean 4-vCPU runner
 ([BuildAndCI.md](BuildAndCI.md)); the whole file took about 15 s this machine, almost all of it
 loading the library. The proof is far below the entry's resource budget (the proof budget
-options are `ved.u1.proofHeartbeats` and `ved.u1.proofRecDepth`; they can only be raised).
+options are `ved.u1.proofHeartbeats` and `ved.u1.proofRecDepth`. The limit that applies is the
+larger of the caller's limit and the option, and an option of 0 means the caller's limit only).
 
 ## 5. Example 2: extensions that are still proved
 
@@ -302,7 +324,8 @@ the parent adds the child's output to its own register (`p := p + child`) and ou
 flowchart LR
   a["parent input a<br/>(8 bits)"]
   cr["clk, rst<br/>(rst = 0)"]
-  kt["child theorem<br/>accMod_deep_trace<br/>(from verify_elab_deep accMod)"]
+  ks["step 1: source-side facts of the child<br/>#verify_elab_deep accMod<br/>(accMod_deep_trace, about the Lean source)"]
+  kt["step 2: the child's own U1Stmt<br/>about the RETURNED child module<br/>(the entry checks it: checkU1E)"]
   subgraph PARENT["parent8: the parent module"]
     p["register p<br/>starts at 0"]
     add["parent's own operation<br/>p + child output"]
@@ -318,28 +341,48 @@ flowchart LR
   p --> add
   add -->|"next state of p"| p
   p --> out
-  kt ==>|"reused as it is"| cport
-  kt -.->|"NOT unfolded: the parent's proof<br/>never opens the child's register"| cr0
+  ks ==>|"used to build the child's script"| kt
+  kt ==>|"step 3: used by the parent's composition<br/>(kid_inst), through the ports"| cport
+  kt -.->|"NOT unfolded again: the parent's own proof<br/>never reopens the child's register"| cr0
 ```
 
 *Legend.* Solid thin arrow: wiring or data flow of the circuit. Thick solid arrow: a proved
-theorem that the parent's proof uses. Dashed arrow: **not** used or not unfolded. *Caption.*
-The child's theorem is used through its ports; the parent proves its own operation, its own
+fact that the next step uses. Dashed arrow: **not** unfolded again.
+
+*Caption.* The child is verified first, in two steps. The source-side facts come first; the
+entry then checks the child's own theorem about the returned child module. The parent's
+composition uses that theorem through the ports. The parent proves its own operation, its own
 initial state and its own next state. *Text alternative.* A big box "parent8" contains the
 register `p`, an adder "p plus child output", the output `p`, and a smaller box for the
 instance of `accMod` with its ports and its own register. Input `a` is wired to the child's
 `_gen_x`; clock and reset are wired to the child's `clk` and `rst`; the child's `out` goes to
-the adder; the adder feeds `p`. A thick arrow from the child theorem enters the ports; a dashed
-arrow shows that the child's internal register is not unfolded.
+the adder; the adder feeds `p`. Outside the box, "source-side facts of the child" leads by a
+thick arrow to "the child's own theorem about the returned child module", and from there a
+thick arrow enters the child's ports. A dashed arrow shows that the child's internal register
+is not unfolded again in the parent's proof.
 
 **What is reused and what the parent proves.** This is stated for the real hierarchy
 statement `U2HRStmt` (`Tools/VedU2HierReg.lean:38`) and its composition theorem
 `outputsOnHS_of_stepR` (`Tools/VedU2HierReg.lean:127`):
 
-* **Reused, not unfolded:** each child's own facts, through its ports (`hkid`, from
-  `kid_inst`, `Tools/VedU2HierKid.lean:86`). The parent's proof is done against the **open
-  parent**: every instance output is a free value, a function of the parent's *input streams*
-  only (`Ow ins y t`).
+* **The child is verified, in two steps:**
+  1. `#verify_elab_deep accMod` produces facts about the child's Lean **source**
+     (`accMod_deep_trace`).
+  2. The hierarchy entry then checks the child's **returned** module. It runs the U1 check
+     `checkU1E` on it, with a script built from those source facts (`buildDeepWith`,
+     `Tools/VedU2HierRegEntry.lean:740`). A combinational child goes through `checkCombChild`
+     instead. The result is the child's own `U1Stmt` about the returned child module.
+
+  The source facts alone do not guarantee the returned child IR. Step 2 is what connects them to
+  it.
+* **Reused, not unfolded again:** the parent's composition uses that child theorem through the
+  child's ports. The generated script passes it (`K.thm`) to `kid_inst`
+  (`Tools/VedU2HierKid.lean:86`, called at `Tools/VedU2HierRegEntry.lean:425`). The parent's own
+  proof never reopens the child's internals.
+* **What the composition lemma assumes:** the parent's proof is done against the **open
+  parent**. Every instance output is a free value, a function of the parent's *input streams*
+  only (`Ow ins y t`). This is a premise of the lemma the entry applies (`outputsOnHS_of_stepR`);
+  see section 7 (B) for what the entry does when it does not hold.
 * **Wiring (the map from the child's ports to the parent's signals):** `a` to `_gen_x`, `clk` and
   `rst` to the child's `clk` and `rst`, the child's `out` read back by name. The returned design
   keeps this as one `inst` statement (`Stmt.inst "accMod" … [("_gen_x", ref "_gen_a"), …]`).
@@ -361,8 +404,18 @@ def OutputsOnHS (c : Contract) (m : Module) (d : Design) (arr : Module → List 
 ```
 
 `InputsOk` is the same as in section 2 (data widths, reset 0, clock free). `runHS` is the run of
-the **whole returned design** (the parent and its children together), and `U2HRStmt` also
-requires that one clock/reset pair of parent inputs reaches every register
+the **whole returned design** (the parent and its children together).
+
+**The order of the statements.** As in section 2, the run takes an arrangement `arr`, which
+picks an order of statements for each module, and the statement quantifies over it:
+- `U2HRStmt` requires `OutputsOnHS` for **every** admissible arrangement, `∀ arr, AdmArr d m arr
+  → …` (`Tools/VedU2HierStmt.lean:45`).
+- It also requires that one exists: `∃ arr, AdmArr d m arr` (line 51).
+- `AdmArr` (`Tools/VedU1Hier.lean:95`) means two things. The parent's arrangement is a
+  permutation of its body and is hierarchically well-ordered (`WOH`). Every child's arrangement
+  is a permutation of that child's body and is well-ordered.
+
+`U2HRStmt` also requires that one clock/reset pair of parent inputs reaches every register
 (`c.clkRst = designClkRst d m`).
 
 ```lean
@@ -404,7 +457,8 @@ for the parent register and the child register.
 **Time and budget.** The entry prints its own times (this machine, one run): synthesis 13 ms,
 children 2.0 s, parent proof 2.3 s, peak memory 1.8 GB; the whole file about 20 s. No budget
 stop. The hierarchy entry has its own budget options (`ved.u2.hierHeartbeats`,
-`ved.u2.hierRecDepth`).
+`ved.u2.hierRecDepth`), which work the same way: each is a lower bound on the caller's limit,
+and 0 means the caller's limit only.
 
 ## 7. Example 4: where the automatic proof stops
 
@@ -416,7 +470,8 @@ refusal is the expected result and is pinned with `#guard_msgs (error)`.
 ### (A) The result becomes a pair
 
 **What changed.** A counter in the style of example 2 (it adds the input `d` while `en` is
-high) that now also reports a flag "the count has reached 255": the result type is
+high) that now also reports a flag. The flag is a register that becomes true one cycle after the
+count is observed at 255, and then stays true (it holds what it once saw). The result type is
 `Signal d (BitVec 8 × Bool)` instead of `Signal d (BitVec 8)`. (It has two registers, the count
 and the flag, built with `Signal.loop`.)
 **Where it stops.** Stage **`multi-output`**, before synthesis (the first step of the entry
@@ -470,10 +525,19 @@ prepared the child, then checked the connections of every instance, **before** a
 parent. **Cause**, in the entry's own words: the instance input is
 "computed from a net that is not a function of the data inputs: `_tmp_a_5` is a parent register
 output (a register-driven instance input has no closed Lean term over the parent inputs when
-the register is a loop)". This is exactly the premise of the composition theorem of section 6:
-the children's outputs are a function of the parent's input streams only (`Ow ins y t`), so
-that the parent's proof can treat them as free values. A child that reads the parent's own
-state is outside that statement. The file pins the full message.
+the register is a loop)". This is the premise of the composition lemma the entry applies (section 6): the children's
+outputs are a function of the parent's input streams only (`Ow ins y t`), so that the parent's
+proof can treat them as free values.
+
+**What is limited, and what is not.**
+- **Not the statement.** `U2HRStmt` itself does not restrict connections this way.
+- **Not the meaning.** A child fed from the parent's own register still has a fully determined
+  meaning: the whole input history and the initial state fix it.
+- **The entry.** The released entry cannot construct the child's input stream and the open-parent
+  correspondence for such a connection, so it refuses at `conns`. That is a limit of the
+  generator and of the connection lemmas it applies. It is not a mathematical impossibility.
+
+The file pins the full message.
 
 **Time and budget.** Refusals at `multi-output` and `conns` happen before the expensive proof
 step and cost no proof time; no budget is involved. Whole file about 21 s this machine (it
@@ -485,7 +549,9 @@ ledger. That row was not re-run for this page. It is not a small example, so it 
 tutorial files.
 
 Remember: neither refusal is a counterexample. Both circuits are well-defined Lean functions
-that mean something precise; the checker just has no statement shape for them.
+that mean something precise. The released entries just do not build a theorem for them:
+- in (A), the basic entry's statement describes one port per `Signal`;
+- in (B), the hierarchy generator cannot construct the connection.
 
 ## 8. Example 5: ways past the stop
 
