@@ -324,7 +324,7 @@ run_cmd liftTermElabM do
 /-! ## 5. Multi-output: refused before synthesis -/
 
 /--
-error: VED U1 REFUSED Tests.Ved.U1EntryCheck.pair8 [multi-output]: 2 output projections; the synthesizer's multi-output port naming is unconfirmed, refused (v1: one output)
+error: VED U1 REFUSED Tests.Ved.U1EntryCheck.pair8 [multi-output]: 2 output projections in one `Signal` (the synthesizer packs it into one port `out`); refused
 -/
 #guard_msgs in
 #ved_u1 pair8
