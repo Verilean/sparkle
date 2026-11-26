@@ -10,13 +10,13 @@ Revisions: the release candidate is the code at `2bcf256b`; the baseline is `mai
 
 ## 1. What you build
 
-Start from the reader's checkout of the [snapshot box](README.md#snapshot-box). Until the pull
-request is merged, that is the branch `docs/research-release`. A plain clone gives you `main`,
-which does not contain the release.
+Start from the reader's checkout of the [snapshot box](README.md#snapshot-box): the commit
+`3af3889f` on `main` (the merge of the release pull request #165). A plain clone gives you the
+latest `main`, which has later code than the release.
 
 ```text
 git clone https://github.com/Verilean/sparkle.git && cd sparkle
-git checkout docs/research-release  # the reader's checkout (see the snapshot box)
+git checkout 3af3889f               # the reader's checkout (see the snapshot box)
 lake build                          # the only default target: the `sparkle` executable
 ```
 

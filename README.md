@@ -348,9 +348,8 @@ lake env lean --run Examples/Sparkle16/ISAProofTests.lean
 lake env lean --run Examples/CDC/MultiClockSim.lean
 
 # RV32IMA SoC, BitNet, YOLOv8, H.264 — run via the test suite.
-# The suite checks verilator/generated_soc.sv and generated_soc_cppsim.h,
-# which this build writes; run it first on a fresh clone (CI does the same).
-lake build IP.RV32.SoCVerilog
+# On a fresh clone the suite writes verilator/generated_soc.sv and
+# generated_soc_cppsim.h itself first (lake build IP.RV32.SoCVerilog).
 lake test
 
 # Verilator: build the SoC and boot firmware
@@ -451,12 +450,15 @@ and [docs/known-issues/KnownIssues.md](docs/known-issues/KnownIssues.md) for the
 ## Testing
 
 ```bash
-lake build IP.RV32.SoCVerilog   # writes verilator/generated_soc.sv and generated_soc_cppsim.h
 lake test
 ```
 
-On a fresh clone, run the first command before `lake test`. The suite's RV32 flow tests check the
-two generated files, and without them 24 of its checks fail. CI runs the same build first.
+The suite's RV32 flow tests check `verilator/generated_soc.sv` and `generated_soc_cppsim.h`. When
+they are missing (a fresh clone), the suite first runs `lake build IP.RV32.SoCVerilog` (then
+`lake env lean IP/RV32/SoCVerilog.lean` if the files are still missing) and fails with the
+command's output if that does not produce them. Older commits, including the research
+release snapshot `3af3889f`, do not do this: there, run `lake build IP.RV32.SoCVerilog` before
+`lake test`.
 
 Runs Signal simulation, Verilog generation, vector / memory ops, temporal
 logic, CPU ISA proofs, BitNet golden-value validation, RV32 firmware,
