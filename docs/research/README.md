@@ -106,7 +106,7 @@ release candidate (4 vCPU, no cache); the conditions are in
 | write circuits in your own project that depends on Sparkle | 112 s / 82 s | 2.2 s / 1.6 s after a circuit edit |
 | develop Sparkle itself | 112 s / 83 s | 3.6 s / 2.7 s after a one-line edit; regression suite 48 s + 351 s (one sample) |
 | prove your own circuits with the existing entry commands | 173 s / 128 s | 2.1 s / 1.6 s for a small proof; 80 s / 60 s and 5.3 GB for a real IP leaf |
-| add lemmas or routes, each with a check | the above plus 11 to 14 min for the other tool libraries | 16 to 59 s to re-check after editing a lemma file; a pull request's VED job runs about 98 min |
+| add lemmas or routes, each with a check | the prover's setup; the deep-route and hierarchy libraries took a further 11 to 14 min, measured after the prover's steps and the test suite had already been built, so this is not a total from scratch (they are needed only for work on those routes) | 16 to 59 s to re-check after editing a lemma file; a pull request's VED job runs about 98 min |
 
 ```bash
 lake build Tools.VedU1Entry

@@ -50,16 +50,31 @@ the full list of VED checks (the `ved-full` CI job), `lake test`, and the API do
 
 Each row is the waiting time of one kind of user, measured at the release candidate `2bcf256b`. The
 measurement ran on clean GitHub runners (`ubuntu-latest`, 4 vCPU, 15 GB): no cache, a fresh
-`elan`, a fresh clone. Workflow run 45777577786 was run twice on the same script commit, each
-attempt on a new runner, and both values are given as "sample 1 / sample 2". Sample 2 was 25-35%
-faster on every step: that is the difference between two runners. Two values do not show how stable
-these times are or give an upper bound. Section 3 has every step.
+`elan`, a fresh clone.
+
+**Where the numbers come from.** Workflow run 45777577786 ran twice on the same script commit,
+each attempt on a new runner. Both values are given as "sample 1 / sample 2". Their artifacts are
+`research-ux-candidate-attempt1` and `research-ux-candidate-attempt2`, with `ux-candidate.tsv`
+listing every step.
+
+**How the two samples differ.** Sample 2 was shorter on every step, by between 17% (the deep-route
+library) and 40% (the real IP's library). These are observations only: the cause, such as
+differences between runners, was not separated. Two values do not show how stable these times are
+and do not give an upper bound.
+
+**Status of the run.** Both attempts are marked as failures as a whole, because `lake test` ran
+there without its prerequisite (see B). Every value below is from a step that succeeded, and the
+`lake test` row is from a separate run.
+
+**Not the same as section 3.** Section 3 is the earlier before/after comparison with `main` (run
+45765909458). Its numbers are a different run.
 
 ### A. You write circuits in your own project that depends on Sparkle
 
-Condition: `elan` and the toolchain are installed, and the project files already exist. The
-project files are a `lakefile.toml` that requires Sparkle at a fixed commit, plus one circuit, as
-in `.github/workflows/downstream-smoke.yml`.
+Condition: the project files already exist. They are a `lakefile.toml` that requires Sparkle at
+a fixed commit, plus one circuit, as in `.github/workflows/downstream-smoke.yml`. The setup time
+includes installing `elan` and downloading the toolchain (0.4 + 9.5 s / 0.2 + 7.1 s). If both are
+already installed, subtract that.
 
 | What you wait for | Sample 1 / sample 2 |
 |---|---|
@@ -104,9 +119,21 @@ If the real IP's library is not built yet, its build comes first: 48 s / 29 s.
 
 ### D. You add lemmas, statements or routes, each with a check file
 
-This is the path of [CONTRIBUTING-research.md](CONTRIBUTING-research.md). Every time in this table
-is an **additional** cost, measured in this order after C's setup and C's two proofs. None of them
-is a cold build on its own.
+This is the path of [CONTRIBUTING-research.md](CONTRIBUTING-research.md).
+
+**Measured order.** The steps ran in this fixed order:
+1. C's setup and C's two proofs;
+2. the two existing entry checks (`Tests.Ved.U1EntryCheck`, `Tests.Ved.U1KeccakRcCheck`);
+3. `lake test`. In these attempts it exited 1 (see B), but it still built the regression suite's
+   dependencies;
+4. the steps in the table below.
+
+Every time in this table is therefore an **additional** cost after all of that had been built.
+None of them is a cold build on its own. They also cannot simply be added to C's setup to give a
+new researcher's total setup time: part of what they rely on was built by steps 2 and 3.
+
+**What you need.** A lemma for the basic entry only needs `Tools.VedU1Entry` and its check. The
+deep-route and hierarchy libraries are needed only for work on those routes.
 
 | What you wait for | Sample 1 / sample 2 |
 |---|---|
@@ -122,15 +149,18 @@ Each re-check rebuilds `Tools.VedU1Entry` and the entry's check (`Tests.Ved.U1En
 - **The edit:** one trivial theorem appended to the file. This stands in for the cost of
   re-checking what depends on that file. It is not the time needed to write a new, hard proof.
 - **Before each edit:** the same targets were built, unchanged.
-- **After it:** the edit was reverted, and a rebuild returned to the same time before the next edit
-  started.
+- **After it:** the edit was reverted, and the targets were rebuilt back to the same baseline
+  state before the next edit started.
 - **Evidence:** the logs show that the edited module and the check were really rebuilt
   (`Built Tools.VedU1WireShare`, `Built Tests.Ved.U1EntryCheck`).
 
-Two times cannot be reproduced with public steps:
-- **Re-measuring rows of the 327-command table:** the generator and the raw data are not public
-  (appendix C).
-- **Writing a new proof:** depends on the proof, and is not measured.
+Not in this table:
+- **Re-measuring rows of the 327-command table.** This is possible in principle with the public
+  harness branch, but it was not tested for this page and takes hours.
+- **Regenerating the approved ledger from measurement results.** This is not possible with public
+  steps today, because the generator and the raw data are not public. Appendix C explains both
+  points.
+- **Writing a new proof.** That time depends on the proof and is not measured.
 
 ## 3. Measured waiting time on a clean machine, step by step
 
