@@ -306,7 +306,10 @@ lake env lean --run Examples/Sparkle16/ISAProofTests.lean
 # Clock-domain crossing demo
 lake env lean --run Examples/CDC/MultiClockSim.lean
 
-# RV32IMA SoC, BitNet, YOLOv8, H.264 — run via the test suite
+# RV32IMA SoC, BitNet, YOLOv8, H.264 — run via the test suite.
+# The suite checks verilator/generated_soc.sv and generated_soc_cppsim.h,
+# which this build writes; run it first on a fresh clone (CI does the same).
+lake build IP.RV32.SoCVerilog
 lake test
 
 # Verilator: build the SoC and boot firmware
@@ -407,8 +410,12 @@ and [docs/known-issues/KnownIssues.md](docs/known-issues/KnownIssues.md) for the
 ## Testing
 
 ```bash
+lake build IP.RV32.SoCVerilog   # writes verilator/generated_soc.sv and generated_soc_cppsim.h
 lake test
 ```
+
+On a fresh clone, run the first command before `lake test`. The suite's RV32 flow tests check the
+two generated files, and without them 24 of its checks fail. CI runs the same build first.
 
 Runs Signal simulation, Verilog generation, vector / memory ops, temporal
 logic, CPU ISA proofs, BitNet golden-value validation, RV32 firmware,

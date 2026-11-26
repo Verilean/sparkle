@@ -31,7 +31,7 @@ REQUIRED = ["a_clone", "a0", "a1", "a2", "a3", "b1", "c1", "c2a", "c2", "c3",
             "d0", "d1", "d2", "e1", "e2"]
 PROOF = {"d2", "e2"}
 # with --usecases (UX_USECASES=1): use cases B and D, all required
-USECASES = ["u_test", "u_deep", "u_hier", "u_chk_hier", "u_chk_write",
+USECASES = ["u_soc", "u_test", "u_deep", "u_hier", "u_chk_hier", "u_chk_write",
             "u_pre1", "u_edit1", "u_post1", "u_pre2", "u_edit2", "u_post2"]
 # an edit step counts only if its log shows these modules really rebuilt
 REBUILT = {"u_edit1": ["Tools.VedU1WireShare", "Tests.Ved.U1EntryCheck"],

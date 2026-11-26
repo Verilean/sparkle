@@ -230,6 +230,9 @@ done
 # then does the next edit start. The verdict checks in the log that the edited
 # module and the check were really rebuilt.
 if [ -n "${UX_USECASES:-}" ]; then
+  # README "Testing": the suite checks files written by this build, so it comes first
+  NOTE="B: README prerequisite of lake test (writes verilator/generated_soc*.{sv,h})"
+  run u_soc "lake build IP.RV32.SoCVerilog" lake build IP.RV32.SoCVerilog
   NOTE="B: Sparkle developer's regression suite (Tests.AllTests)"
   run u_test "lake test" lake test
   NOTE="D: additional cost after the steps above"
