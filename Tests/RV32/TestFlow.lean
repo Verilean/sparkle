@@ -56,16 +56,16 @@ private def lastLines (s : String) (n : Nat := 40) : String :=
   let ls := s.splitOn "\n"
   "\n".intercalate (ls.drop (ls.length - n))
 
-def ensureSoCFiles (paths : Array String) (run : SoCRunner := lakeRunner) :
-    IO (Option String) := do
+def ensureSoCFiles (paths : Array String) (run : SoCRunner := lakeRunner)
+    (tag : String := "TestFlow") : IO (Option String) := do
   if ← allExist paths then return none
   let steps : Array (Array String) :=
     #[#["build", "IP.RV32.SoCVerilog"], #["env", "lean", "IP/RV32/SoCVerilog.lean"]]
   for args in steps do
     let cmd := s!"lake {" ".intercalate args.toList}"
-    IO.println s!"TestFlow: generated SoC files missing; running {cmd}"
+    IO.println s!"{tag}: generated SoC files missing; running {cmd}"
     let (rc, out) ← run args
-    IO.println s!"TestFlow: {cmd} exited {rc}"
+    IO.println s!"{tag}: {cmd} exited {rc}"
     if rc != 0 then
       return some s!"{cmd} exited {rc}:\n{lastLines out}"
     if ← allExist paths then return none
@@ -90,7 +90,7 @@ def ensureControls : IO TestSeq := do
       let (w, rc) := script.getD i (false, 0)
       if w then write
       return (rc, "fake output")
-    let r ← ensureSoCFiles paths run
+    let r ← ensureSoCFiles paths run (tag := "TestFlow control (fake runner)")
     return (r, ← calls.get)
   let (writeFail, n1) ← case #[(true, 1)]
   let (buildFail, n2) ← case #[(false, 1), (true, 0)]
