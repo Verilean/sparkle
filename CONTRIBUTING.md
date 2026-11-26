@@ -4,6 +4,9 @@ Thanks for adding to the Sparkle IP catalog!  This file lays
 out the bare minimum a new contribution needs to land cleanly
 and stay green in CI.
 
+Working on the proofs (verified synthesis) rather than on an IP? See
+[docs/research/CONTRIBUTING-research.md](docs/research/CONTRIBUTING-research.md).
+
 ## Quick checklist for "I added a new IP"
 
 If you've written `IP/<Family>/<Name>.lean` and want it on the

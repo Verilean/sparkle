@@ -53,6 +53,49 @@ available from a native `lake exe` build.
 See [docs/reference/Verification_Framework.md](docs/reference/Verification_Framework.md) for
 patterns and a worked Round-Robin Arbiter example (10 formal proofs).
 
+## Verified Synthesis: a Proof With Every Circuit (research release)
+
+`#synthesizeVerilog f` trusts the compiler. The verified entries (`#ved_u1`,
+`#ved_u1_deep`, `#ved_u1_packed`, `#ved_u2_hier`, `#ved_write_checked`)
+synthesise `f` once and, in the same command, build a theorem that Lean's
+kernel checks: **the module just returned computes what `f` computes**. When
+no proof can be built, the entry refuses (`VED U1 REFUSED f [stage]`) and
+returns nothing.
+
+```lean
+import Tools.VedU1Entry
+open Sparkle.Core.Domain Sparkle.Core.Signal
+
+def delay8 (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 8) :=
+  Signal.register 0#8 x
+
+#ved_u1 delay8                 -- the module and the theorem delay8.ved_u1
+#print axioms delay8.ved_u1    -- [propext, Classical.choice, Quot.sound]
+```
+
+- **What the theorem covers:** the returned module (Sparkle's IR), run from its
+  declared initial state, under any admissible evaluation order of its netlist
+  (every wire written before it is read): for every input whose values fit
+  their bit widths, with reset held low, at every clock cycle. It is not a
+  claim about an arbitrary starting state, or about the body in an order that
+  has not been checked. With `#ved_write_checked`, the SystemVerilog file is
+  written from that checked module.
+- **What it does not cover:** the optimiser that runs afterwards, the printed
+  SystemVerilog text, timing, or a chip. Refused circuits have no claim.
+- **How far it gets today:** it is partial. On a fixed set of 327 commands it
+  proves 243 (real IP 168 of 220, regression circuits 75 of 107), measured at
+  the release snapshot. Large arithmetic circuits (for example some
+  elliptic-curve point operations), memories inside sub-modules and deeper
+  hierarchies are still mostly refused. An unconditional compiler-correctness
+  theorem for everything the compiler accepts is not finished
+  ([why](docs/research/CompilerGeneralTheorem.md)).
+- **Try it:** `lake build Tools.VedU1Entry`, then
+  `lake env lean docs/research/examples/Delay8.lean`.
+
+Read [docs/research/](docs/research/README.md) for the exact statement, results,
+the [proof-friendly circuits tutorial](docs/research/ProofFriendlyCircuits.md),
+open problems and how to contribute.
+
 ## IP Catalog
 
 Sparkle ships with production-grade IP cores — each with pure Lean specs,
@@ -304,7 +347,10 @@ lake env lean --run Examples/Sparkle16/ISAProofTests.lean
 # Clock-domain crossing demo
 lake env lean --run Examples/CDC/MultiClockSim.lean
 
-# RV32IMA SoC, BitNet, YOLOv8, H.264 — run via the test suite
+# RV32IMA SoC, BitNet, YOLOv8, H.264 — run via the test suite.
+# The suite checks verilator/generated_soc.sv and generated_soc_cppsim.h,
+# which this build writes; run it first on a fresh clone (CI does the same).
+lake build IP.RV32.SoCVerilog
 lake test
 
 # Verilator: build the SoC and boot firmware
@@ -405,8 +451,12 @@ and [docs/known-issues/KnownIssues.md](docs/known-issues/KnownIssues.md) for the
 ## Testing
 
 ```bash
+lake build IP.RV32.SoCVerilog   # writes verilator/generated_soc.sv and generated_soc_cppsim.h
 lake test
 ```
+
+On a fresh clone, run the first command before `lake test`. The suite's RV32 flow tests check the
+two generated files, and without them 24 of its checks fail. CI runs the same build first.
 
 Runs Signal simulation, Verilog generation, vector / memory ops, temporal
 logic, CPU ISA proofs, BitNet golden-value validation, RV32 firmware,

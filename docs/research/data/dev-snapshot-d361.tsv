@@ -1,0 +1,10 @@
+row	route	lean_options	statement	wall_s	peak_rss_mb
+34	u1_mem_packed		-	542.4	9867
+193	u2_hier_compose	ved.compose.step true;ved.compose.connect true;sparkle.deepExportState true;ved.compose.multiCircuit true	U2HRStmt registers=true	247.1	8005
+194	u2_hier_compose	ved.compose.step true;ved.compose.connect true;sparkle.deepExportState true;ved.compose.multiCircuit true	U2HRStmt registers=true	241.8	8075
+220	u2_hier_compose	ved.compose.step true;ved.compose.connect true;sparkle.deepExportState true;ved.compose.multiCircuit true	U2HRStmt registers=true	26.2	2127
+227	u2_hier_compose	ved.compose.step true;ved.compose.connect true;sparkle.deepExportState true;ved.compose.multiCircuit true	U2HRStmt registers=true	55.3	3729
+230	u2_hier_compose	ved.compose.step true;ved.compose.connect true;sparkle.deepExportState true;ved.compose.multiCircuit true	U2HRStmt registers=true	71.3	2879
+231	u2_hier_compose	ved.compose.step true;ved.compose.connect true;sparkle.deepExportState true;ved.compose.multiCircuit true	U2HRStmt registers=true	44.7	2783
+232	u2_hier_compose	ved.compose.step true;ved.compose.connect true;sparkle.deepExportState true;ved.compose.multiCircuit true	U2HRStmt registers=true	53.7	2779
+246	u2_hier_compose	maxHeartbeats 4000000;ved.compose.step true;ved.compose.connect true;sparkle.deepExportState true;ved.compose.multiCircuit true	U2HRStmt registers=true	192.4	4157
