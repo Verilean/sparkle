@@ -33,8 +33,29 @@ private def toolAvailable (name : String) : IO Bool := do
 -- Category 1: Verilog Compilation Tests
 -- ============================================================================
 
+/-- The SV and CppSim files below are written by `#writeDesign` while
+`IP.RV32.SoCVerilog` is elaborated, and nothing in the test build depends on
+that module (Lake 4.32.1 does not fetch `needs` of a lib or exe).  When they
+are missing (fresh clone), build the module; if they are still missing (its
+olean was replayed from a cache), elaborate the file directly.  Each step is
+printed, and a failure leaves the files missing so the checks below fail. -/
+private def ensureSoCFiles (paths : Array String) : IO Unit := do
+  let missing : IO Bool := do
+    for p in paths do
+      unless ← System.FilePath.pathExists p do return true
+    return false
+  let steps : Array (Array String) :=
+    #[#["build", "IP.RV32.SoCVerilog"], #["env", "lean", "IP/RV32/SoCVerilog.lean"]]
+  for args in steps do
+    unless ← missing do return
+    IO.println s!"TestFlow: generated SoC files missing; running lake {" ".intercalate args.toList}"
+    let r ← IO.Process.output { cmd := "lake", args }
+    IO.println s!"TestFlow: lake {args[0]!} exited {r.exitCode}"
+    unless r.exitCode == 0 do IO.eprintln r.stderr
+
 /-- Verify generated Verilog and CppSim files exist with expected content -/
 def synthTests : IO TestSeq := do
+  ensureSoCFiles #["verilator/generated_soc.sv", "verilator/generated_soc_cppsim.h"]
   -- Check generated SV file
   let svPath := "verilator/generated_soc.sv"
   let svExists ← System.FilePath.pathExists svPath
