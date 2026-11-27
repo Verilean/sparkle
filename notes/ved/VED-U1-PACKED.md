@@ -1,6 +1,8 @@
 # U1 packed port: `Signal d (A × B)` (design, sparkle-ved-packed)
 
-> Historical design record. Describes the unit branch of issue `sparkle-ved-packed`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+> **Development record, not user documentation; not kept current.** The current description is [docs/VED.md](../../docs/VED.md).
+
+> Historical design record. Describes the unit branch of issue `sparkle-ved-packed`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [notes/README.md](../README.md); current description: [docs/VED.md](../../docs/VED.md).
 
 ## 1. The compiler's packing rule (investigated, not assumed)
 
@@ -51,4 +53,4 @@ a new statement `PackedStmt` alongside it:
   `slices_of_outputs` (general, proved once in `Tools/VedU1Packed.lean` from `OTy.slices_obs`) turns it into the slice statement.
 * `Tests/Ved/U1PackedCheck.lean`: positives and negatives.
 * Scope: `Bool` / `BitVec w` leaves, no params / structure / memory / hierarchy.  Registers: register-free bodies here; bodies with
-  registers (`Signal.loop` state) are in docs/VED-U1-MULTISEQ.md (the statement is the same `PackedStmt`).
+  registers (`Signal.loop` state) are in notes/ved/VED-U1-MULTISEQ.md (the statement is the same `PackedStmt`).

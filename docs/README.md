@@ -5,6 +5,20 @@ synthesise to SystemVerilog or simulate via a JIT-compiled C++
 backend, and prove correctness with Lean's tactic language.  This
 directory holds the documentation, organised by audience.
 
+## What to read
+
+| You want to | Read |
+|---|---|
+| Try Sparkle for the first time | the [tutorial](tutorial/README.md): [setup](tutorial/md/Ch00_Setup.md), then chapters 1–5 |
+| Look up DSL syntax or a synthesis error | [SignalDSL_Syntax.md](reference/SignalDSL_Syntax.md), [Troubleshooting_Synthesis.md](reference/Troubleshooting_Synthesis.md) |
+| Get a proof with every synthesised circuit (VED) | tutorial [chapter 7c](tutorial/md/Ch07c_VerifiedSynthesis.md), then [VED.md](VED.md), then the [research release](research/README.md) |
+| Use an IP block | the [IP catalog](ip-catalog/README.md) |
+| Check known problems | [KnownIssues.md](known-issues/KnownIssues.md) |
+| Contribute or change CI | [CONTRIBUTING.md](../CONTRIBUTING.md), [BuildAndCI.md](research/BuildAndCI.md) |
+
+The sections below list every page. The [`notes/`](../notes/README.md) folder holds
+development work records; you do not need to read it.
+
 ## Tutorial — start here
 
 The beginner course covers Lean syntax for HDL authors,
@@ -98,23 +112,12 @@ Append-only release notes: [`CHANGELOG.md`](CHANGELOG.md).
   (untrusted finder, Lean-checked certificate).
 - [`Display_Migration_Plan.md`](Display_Migration_Plan.md) — how the
   display library is split between xeus-lean and Sparkle.
-- [`lean-lake-force-load-ordering-issue.md`](lean-lake-force-load-ordering-issue.md)
-  — a Lean/Lake load-order problem with precompiled libraries.
 
-## Historical VED design records
+## VED (`#verify_elab_deep` / `#ved_*`)
 
-The `VED-*.md` pages at the top of `docs/` are the working notes of the
-`#verify_elab_deep` / `#ved_*` development (the per-circuit proof
-checker described in [`research/README.md`](research/README.md)).
-They are historical records: each says at its top which branch or
-commit it describes and is not kept in step with current `main`.
-Several Lean files cite them by path, so they stay where they are.
-For what the checker guarantees today, read the research pages, not
-these.
-
-| Topic | Records |
-|---|---|
-| Introduction of the entries | [`VED-MAIN-INTRO.md`](VED-MAIN-INTRO.md), [`VED-U1-MAIN.md`](VED-U1-MAIN.md) |
-| Single-module circuits | [`VED-U1-PACKED.md`](VED-U1-PACKED.md), [`VED-U1-MULTISEQ.md`](VED-U1-MULTISEQ.md), [`VED-U1-WIRE-SHARE.md`](VED-U1-WIRE-SHARE.md) |
-| Hierarchy (instances of sub-modules) | [`VED-HIER-DESIGN-v1.md`](VED-HIER-DESIGN-v1.md), [`VED-HIER-H2-DESIGN.md`](VED-HIER-H2-DESIGN.md), [`VED-HIER-H2A.md`](VED-HIER-H2A.md), [`VED-HIER-H2B.md`](VED-HIER-H2B.md), [`VED-HIER-H2C.md`](VED-HIER-H2C.md), [`VED-HIER-H2C-STATE.md`](VED-HIER-H2C-STATE.md), [`VED-HIER-H2D.md`](VED-HIER-H2D.md), [`VED-HIER-H2E.md`](VED-HIER-H2E.md), [`VED-HIER-H3OPEN.md`](VED-HIER-H3OPEN.md), [`VED-H3-CHILD.md`](VED-H3-CHILD.md) |
-| Composition of proofs | [`VED-COMPOSITION-AXIS.md`](VED-COMPOSITION-AXIS.md), [`VED-COMPOSE-RESEARCH.md`](VED-COMPOSE-RESEARCH.md), [`VED-COMPOSE-CONNECT.md`](VED-COMPOSE-CONNECT.md) |
+[`VED.md`](VED.md) is the developer page of the per-circuit proof checker:
+how to run the entries, the supported circuit shapes with their Check
+files and limits, and the design principle. The public introduction is
+[`research/README.md`](research/README.md). The working records of the
+development units are kept in [`../notes/ved/`](../notes/ved/); they are
+not user documentation and are not kept current.

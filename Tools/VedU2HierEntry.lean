@@ -9,7 +9,7 @@ import Tools.VedU2HierMultiChain
 /-!
 # Stateful hierarchical entry, H2a (`#ved_u2_hier decl`)
 
-Design: docs/VED-HIER-H2-DESIGN.md §2.2, §3, §11, §12 (unit 3).  `Sparkle/` and the H1 files are
+Design: notes/ved/VED-HIER-H2-DESIGN.md §2.2, §3, §11, §12 (unit 3).  `Sparkle/` and the H1 files are
 not changed.
 
 Scope (H2a): a REGISTER-FREE parent whose instances are leaf children (assignments and

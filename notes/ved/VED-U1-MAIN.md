@@ -1,6 +1,8 @@
 # U1 strict entry on main (PR-2)
 
-> Historical design record. Describes branch `ved/u1-main` (stacked on PR #147), merged with an earlier PR; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+> **Development record, not user documentation; not kept current.** The current description is [docs/VED.md](../../docs/VED.md).
+
+> Historical design record. Describes branch `ved/u1-main` (stacked on PR #147), merged with an earlier PR; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [notes/README.md](../README.md); current description: [docs/VED.md](../../docs/VED.md).
 
 This branch, `ved/u1-main`, is stacked on PR #147 (`ved/main-intro` `4845255b`). It brings the U1 entry from `par/ved-plan` `0a36bae0` to main.
 
@@ -61,7 +63,7 @@ These are built by `ved-pr`; job `ved-u1-ord-4bf8c9dd`, exit 0.
   - Accepted: 2 outputs of different widths, nested 3 outputs (right and left), same width.
   - Refused: a dropped output, swapped same-width outputs, one changed value, another declaration's module, a renamed port, wrong port-name lists.
   - Not supported, refused: `Signal d (A × B)` (ONE packed port `out`, `multi-output`), registers with several outputs (`multi-output`), structure results (`table`).
-- **`Tests/Ved/U1PackedCheck.lean`:** `#ved_u1_packed`, a result `Signal d (A × B)` (ONE port `out`, first leaf in the high bits; docs/VED-U1-PACKED.md).
+- **`Tests/Ved/U1PackedCheck.lean`:** `#ved_u1_packed`, a result `Signal d (A × B)` (ONE port `out`, first leaf in the high bits; notes/ved/VED-U1-PACKED.md).
   - A separate mode and statement (`PackedStmt`); `#ved_u1` and `U1Stmt` are unchanged and `#ved_u1` still refuses such a result at `[multi-output]`.
   - Accepted: 2 components, a `Bool` leaf, nested right and left (3 leaves), auto-bound domain; the contract's slice map is compared with a hand-written one.
   - Refused (stage `packed` or `proof`, nothing left behind): slices swapped, exchanged, wrong offset, wrong width, overlap, gap, missing or extra slice, another port name, a changed field value, fields swapped inside the module, another declaration's module.

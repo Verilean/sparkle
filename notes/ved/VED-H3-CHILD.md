@@ -1,6 +1,8 @@
 # VED hierarchy H3-child: combinational children whose leaf proof failed (R224, R236, R246)
 
-> Historical design record. Describes base `5486b424`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+> **Development record, not user documentation; not kept current.** The current description is [docs/VED.md](../../docs/VED.md).
+
+> Historical design record. Describes base `5486b424`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [notes/README.md](../README.md); current description: [docs/VED.md](../../docs/VED.md).
 
 Issue sparkle-ved-hier3-child.  Base 5486b424.  Nothing here changes the statement (`U1Stmt` / `U2HRStmt` /
 `U2HStmt`), the axioms (propext, Classical.choice, Quot.sound), the returned artifact (the module the single

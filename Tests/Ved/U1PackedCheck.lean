@@ -4,7 +4,7 @@ import Tools.VedU1PackedEntry
 # Checks for the packed-port U1 entry (`#ved_u1_packed`, a `Signal d (A × B)` result)
 
 A product result is ONE port `out` of width `Σ wᵢ`, the first leaf in the HIGH bits
-(docs/VED-U1-PACKED.md §1).  The entry fixes the slice map `projection ↦ (offset, width)` from the
+(notes/ved/VED-U1-PACKED.md §1).  The entry fixes the slice map `projection ↦ (offset, width)` from the
 declaration's type and proves `PackedStmt c m decl`: the ordinary `U1Stmt` of the packed value
 (`BitVec.append`, first part high) and, on every run, every slice of `out` equals the declaration's own
 projection.

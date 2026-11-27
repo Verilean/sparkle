@@ -24,7 +24,7 @@ it cannot make a false theorem accepted, unless it changes the *statement* or th
 * **`native_decide`.** Uses the compiled evaluator as an axiom (`Lean.ofReduceBool`-style
   auxiliary axioms). The strict audit rejects any `*._native.native_decide.ax_*` auxiliary.
   `#verify_elab_deep` still ends with a replay step `_deep_signal_run` that uses `native_decide`;
-  that link is **not** strict (`docs/VED-MAIN-INTRO.md`). The option `sparkle.deepNoNative`
+  that link is **not** strict ([VED.md](../../VED.md#trust-base)). The option `sparkle.deepNoNative`
   (set by the checker) generates closers without it.
 * **`bv_decide`.** Relies on an external SAT solver and a reflected LRAT checker; the audit
   rejects `*._native.bv_decide.ax_*`. The checker's closers avoid `bv_decide`.

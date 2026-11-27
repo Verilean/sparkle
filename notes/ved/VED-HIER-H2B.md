@@ -1,8 +1,10 @@
 # VED 階層 H2b: register を持つ親（register を持つ葉の子、深さ 1、子の入力は親入力への ref）
 
-> Historical design record. Describes branch `ved/hier2-h2a` at `22d2efa7`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+> **Development record, not user documentation; not kept current.** The current description is [docs/VED.md](../../docs/VED.md).
 
-基準: ved/hier2-h2a 22d2efa7（H2a、PR #162）。設計: docs/VED-HIER-H2-DESIGN.md（§1.2 同時更新、§11 裁定、§12）。
+> Historical design record. Describes branch `ved/hier2-h2a` at `22d2efa7`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [notes/README.md](../README.md); current description: [docs/VED.md](../../docs/VED.md).
+
+基準: ved/hier2-h2a 22d2efa7（H2a、PR #162）。設計: notes/ved/VED-HIER-H2-DESIGN.md（§1.2 同時更新、§11 裁定、§12）。
 本文書は実装記録であり、文の凍結、327 行への加算、hierarchical strict の inventory 主張、release を主張しない。
 小例（`oneInstance` 等）は 327 に加算しない。
 

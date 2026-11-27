@@ -148,9 +148,9 @@ tables are one run, including the loading of imports; there is no performance cl
 * **Memories in sub-modules.** Instances are covered for the shapes the hierarchy statements
   handle; memories inside children are not.
 * **Deep nesting.** Sub-modules that themselves contain sub-modules, beyond the shapes of the
-  design records ([VED-HIER-H2D](../VED-HIER-H2D.md), [VED-HIER-H2E](../VED-HIER-H2E.md)).
+  design records ([VED.md](../VED.md#hierarchy-limits)).
 * **Large arithmetic.** Wide arithmetic and cryptographic cones whose unfolded term is
-  exponentially large ([VED-U1-WIRE-SHARE](../VED-U1-WIRE-SHARE.md)).
+  exponentially large ([VED.md](../VED.md#single-module-large-shared-dag)).
 * **Budgets.** Elaboration, heartbeat and kernel limits are fixed; a proof that does not fit is
   refused at `proof`, never accepted with a smaller statement.
 * **Reset low.** The statements cover runs with reset deasserted from the start.

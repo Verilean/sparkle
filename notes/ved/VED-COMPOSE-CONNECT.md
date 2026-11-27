@@ -1,6 +1,8 @@
 # VED-COMPOSE-CONNECT: the returned IR's cones connected to the open parent's deep cones (small examples)
 
-> Historical design record. Describes branch `ved/compose-connect1` (base `425119c7`), merged with PR #167; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+> **Development record, not user documentation; not kept current.** The current description is [docs/VED.md](../../docs/VED.md).
+
+> Historical design record. Describes branch `ved/compose-connect1` (base `425119c7`), merged with PR #167; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [notes/README.md](../README.md); current description: [docs/VED.md](../../docs/VED.md).
 
 Issue `sparkle-ved-compose-connect`, branch `ved/compose-connect1` (base 425119c7 = `ved/proof-compose` 6ff184d4 + the approved
 research ca892a1f).  Option `ved.compose.connect` (default `false`).  New files: `Tools/VedComposeConnect.lean`,
@@ -11,8 +13,8 @@ addition to `DeepInfo` (`Tools/VedU2HierStateArgs.lean`) and one option-gated hu
 
 Small-example result: `multiTwo` and `multiShared` of `Tests/Ved/U2HierMultiCheck.lean` (copied into the Check).  No real-IP row
 was run; the coverage stays 244/327; this is not the completion of circuit composition in general.  The statement `U2HRStmt`
-is unchanged (the stored type is compared with `==`), the guarantee is that of docs/VED-MAIN-INTRO.md ("What it guarantees, and
-what it does not") and docs/VED-U1-MAIN.md ("What it does not claim").  The parent's loop is still tied to the declaration by the
+is unchanged (the stored type is compared with `==`), the guarantee is that of notes/ved/VED-MAIN-INTRO.md ("What it guarantees, and
+what it does not") and notes/ved/VED-U1-MAIN.md ("What it does not claim").  The parent's loop is still tied to the declaration by the
 existing knot; the child theorem is the child's own `ved_u1`.
 
 ## What the option changes
@@ -339,7 +341,7 @@ Still open for R126/R184: `wScalarMul` (closing stage over budget) and `wPointOp
 
 ## Unit 20: the two refused R184 children (`wPointOp`, `wScalarMul`): local lemmas, not budgets (observed, single runs; not a ledger row; coverage not updated; `U2HRStmtK` is still an unreviewed candidate)
 
-Composition axis (`docs/VED-COMPOSITION-AXIS.md`): the cause is classified first, then the minimal unit; no budget (`maxHeartbeats`, `maxSteps`, `maxRecDepth`) was raised.
+Composition axis (`notes/ved/VED-COMPOSITION-AXIS.md`): the cause is classified first, then the minimal unit; no budget (`maxHeartbeats`, `maxSteps`, `maxRecDepth`) was raised.
 
 **wPointOp (26 registers, 560 statements, 563 wires, 7 outputs): cause class (a), TWO unsupplied local theorems.**
 

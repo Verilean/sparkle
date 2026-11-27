@@ -1,6 +1,8 @@
 # VED-COMPOSE-RESEARCH: published decomposition methods vs. `step_local` / `oracleIE` / open parent / returned IR
 
-> Historical design record. Describes branch `ved/compose-research` (base `bbd88dd0`), merged with PR #167; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+> **Development record, not user documentation; not kept current.** The current description is [docs/VED.md](../../docs/VED.md).
+
+> Historical design record. Describes branch `ved/compose-research` (base `bbd88dd0`), merged with PR #167; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [notes/README.md](../README.md); current description: [docs/VED.md](../../docs/VED.md).
 
 Issue `sparkle-ved-compose-research`, branch `ved/compose-research` (base bbd88dd0).  New files only:
 `Tools/VedComposeResearchCut.lean` (prototype + toy + controls), this note.  Single runs are "observed".  Machine:

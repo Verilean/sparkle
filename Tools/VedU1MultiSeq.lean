@@ -6,7 +6,7 @@ import Tools.VedU1MultiSeqLoop
 # Packed result with registers (`Signal d (A × B)` whose body has `Signal.loop` registers)
 
 Generated (untrusted) proof script for `PackedStmt C M f` when the module has registers
-(docs/VED-U1-MULTISEQ.md).  The statement is the packed one (`Tools/VedU1Packed.lean`); the contract now
+(notes/ved/VED-U1-MULTISEQ.md).  The statement is the packed one (`Tools/VedU1Packed.lean`); the contract now
 also carries the clock/reset names and the register initial values, which the packed
 entry reads from the returned module exactly as `contractOf` does for the single-port entry.
 

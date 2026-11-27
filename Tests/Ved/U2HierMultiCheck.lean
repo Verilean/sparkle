@@ -10,7 +10,7 @@ child outputs feeding the registers
 `sha512BlockHW` (R193 `synth_sha512Block_out0`, R194 `synth_sha512Block_done`): the child `kMux` is called inside the
 `circuit do` on the round counter, twice (two instances), and its output feeds the working registers' next values.  The
 declaration is not one call of the child, so the H2c-state method (the declaration IS the call; the call is dead in the
-loop) does not apply.  H3-open (`Tools/VedU2HierMultiGen.lean`, docs/VED-HIER-H3OPEN.md) builds the open parent with every
+loop) does not apply.  H3-open (`Tools/VedU2HierMultiGen.lean`, notes/ved/VED-HIER-H3OPEN.md) builds the open parent with every
 call replaced by an oracle and proves, in the kernel, that the declaration IS that open parent at the oracle the real
 children give along the declaration's own loop (`ved_open_…_eq`, from `Tools.VedU2HierMulti.loop_knot`).  The statement
 `U2HRStmt` is unchanged.

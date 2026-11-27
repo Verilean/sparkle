@@ -1,7 +1,7 @@
 import Tools.VedU1Contract
 
 /-!
-# U1 contract for a packed result `Signal d (A × B)` (docs/VED-U1-PACKED.md)
+# U1 contract for a packed result `Signal d (A × B)` (notes/ved/VED-U1-PACKED.md)
 
 The synthesizer packs a product result into ONE port `out` of width `Σ wᵢ`: the
 leaves left-first, the FIRST leaf in the HIGH bits (Sparkle/Compiler/Elab.lean:374,

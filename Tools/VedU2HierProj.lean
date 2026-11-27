@@ -3,7 +3,7 @@ import Tools.VedU2HierSem
 /-!
 # H2 unit 2: step success, existence of the hierarchical run, projection
 
-Design: docs/VED-HIER-H2-DESIGN.md §2.4, §2.5, §11 (reviewer obligations of 3e04041c).
+Design: notes/ved/VED-HIER-H2-DESIGN.md §2.4, §2.5, §11 (reviewer obligations of 3e04041c).
 
 * §2.5 STEP SUCCESS.  Ordering and wiring alone do not make `evalExpr` succeed on unsupported
   forms.  The conditions are explicit here: `ExprsSupp` (every assign / register input of the top

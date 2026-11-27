@@ -7,7 +7,7 @@ import Sparkle.Core.CircuitDo
 # Checks for H2d: the open parent's `#verify_elab_deep` on real-IP-shaped circuits
 
 Issue sparkle-ved-hier2-h2d.  Real IP rows (R211 `synth_arpRequesterByte`, R228, R210) stopped inside the
-`#verify_elab_deep` of the OPEN parent.  What was found and fixed (see `docs/VED-HIER-H2D.md`):
+`#verify_elab_deep` of the OPEN parent.  What was found and fixed (see `notes/ved/VED-HIER-H2D.md`):
 
 * `Missing cases: (Fin.mk (succ^18 _) _)`: the generated `match` on a `Fin n` literal index (slot names, 13
   registers + 5 inputs) is closed by the match compiler's contradiction search, whose fixed fuel (16) the

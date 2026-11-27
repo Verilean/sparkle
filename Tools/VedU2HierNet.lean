@@ -4,8 +4,8 @@ import Tools.VedU2HierStmt
 /-!
 # H2c: an instance whose DATA inputs are read from a parent NET (a wire), not a parent input
 
-Design: docs/VED-HIER-H2-DESIGN.md §2.1 (F2: the child stream the closed run produces must be tied
-to the stream the declaration's call expects, by the PARENT side), docs/VED-HIER-H2C.md.
+Design: notes/ved/VED-HIER-H2-DESIGN.md §2.1 (F2: the child stream the closed run produces must be tied
+to the stream the declaration's call expects, by the PARENT side), notes/ved/VED-HIER-H2C.md.
 
 `kid_inst` (H2a/H2b) applies the child's own theorem (`OutputsStmt`) to the stream `insCIn cs ins`,
 every child input port read from a parent INPUT.  `kid_inst_net` applies it to the stream

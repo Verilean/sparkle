@@ -3,7 +3,7 @@ import Tools.VedU1Hier
 /-!
 # Stateful hierarchical semantics `runHS` (H2, unit 2)
 
-Design: docs/VED-HIER-H2-DESIGN.md §1–§3.  NEW file: `Tools/VedU1Hier*.lean`, `U1HStmt` and
+Design: notes/ved/VED-HIER-H2-DESIGN.md §1–§3.  NEW file: `Tools/VedU1Hier*.lean`, `U1HStmt` and
 `runH` are unchanged (H1 stays fixed).
 
 Everything below is defined from the returned `Module` / `Design` ONLY (no contract, no

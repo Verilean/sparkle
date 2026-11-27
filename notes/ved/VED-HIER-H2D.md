@@ -1,6 +1,8 @@
 # H2d: the open parent's `#verify_elab_deep` on real-IP-shaped circuits
 
-> Historical design record. Describes the unit branch of issue `sparkle-ved-hier2-h2d`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+> **Development record, not user documentation; not kept current.** The current description is [docs/VED.md](../../docs/VED.md).
+
+> Historical design record. Describes the unit branch of issue `sparkle-ved-hier2-h2d`, merged with PR #163; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [notes/README.md](../README.md); current description: [docs/VED.md](../../docs/VED.md).
 
 Issue sparkle-ved-hier2-h2d. Statement (`U2HRStmt c m d decl`), axioms and trusted components are unchanged.
 

@@ -1,5 +1,7 @@
 # Interpreter/LSP force-loads a non-precompiled lib's shared library before its precompiled dependencies → undefined-symbol load failure
 
+> **Development record, not user documentation.** It explains the workaround cited in `lakefile.lean`.
+
 ## Summary
 
 When a **precompiled** `lean_lib` (`precompileModules := true`) contains a module

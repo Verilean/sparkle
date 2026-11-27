@@ -3,7 +3,7 @@ import Tools.VedU2HierStmt
 /-!
 # H2 unit 3: an instance's output from the child's REAL theorem (`kid_inst`)
 
-Design: docs/VED-HIER-H2-DESIGN.md §2.2 (child as oracle), §2.4, F2.
+Design: notes/ved/VED-HIER-H2-DESIGN.md §2.2 (child as oracle), §2.4, F2.
 
 `kid_inst`: in a successful closed run, at every cycle `t < K`, the parent wire an instance's
 output port is connected to carries the value the child's own U1 theorem (`OutputsStmt`) gives

@@ -107,7 +107,7 @@ memories** is covered by neither, and such rows are refused.
 *Reproduce.* Write a small parent in the style of `Tests/Ved/U2HierRegCheck.lean` whose child
 uses `Signal.memory`, and run the hierarchy entry (`#ved_u2_hier name`) on it. The expected result
 is a refusal at the stage `hier-shape` or `shape` (not run for this page; the design records
-[VED-HIER-H2D](../VED-HIER-H2D.md) list the supported shapes).
+[VED.md](../VED.md#hierarchy-limits) list the supported shapes).
 
 *Minimal goal.* One parent with one child that owns a read/write memory, accepted.
 

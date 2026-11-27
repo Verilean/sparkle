@@ -1,6 +1,8 @@
 # `#verify_elab_deep` on main: initial introduction
 
-> Historical design record. Describes branch `ved/main-intro` (based on `main` at `1614cee8`), merged with an earlier PR; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [docs/README.md](README.md#historical-ved-design-records).
+> **Development record, not user documentation; not kept current.** The current description is [docs/VED.md](../../docs/VED.md).
+
+> Historical design record. Describes branch `ved/main-intro` (based on `main` at `1614cee8`), merged with an earlier PR; it is not kept in step with current `main` (file names, line numbers and option defaults may have moved). Index: [notes/README.md](../README.md); current description: [docs/VED.md](../../docs/VED.md).
 
 This branch (`ved/main-intro`, based on main `1614cee8`) brings `#verify_elab_deep` and a strict axiom audit to main. It is the **initial introduction** only. Extending coverage is separate work, and so is the release decision.
 
@@ -41,7 +43,7 @@ This branch (`ved/main-intro`, based on main `1614cee8`) brings `#verify_elab_de
   - the fixed list of 327 required IP commands.
 
   A U0 observation on the `poc` branch counted 0 strict-counted rows out of 79. Nothing here is "327 supported" or "strict complete".
-- **Not included in PR #147:** the U1 strict entry, which returns only the module it verified. It is the follow-up PR-2 (`ved/u1-main`, see `docs/VED-U1-MAIN.md`).
+- **Not included in PR #147:** the U1 strict entry, which returns only the module it verified. It is the follow-up PR-2 (`ved/u1-main`, see `notes/ved/VED-U1-MAIN.md`).
 
 ## Measured (cluster node mkvs-dell, `-c 8 -m 24Gi`, no cache, one run, job `ved-main-93c2` at `93c2f811`)
 

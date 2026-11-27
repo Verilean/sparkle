@@ -11,7 +11,7 @@ last wires (the shape of R184's `wPointOp`: 7 outputs over a long chain of wires
 theorem (`stmtOfStruct` + `checkU1E`, as the multi-output child loop, `ved.sseq.fastOrder` on) is accepted both with the default
 script and with `ved.sseq.dwLemma` (the input widths of the module for `hin` by ONE closed `decide +kernel` instead of `simp` unfolding the
 module and `declWidth` at `hin hrst`): type `U1Stmt`, std3, no `sorryAx`.  The option changes only the generated script; the statement is
-the same.  The cost on R184's `wPointOp` (82 s at `hin hrst`) and the refusal of the real child are in docs/VED-COMPOSE-CONNECT.md, unit 22.
+the same.  The cost on R184's `wPointOp` (82 s at `hin hrst`) and the refusal of the real child are in notes/ved/VED-COMPOSE-CONNECT.md, unit 22.
 -/
 
 namespace Tests.Ved.U1StructWireCheck

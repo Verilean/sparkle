@@ -4,7 +4,7 @@ import Sparkle.Core.CircuitMonad
 import Sparkle.Core.CircuitDo
 
 /-!
-# H2 unit 1: the open parent (design docs/VED-HIER-H2-DESIGN.md §2.2, §12, Q8)
+# H2 unit 1: the open parent (design notes/ved/VED-HIER-H2-DESIGN.md §2.2, §12, Q8)
 
 `parTwo` is a register-free parent with two instances of the register-carrying
 child `accMod` on different inputs, combined asymmetrically (`p - q + a`).
