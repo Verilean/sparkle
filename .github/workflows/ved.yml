@@ -34,6 +34,12 @@ on:
   schedule:
     - cron: '17 3 * * 1'
   workflow_dispatch:
+    inputs:
+      set:
+        description: 'which check set to run: full (ved-full) or pr (the ved-pr parts)'
+        type: choice
+        options: [ full, pr ]
+        default: full
 
 permissions:
   contents: read
@@ -46,7 +52,11 @@ jobs:
   # Shared dependencies (`ved-deps`): the core library and the Tools modules
   # the checks import, built once and uploaded as an artifact of this run;
   # every part restores this .lake and builds only its check files (Lake
-  # still checks every trace, so nothing stale is used).
+  # still checks every trace, so nothing stale is used).  ved-deps also
+  # restores the .lake of an earlier ved-deps run from the Actions cache.
+  # The parts are grouped by the measured time of each line (BuildAndCI.md
+  # §5), so that no part is much longer than the longest single check.
+  # `workflow_dispatch` with set=pr runs the ved-pr parts instead of ved-full.
   ved-deps:
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -61,6 +71,16 @@ jobs:
 
     - name: Install Lean toolchain
       run: elan default $(cat lean-toolchain)
+
+    # Lake checks every trace after the restore, so a restored older .lake
+    # only saves the modules whose inputs did not change.
+    - name: Cache .lake (previous ved-deps builds)
+      uses: actions/cache@v4
+      with:
+        path: .lake
+        key: ved-deps-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-${{ hashFiles('Sparkle.lean', 'Sparkle/**', 'Tools/**', 'IP/**') }}
+        restore-keys: |
+          ved-deps-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-
 
     - name: Core library
       run: lake build Sparkle
@@ -81,7 +101,7 @@ jobs:
 
   ved-pr-part:
     name: ved-pr (${{ matrix.part }})
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || inputs.set == 'pr'
     needs: ved-deps
     runs-on: ubuntu-latest
     timeout-minutes: 120
@@ -89,12 +109,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - part: entry-a
+          - part: open-deep3
             builds: |
+              Tests.Ved.U2HierOpenDeep3Check
+          - part: compose
+            builds: |
+              Tests.Ved.ComposeStepCheck
+              Tests.Ved.ComposeConnectCheck
+          - part: multiloop-entry-a
+            builds: |
+              Tests.Ved.U1MultiLoopCheck
               Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1StructOutCheck Tests.Ved.U1StructSeqCheck
-          - part: entry-b
+          - part: mem-close
             builds: |
-              Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck
+              Tests.Ved.VedMemCloseCheck
+              Tests.Ved.U2HierStateCallCheck
+          - part: open-deep2-h3
+            builds: |
+              Tests.Ved.U2HierOpenDeep2Check
+              Tests.Ved.H3ChildCheck
+          - part: multiout-partial
+            builds: |
+              Tests.Ved.MultiOutCheck
+              Tests.Ved.U2HierPartialDeepCheck
           - part: entry-mem-small
             builds: |
               Tests.Ved.VedMemCheck Tests.Ved.VedMemWriteCheck Tests.Ved.VedMemShapeCheck Tests.Ved.VedMemOrderCheck Tests.Ved.VedMemWidthCheck
@@ -110,42 +147,29 @@ jobs:
               Tests.Ved.U1RegChainCheck
               Tests.Ved.U1PackedSeq2Check
               Tests.Ved.U1PackedSeq3Check
-          - part: packed-mem
+          - part: seqmod-merkle
             builds: |
               Tests.Ved.U1SeqModCheck
               Tests.Ved.U1MerkleWhnfCheck
-              Tests.Ved.VedMemPackCheck
-              Tests.Ved.VedSupplementCheck
-              Tests.Ved.U1RconCheck
-          - part: mem-close-h2
-            builds: |
-              Tests.Ved.VedMemCloseCheck
-              Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierRegCheck Tests.Ved.U2HierWireCheck Tests.Ved.U2HierPin
-              Tests.Ved.U2HierStateCallCheck
-              Tests.Ved.U2HierMultiCheck
-          - part: compose
-            builds: |
-              Tests.Ved.ComposeStepCheck
-              Tests.Ved.ComposeConnectCheck
-              Tests.Ved.MultiOutCheck
-              Tests.Ved.U2HierPartialDeepCheck
-          - part: open-deep
+          - part: open-deep-pack
             builds: |
               Tests.Ved.U2HierOpenDeepCheck
-              Tests.Ved.U2HierOpenDeep2Check
               Tests.Ved.WriteFormsCheck
               Tests.Ved.WriteCheckedCheck
+              Tests.Ved.VedMemPackCheck
+              Tests.Ved.VedSupplementCheck
             http: true
-          - part: open-deep3-loops
+          - part: entry-b-h2
             builds: |
-              Tests.Ved.U2HierOpenDeep3Check
-              Tests.Ved.U1MultiLoopCheck
-              Tests.Ved.H3ChildCheck
+              Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck
+              Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierRegCheck Tests.Ved.U2HierWireCheck Tests.Ved.U2HierPin
+              Tests.Ved.U2HierMultiCheck
           - part: real-ip-deep
             builds: |
               Tests.Ved.U1KeccakRcCheck
               Tests.Ved.U1EqWideCheck
               Tests.Ved.U1KTabCheck
+              Tests.Ved.U1RconCheck
               Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
     steps:
     - name: Checkout code
@@ -199,7 +223,7 @@ jobs:
         { echo "### ved-pr (${{ matrix.part }})"; echo '```'; cat "$RUNNER_TEMP/times.txt" 2>/dev/null || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   ved-pr:
-    if: always() && github.event_name == 'pull_request'
+    if: always() && (github.event_name == 'pull_request' || inputs.set == 'pr')
     needs: ved-pr-part
     runs-on: ubuntu-latest
     steps:
@@ -211,7 +235,7 @@ jobs:
   # unless every part succeeded.
   ved-full-part:
     name: ved-full (${{ matrix.part }})
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && inputs.set != 'pr'
     needs: ved-deps
     runs-on: ubuntu-latest
     timeout-minutes: 300
@@ -219,9 +243,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - part: entry-a
+          - part: entry-a-h2
             builds: |
               Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1StructOutCheck Tests.Ved.U1StructSeqCheck
+              Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierRegCheck Tests.Ved.U2HierWireCheck Tests.Ved.U2HierPin
+              Tests.Ved.U2HierMultiCheck
           - part: entry-b
             builds: |
               Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck
@@ -249,12 +275,10 @@ jobs:
               Tests.Ved.VedMemPackCheck
               Tests.Ved.VedSupplementCheck
               Tests.Ved.U1RconCheck
-          - part: mem-close-h2
+          - part: mem-close
             builds: |
               Tests.Ved.VedMemCloseCheck
-              Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierRegCheck Tests.Ved.U2HierWireCheck Tests.Ved.U2HierPin
               Tests.Ved.U2HierStateCallCheck
-              Tests.Ved.U2HierMultiCheck
           - part: compose
             builds: |
               Tests.Ved.ComposeStepCheck
@@ -343,7 +367,7 @@ jobs:
         { echo "### ved-full (${{ matrix.part }})"; echo '```'; cat "$RUNNER_TEMP/times.txt" 2>/dev/null || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
   ved-full:
-    if: always() && github.event_name != 'pull_request'
+    if: always() && github.event_name != 'pull_request' && inputs.set != 'pr'
     needs: ved-full-part
     runs-on: ubuntu-latest
     steps:
