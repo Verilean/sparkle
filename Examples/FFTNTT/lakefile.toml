@@ -1,0 +1,28 @@
+name = "FFTNTT"
+version = "0.1.0"
+defaultTargets = ["FFT"]
+
+# The datapath.  Root module is FFT.lean, submodules FFT/*.lean.
+[[lean_lib]]
+name = "FFT"
+
+# The test suite.  It must be its own library target: `lean_exe.root`
+# only makes the root module a target, not the modules it imports, so
+# without this `lake build fft-test` fails with
+# "bad import 'FFTTests.FFTTest'".
+[[lean_lib]]
+name = "FFTTests"
+roots = ["FFTTests.FFTTest"]
+
+[[lean_exe]]
+name = "fft-test"
+root = "FFTTests.Main"
+supportInterpreter = true
+
+# Pin to a commit rather than "main" — Sparkle's Signal/elaborator API
+# is still moving, and this tree is checked against 6eee2ec (Lean
+# v4.32.1, which is what lean-toolchain here must also say).
+[[require]]
+name = "Sparkle"
+git = "https://github.com/Verilean/sparkle.git"
+rev = "6eee2ecbd25d841874c0218f3132e4a3a7561040"

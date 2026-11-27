@@ -33,6 +33,19 @@ static std::vector<uint32_t> load_hex(const std::string& path) {
     return words;
 }
 
+<<<<<<< HEAD
+// JIT function types
+typedef void* (*jit_create_fn)();
+typedef void  (*jit_destroy_fn)(void*);
+typedef void  (*jit_eval_fn)(void*);
+typedef void  (*jit_tick_fn)(void*);
+typedef void  (*jit_eval_tick_fn)(void*);
+typedef void  (*jit_reset_fn)(void*);
+typedef void  (*jit_set_mem_fn)(void*, uint32_t, uint32_t, uint32_t);
+typedef uint64_t (*jit_get_wire_fn)(void*, uint32_t);
+typedef const char* (*jit_wire_name_fn)(uint32_t);
+typedef uint32_t (*jit_num_wires_fn)();
+=======
 // JIT vtable schema — must match Sparkle/Backend/CSim.lean and
 // c_src/sparkle_jit.c.  See the Issue #70 fix for why we go
 // through a single per-`.so` `jit_vtable` accessor instead of
@@ -60,6 +73,7 @@ struct JitVTable {
     void  (*restore)(void*, void*);
     void  (*free_snapshot)(void*);
 };
+>>>>>>> 1614cee83ac586ca9a0626cd4af13bfef7347c3a
 
 int main(int argc, char** argv) {
     std::string hex_path = "../firmware/opensbi/boot.hex";
@@ -82,6 +96,21 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+<<<<<<< HEAD
+    auto create   = (jit_create_fn)dlsym(lib, "jit_create");
+    auto destroy  = (jit_destroy_fn)dlsym(lib, "jit_destroy");
+    auto eval     = (jit_eval_fn)dlsym(lib, "jit_eval");
+    auto tick     = (jit_tick_fn)dlsym(lib, "jit_tick");
+    auto eval_tick = (jit_eval_tick_fn)dlsym(lib, "jit_eval_tick");
+    auto reset    = (jit_reset_fn)dlsym(lib, "jit_reset");
+    auto set_mem  = (jit_set_mem_fn)dlsym(lib, "jit_set_mem");
+    auto get_wire = (jit_get_wire_fn)dlsym(lib, "jit_get_wire");
+    auto wire_name = (jit_wire_name_fn)dlsym(lib, "jit_wire_name");
+    auto num_wires = (jit_num_wires_fn)dlsym(lib, "jit_num_wires");
+
+    if (!create || !eval || !tick || !set_mem || !get_wire) {
+        fprintf(stderr, "Failed to resolve JIT symbols\n");
+=======
     typedef const JitVTable* (*vtable_getter)();
     auto get_vt = (vtable_getter)dlsym(lib, "jit_vtable");
     if (!get_vt) {
@@ -106,6 +135,7 @@ int main(int argc, char** argv) {
 
     if (!create || !eval || !tick || !set_mem || !get_wire) {
         fprintf(stderr, "JIT vtable missing required functions\n");
+>>>>>>> 1614cee83ac586ca9a0626cd4af13bfef7347c3a
         return 1;
     }
 
