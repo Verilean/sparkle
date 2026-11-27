@@ -85,9 +85,29 @@ def main : IO Unit := do
     , ("56B (2 blocks)", "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq".toUTF8.toList.toArray)
     , ("100B (2 blocks)", a 100)
     , ("150B (3 blocks)", a 150)
-    , ("abc again (re-init)", "abc".toUTF8.toList.toArray) ]
+    , ("abc again (after reset)", "abc".toUTF8.toList.toArray) ]
   for (label, msg) in fixtures do
     sim.reset
+    let mut got : BitVec 256 := 0
+    let mut first := true
+    for blk in padBlocks msg do
+      let o ← runBlock sim blk first
+      got := o.hash
+      first := false
+    let ref := refDigest msg
+    if got == ref then IO.println s!"  ✓ {label}: {hex got}"
+    else
+      IO.println s!"  ✗ {label}: HW {hex got} ≠ ref {hex ref}"
+      ok := false
+  -- Re-initialisation through `first` alone: no reset between messages, so
+  -- the second message must start from the IV, not from the first digest.
+  sim.reset
+  let chain : List (String × Array UInt8) :=
+    [ ("abc", "abc".toUTF8.toList.toArray)
+    , ("100B (2 blocks), no reset", a 100)
+    , ("empty, no reset", #[])
+    , ("abc, no reset", "abc".toUTF8.toList.toArray) ]
+  for (label, msg) in chain do
     let mut got : BitVec 256 := 0
     let mut first := true
     for blk in padBlocks msg do
