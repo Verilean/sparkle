@@ -43,9 +43,9 @@ elab "ved_mark_cached" : tactic => do
   let m ← Tools.VedU1ScriptSeq.vedOmegaOk.get
   if m.isEmpty then throwError "no cached proof"
   let mut m' := m
-  for (tgt, pf, used) in m.toList.map fun (t, p, u) => (t, p, u) do
-    let pf' ← Meta.mkAppM ``id #[pf]
-    m' := m'.insert tgt (pf', used)
+  for (tgt, e) in m.toList do
+    let pf' ← Meta.mkAppM ``id #[e.proof]
+    m' := m'.insert tgt { e with proof := pf' }
   Tools.VedU1ScriptSeq.vedOmegaOk.set m'
 
 def vedClosedBy (isId : Bool) : TacticM Unit := do

@@ -30,8 +30,7 @@ def seedProof (closed : Expr) (p : Expr) : CoreM Unit := do
   Tools.VedMemPack.proofCache.modify (·.insert closed (.proof p sigs))
 
 def seedOmegaOk (tgt p : Expr) : CoreM Unit := do
-  Tools.VedU1ScriptSeq.vedOmegaOk.modify (·.insert tgt (p, #[]))
-  Tools.VedU1ScriptSeq.vedOmegaOkConsts.modify (·.insert tgt (← Tools.VedU1ScriptSeq.constSigs p))
+  Tools.VedU1ScriptSeq.vedOmegaOk.modify (·.insert tgt { proof := p, used := #[], sigs := ← Tools.VedU1ScriptSeq.constSigs p })
 
 /-- the table of the module constant `mn` as `checkMemE` stores it: with the value `mn` has now -/
 def seedWidthTab (mn : Name) (tab : Std.HashMap String Nat) : CoreM Unit := do
@@ -142,6 +141,7 @@ run_cmd liftTermElabM do
   addAuxFun (Lean.mkConst ``Nat)
   let pfA := mkApp (Lean.mkConst `SrAux.p) (mkNatLit 0)
   unless (← isDefEq (← inferType pfA) tgt) do throwError "SR2b: proof A does not check in environment A (vacuous control)"
+  let sigsA ← Tools.VedU1ScriptSeq.constSigs pfA
   seedOmegaOk tgt pfA
   -- task B (another environment): `SrAux.p : Bool → True`
   setEnv env0
@@ -149,21 +149,22 @@ run_cmd liftTermElabM do
   let pfB := mkApp (Lean.mkConst `SrAux.p) (Lean.mkConst ``Bool.true)
   unless (← isDefEq (← inferType pfB) tgt) do throwError "SR2b: proof B does not check in environment B (vacuous control)"
   let sigsB ← Tools.VedU1ScriptSeq.constSigs pfB
-  -- the reader (environment B) reads the proof, B writes both refs, the reader reads the signatures
-  let writeB : IO Unit := do
-    Tools.VedU1ScriptSeq.vedOmegaOk.modify (·.insert tgt (pfB, #[]))
-    Tools.VedU1ScriptSeq.vedOmegaOkConsts.modify (·.insert tgt sigsB)
-  let r ← Tools.VedU1ScriptSeq.omegaOkHit {}
-    (do let e := (← Tools.VedU1ScriptSeq.vedOmegaOk.get)[tgt]?; writeB; return e)
-    (do return (← Tools.VedU1ScriptSeq.vedOmegaOkConsts.get).getD tgt #[])
-  match r with
-  | some p =>
-    if p == pfA then
-      let typedInB ← try Meta.check p; pure true catch _ => pure false
-      logInfo m!"SR2b BUG: the reader got proof A with the signatures of B (constsMatch passed in environment B); proof A type-checks in environment B: {typedInB}"
-      throwError "vedOmegaOk: proof A was accepted with the signatures of B (torn read)"
-    else logInfo m!"SR2b the reader got proof B"
-  | none => logInfo m!"SR2b the mixed pair is rejected"
+  let entryB : Tools.VedU1ScriptSeq.OmegaOkEntry := { proof := pfB, used := #[], sigs := sigsB }
+  let writeB : IO Unit := Tools.VedU1ScriptSeq.vedOmegaOk.modify (·.insert tgt entryB)
+  let readEntry : IO (Option Tools.VedU1ScriptSeq.OmegaOkEntry) := do return (← Tools.VedU1ScriptSeq.vedOmegaOk.get)[tgt]?
+  -- the reader (environment B) has one read; the write of B comes before it or after it, there is no point between proof and signatures
+  let hitAfterB ← Tools.VedU1ScriptSeq.omegaOkHit {} (do writeB; readEntry)
+  unless hitAfterB == some pfB do throwError "SR2b: the read after the write of B did not hit proof B"
+  let eA : Tools.VedU1ScriptSeq.OmegaOkEntry := { proof := pfA, used := #[], sigs := sigsA }
+  Tools.VedU1ScriptSeq.vedOmegaOk.modify (·.insert tgt eA)
+  let hitBeforeB ← Tools.VedU1ScriptSeq.omegaOkHit {} (do let e ← readEntry; writeB; return e)
+  -- the read before the write sees entry A: its proof with ITS signatures, which environment B rejects
+  if hitBeforeB.isSome then throwError "SR2b: the read before the write of B hit {hitBeforeB} in environment B (the entry of A is not valid here)"
+  -- each entry is consistent in itself: A's pair is rejected and B's accepted in environment B; the mixed pair (A's proof, B's signatures) has no
+  -- representation any more (one entry per target, one read per hit)
+  if (← Tools.VedU1ScriptSeq.constsMatch eA.proof eA.sigs) then throwError "SR2b: the pair of A passes in environment B"
+  unless (← Tools.VedU1ScriptSeq.constsMatch entryB.proof entryB.sigs) do throwError "SR2b: the pair of B fails in environment B"
+  logInfo m!"SR2b a reader sees the entry of A (rejected in environment B) or the entry of B (hit): no mixed pair"
 
 /-! ## 3. a module constant re-declared with another value -/
 

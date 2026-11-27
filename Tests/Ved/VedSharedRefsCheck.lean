@@ -97,7 +97,7 @@ elab "sr_omegaok" : tactic => withMainContext do
   let g ← getMainGoal
   let tgt := (← instantiateMVars (← g.getType)).consumeMData
   evalTactic (← `(tactic| ved_omega_c_reset))
-  Tools.VedU1ScriptSeq.vedOmegaOk.modify (·.insert tgt (mkConst fakeName, #[]))
+  Tools.VedU1ScriptSeq.vedOmegaOk.modify (·.insert tgt { proof := mkConst fakeName, used := #[], sigs := #[] })
   runOmegaC
   let v ← instantiateMVars (mkMVar g)
   if v.getUsedConstants.contains fakeName then throwError "vedOmegaOk: a hit used a proof that mentions an absent constant"

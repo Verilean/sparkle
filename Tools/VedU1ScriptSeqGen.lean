@@ -304,11 +304,18 @@ def constsMatch (e : Expr) (sigs : Array ConstSig) : CoreM Bool := do
   return e.getUsedConstants.all fun c =>
     env.contains c && ((env.getModuleIdxFor? c).isSome || sigs.any fun s => s.1 == c && constSig? env c == some s)
 
+/-- a cached proof of `ved_omega_c` (see `vedOmegaOk`) -/
+structure OmegaOkEntry where
+  proof : Lean.Expr
+  used : Array (Lean.FVarId × Lean.Expr)
+  sigs : Array ConstSig
+
 /-- the caches of `ved_omega_c` (the same side condition is asked again in every goal of a block).
 Invariant: each cache is reused only when the inputs of the computation that filled it are equal.
-* `vedOmegaOk`: target ↦ (proof, `(FVarId, type)` of the free variables the proof uses).  The proof is
+* `vedOmegaOk`: target ↦ `OmegaOkEntry`: the proof, `(FVarId, type)` of the free variables it uses and the signatures of its non-imported constants.  The proof is
   closed over those variables (no metavariables), so in a context that has all of them with equal
-  types it proves the target; the kernel checks it anyway.
+  types it proves the target; the kernel checks it anyway.  The three parts are ONE entry (one insert, one read per hit): the ref is shared by
+  concurrent elaboration tasks, and a proof read from one task's entry with the signatures of another's would pass `constsMatch` for a proof that does not check here.
 * `vedUbFail`: target ↦ the ordered `(x, u)` of `vedBoundFacts` of the run that found the bound too
   large.  `vedUb` is a deterministic function of the target and exactly this array (it takes the
   first fact with `x == e`; proofs do not affect success), so an equal array gives the same refusal.
@@ -316,17 +323,14 @@ Invariant: each cache is reused only when the inputs of the computation that fil
   equation) of the failed `omega` run; reused only for an equal array (no subset rule, no `FVarId`
   keys: `FVarId`s are reused across backtracking).
 Lifetime: one script run; `ved_omega_c_reset` (first of the closing tactics) empties all three. -/
-initialize vedOmegaOk : IO.Ref (Std.HashMap Lean.Expr (Lean.Expr × Array (Lean.FVarId × Lean.Expr))) ← IO.mkRef {}
+initialize vedOmegaOk : IO.Ref (Std.HashMap Lean.Expr OmegaOkEntry) ← IO.mkRef {}
 initialize vedUbFail : IO.Ref (Std.HashMap Lean.Expr (Array (Lean.Expr × Nat))) ← IO.mkRef {}
 initialize vedOmegaFail : IO.Ref (Std.HashMap Lean.Expr (Array Lean.Expr)) ← IO.mkRef {}
-/-- target ↦ the signatures of the non-imported constants of its `vedOmegaOk` proof (see `constsMatch`); a hit needs them -/
-initialize vedOmegaOkConsts : IO.Ref (Std.HashMap Lean.Expr (Array ConstSig)) ← IO.mkRef {}
 
 open Lean Elab Tactic in
 /-- empty the caches of `ved_omega_c` (see `vedOmegaOk`) -/
 elab "ved_omega_c_reset" : tactic => do
   vedOmegaOk.set {}
-  vedOmegaOkConsts.set {}
   vedUbFail.set {}
   vedOmegaFail.set {}
 
@@ -415,15 +419,15 @@ def vedBoundFacts : MetaM (Array (Expr × Nat × Expr × Expr)) := do
   return out
 
 open Lean Meta in
-/-- the hit of `ved_omega_c`: the stored proof when the context has its free variables with equal types and the constants it mentions have their signatures
-(`readPf`, `readSigs`: the two reads of the caches) -/
-def omegaOkHit (lctx : LocalContext) (readPf : IO (Option (Expr × Array (FVarId × Expr)))) (readSigs : IO (Array ConstSig)) : MetaM (Option Expr) := do
-  let some (pf, used) ← readPf | return none
-  for (fv, ty) in used do
+/-- the hit of `ved_omega_c`: the stored proof when the context has its free variables with equal types and the constants it mentions have their signatures.
+`readEntry` is the ONE read of the cache; only the entry it returns is used (proof and signatures of the same store) -/
+def omegaOkHit (lctx : LocalContext) (readEntry : IO (Option OmegaOkEntry)) : MetaM (Option Expr) := do
+  let some e ← readEntry | return none
+  for (fv, ty) in e.used do
     match lctx.find? fv with
     | some d => unless (← instantiateMVars d.type) == ty do return none
     | none => return none
-  if (← constsMatch pf (← readSigs)) then return some pf
+  if (← constsMatch e.proof e.sigs) then return some e.proof
   return none
 
 open Lean Meta Elab Tactic in
@@ -445,9 +449,8 @@ elab "ved_omega_c" : tactic => withMainContext do
       let fvs := (CollectFVars.main pf {}).fvarIds
       let mut used : Array (FVarId × Expr) := #[]
       for fv in fvs do used := used.push (fv, ← instantiateMVars (← fv.getType))
-      vedOmegaOk.modify (·.insert tgt (pf, used))
-      vedOmegaOkConsts.modify (·.insert tgt (← constSigs pf))
-  if let some pf ← omegaOkHit lctx (do return (← vedOmegaOk.get)[tgt]?) (do return (← vedOmegaOkConsts.get).getD tgt #[]) then
+      vedOmegaOk.modify (·.insert tgt { proof := pf, used, sigs := ← constSigs pf })
+  if let some pf ← omegaOkHit lctx (do return (← vedOmegaOk.get)[tgt]?) then
     g.assign pf
     replaceMainGoal []
     return
