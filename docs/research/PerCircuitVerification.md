@@ -179,8 +179,11 @@ Its review state is a separate question and differs by item:
 * the single observed runs of section 6.1, and the nested and table routes of section 6.2, are
   **not reviewed**;
 * the composition route of section 6.2 has since reached current `main` with #167; its units were
-  reviewed one by one before that merge. That review covers those units only: no coverage number
-  was measured or reviewed for them, and being on `main` does not by itself make anything reviewed.
+  reviewed one by one before that merge. That review covers those units only, and being on `main`
+  does not by itself make anything reviewed. No new coverage measurement is reported here for the
+  current `main` integration. The earlier development snapshot has its own measurement-only
+  acceptance ([appendix E](appendix/E-DevelopmentSnapshot.md)), which does not transfer to current
+  `main`.
 
 Publishing the release does not wait for any of it.
 
