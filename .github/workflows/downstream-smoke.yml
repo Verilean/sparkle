@@ -17,6 +17,14 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
+    paths:
+      # Docs-only pull requests skip this workflow (docs.yml checks them);
+      # the tutorial sources stay in, they are built and type-checked here.
+      - '**'
+      - '!docs/**'
+      - '!**/*.md'
+      - 'docs/tutorial/**'
+      - 'docs/Tutorial.md'
   workflow_dispatch:
 
 # Cancel superseded runs on the same ref (e.g. force-push to a PR

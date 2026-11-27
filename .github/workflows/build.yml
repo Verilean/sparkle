@@ -5,6 +5,14 @@ on:
     branches: [ main, master, feature/* ]
   pull_request:
     branches: [ main, master ]
+    paths:
+      # Docs-only pull requests skip this workflow (docs.yml checks them);
+      # the tutorial sources stay in, they are built and type-checked here.
+      - '**'
+      - '!docs/**'
+      - '!**/*.md'
+      - 'docs/tutorial/**'
+      - 'docs/Tutorial.md'
   workflow_dispatch:
 
 permissions:
