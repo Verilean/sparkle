@@ -43,9 +43,45 @@ jobs:
   # dependencies (no shared .lake between runners); every original check
   # target is in exactly one part, one `lake build` line per original step.
   # `ved-pr` (below) fails unless every part succeeded.
+  # Shared dependencies: the core library and the Tools modules the checks
+  # import, built once; the parts restore this .lake and build only the
+  # check files (Lake still checks every trace, so nothing stale is used).
+  ved-deps:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Elan
+      run: |
+        curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+        echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+    - name: Install Lean toolchain
+      run: elan default $(cat lean-toolchain)
+
+    - name: Core library
+      run: lake build Sparkle
+
+    - name: Tools modules imported by the checks
+      run: lake build Tools.VedU1Entry Tools.VedU2HierRegEntry Tools.VedMemEntry Tools.VedU1Deep Tools.DeepElab Tools.VedU1ScriptSeqGen Tools.VedStrictAudit Tools.VedU1PackedEntry Tools.DeepFinArms Tools.VedMemPack Tools.VedWriteChecked Tools.VedU1HierEntry Tools.VedU2HierBudget Tools.VedComposeConnectGen Tools.VedU1StructOut Tools.VedInvocation Tools.VedMemLoop Tools.VedComposeStep Tools.VedU2HierMultiOut Tools.VedH3ChildTblEntry Tools.VedH3ChildEntry Tools.VedU2HierEntry Tools.VedMemWidth Tools.VedWriteForms Tools.VedU2HierProj Tools.VedMemOrder Tools.VedU1Contract Tools.VedSupplement
+
+    - name: Pack .lake
+      run: tar -cf - .lake | zstd -T0 -3 > "$RUNNER_TEMP/lake.tar.zst" && ls -l "$RUNNER_TEMP/lake.tar.zst"
+
+    - name: Upload .lake
+      uses: actions/upload-artifact@v4
+      with:
+        name: ved-deps-lake
+        path: ${{ runner.temp }}/lake.tar.zst
+        retention-days: 1
+        compression-level: 0
+
   ved-pr-part:
     name: ved-pr (${{ matrix.part }})
     if: github.event_name == 'pull_request'
+    needs: ved-deps
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -122,7 +158,16 @@ jobs:
     - name: Install Lean toolchain
       run: elan default $(cat lean-toolchain)
 
-    - name: Core library (shared dependency, timed separately)
+    - name: Download shared .lake
+      uses: actions/download-artifact@v4
+      with:
+        name: ved-deps-lake
+        path: ${{ runner.temp }}
+
+    - name: Restore shared .lake
+      run: zstd -dc "$RUNNER_TEMP/lake.tar.zst" | tar -xf -
+
+    - name: Core library (restored; Lake re-checks it)
       run: lake build Sparkle
 
     - name: Checks of this part (one lake build per line)
@@ -166,6 +211,7 @@ jobs:
   ved-full-part:
     name: ved-full (${{ matrix.part }})
     if: github.event_name != 'pull_request'
+    needs: ved-deps
     runs-on: ubuntu-latest
     timeout-minutes: 300
     strategy:
@@ -256,7 +302,16 @@ jobs:
     - name: Install Lean toolchain
       run: elan default $(cat lean-toolchain)
 
-    - name: Core library (shared dependency, timed separately)
+    - name: Download shared .lake
+      uses: actions/download-artifact@v4
+      with:
+        name: ved-deps-lake
+        path: ${{ runner.temp }}
+
+    - name: Restore shared .lake
+      run: zstd -dc "$RUNNER_TEMP/lake.tar.zst" | tar -xf -
+
+    - name: Core library (restored; Lake re-checks it)
       run: lake build Sparkle
 
     - name: Checks of this part (one lake build per line)
