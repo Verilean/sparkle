@@ -490,9 +490,9 @@ elab "ved_pack_dag_wire_all" : tactic => do
   if dump then Tools.VedMemLoop.dbgLog s!"pack_dag_wire_all: goals={gs.length} skipped_wire={skipped} sizes after dag {allSz}"
   setGoals rest
 
-/-- `ved_omega` on a side condition without the hypotheses about signals (the packed memory rows `hM1`, `hD1`, ..: 1.6e8 tree nodes in R034;
+/-- Memory-stage `ved_omega` (not `ved_omega_c` of `VedU1ScriptSeqGen`, which is cached and keeps the signal hypotheses; the same name made both parse and this one ran): `ved_omega` on a side condition without the hypotheses about signals (the packed memory rows `hM1`, `hD1`, ..: 1.6e8 tree nodes in R034;
 `omega` reads every hypothesis, and they are no `Nat` / `Int` facts).  Only the side-condition goal loses them. -/
-elab "ved_omega_c" : tactic => do
+elab "ved_omega_mc" : tactic => do
   let mut g ← getMainGoal
   for d in ← g.withContext getLCtx do
     unless d.isImplementationDetail do
@@ -519,12 +519,12 @@ elab "ved_omega_c" : tactic => do
     IO.FS.writeFile s!"{dir}/omega_last.txt" txt
   evalTactic (← `(tactic| ved_omega))
 
-/-- `ved_omega_c`, also without the hypotheses of at least this many tree nodes: the packed reads left in the context (`this : S = F`,
+/-- `ved_omega_mc`, also without the hypotheses of at least this many tree nodes: the packed reads left in the context (`this : S = F`,
 900-1100 nodes each) and the register equalities (`hreg0..7`, 600-960): `omega` reads them as `/` `%` chains and its elimination
 (no heartbeat check) does not end on a failing side condition (R034 goal 44 of stage 6: 8 of them, > 500 s, 100% in `Lean.Omega`) -/
 def omegaHypMaxTree : Nat := 300
 
-/-- `ved_omega_c` with only the small hypotheses (range facts) -/
+/-- `ved_omega_mc` with only the small hypotheses (range facts) -/
 elab "ved_omega_s" : tactic => do
   let mut g ← getMainGoal
   for d in ← g.withContext getLCtx do
@@ -532,7 +532,7 @@ elab "ved_omega_s" : tactic => do
       if Tools.VedU1Loop.treeSizeVal (← g.withContext (instantiateMVars d.type)) ≥ omegaHypMaxTree then
         g ← g.tryClear d.fvarId
   setGoals [g]
-  evalTactic (← `(tactic| ved_omega_c))
+  evalTactic (← `(tactic| ved_omega_mc))
 
 /-- `omega` on the small hypotheses only (as `ved_omega_s`, no signal hypotheses, none of `omegaHypMaxTree` nodes or more) and without the
 2M heartbeat cap of `ved_omega`: the leaf of `ved_ctrl_cases` is a data goal that holds, and `omega` needs more than the cap for the
@@ -690,7 +690,7 @@ def clearSigHyps : TacticM Unit := do
         g ← g.tryClear d.fvarId
   setGoals [g]
 
-/-- the closing stage on a goal of at least `omegaMaxTree` nodes: drop the hypotheses about signals (see `ved_omega_c`) -- plain `omega` of
+/-- the closing stage on a goal of at least `omegaMaxTree` nodes: drop the hypotheses about signals (see `ved_omega_mc`) -- plain `omega` of
 the closers reads them all -/
 elab "ved_clear_sig_big" : tactic => do
   let g ← getMainGoal
@@ -706,9 +706,9 @@ elab "ved_or_lit_post" : tactic => do
     evalTactic (← `(tactic| ved_clear_sig_big))
     evalTactic (← `(tactic| ved_or_lit_m))
 
-/-- `ved_bit_simp` with `ved_omega_c` as side-condition prover -/
+/-- `ved_bit_simp` with `ved_omega_mc` as side-condition prover -/
 macro "ved_bit_simp_c" : tactic =>
-  `(tactic| simp (disch := first | ved_omega_c | (split <;> ved_omega_c) | fail) only
+  `(tactic| simp (disch := first | ved_omega_mc | (split <;> ved_omega_mc) | fail) only
       [Tools.VedU1Loop.and_lt2_l, Tools.VedU1Loop.and_lt2_r, Tools.VedU1Loop.or_lt2, Tools.VedU1Loop.xor_lt2])
 
 /-- `ved_bit_simp` on a goal that went through `ved_pack_dag` (the 0/1 `&&&` / `|||` of the wires need the field variables) -/

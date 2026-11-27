@@ -32,9 +32,9 @@ set_option linter.unusedVariables false
 
 /-! ## `proofCache` -/
 
-/-- `VedMemPack` defines a second `ved_omega_c` (uncached, no signal hypotheses): both parse, so the cached tactic of `VedU1ScriptSeqGen` is run by its syntax kind -/
-def runOmegaC : TacticM Unit :=
-  evalTactic (mkNode `Tools.VedU1ScriptSeq.tacticVed_omega_c #[mkAtom "ved_omega_c"])
+/-- the cached `ved_omega_c` of `VedU1ScriptSeqGen` (the memory stage's uncached one is `ved_omega_mc` of `VedMemPack`; they used to share the name, both parsed, and the uncached one ran) -/
+def runOmegaC : TacticM Unit := do
+  evalTactic (← `(tactic| ved_omega_c))
 
 /-- the fake auxiliary constant that is not in the environment -/
 def fakeName : Name := `SrFake.missing_proof_1
@@ -59,6 +59,38 @@ elab "sr_proofcache" : tactic => withMainContext do
 example (x : Nat) : x + 0 = x := by sr_proofcache
 
 /-! ## `vedOmegaOk` -/
+
+/-- the name `ved_omega_c` parses to the cached tactic only (no choice node with the memory stage's one) and the memory-stage tactic has its own name -/
+elab "sr_omega_names" : tactic => do
+  let stx ← `(tactic| ved_omega_c)
+  unless stx.raw.isOfKind `Tools.VedU1ScriptSeq.tacticVed_omega_c do
+    throwError "ved_omega_c parses to {stx.raw.getKind} (alternatives: {stx.raw.getArgs.map (·.getKind)}), expected the cached tactic only"
+  let m ← `(tactic| ved_omega_mc)
+  unless m.raw.isOfKind `Tools.VedMemPack.tacticVed_omega_mc do throwError "ved_omega_mc parses to {m.raw.getKind}"
+
+/-- the cached tactic called by its name fills `vedOmegaOk` -/
+elab "sr_omega_fill" : tactic => do
+  evalTactic (← `(tactic| ved_omega_c_reset))
+  evalTactic (← `(tactic| ved_omega_c))
+  if (← Tools.VedU1ScriptSeq.vedOmegaOk.get).isEmpty then throwError "ved_omega_c did not fill vedOmegaOk"
+  evalTactic (← `(tactic| ved_omega_c_reset))
+
+/-- the memory-stage tactic (`ved_omega_mc`) is uncached -/
+elab "sr_omega_mc_uncached" : tactic => do
+  evalTactic (← `(tactic| ved_omega_c_reset))
+  evalTactic (← `(tactic| ved_omega_mc))
+  unless (← Tools.VedU1ScriptSeq.vedOmegaOk.get).isEmpty do throwError "ved_omega_mc filled vedOmegaOk"
+
+example (x y : Nat) (h : x < 8) : x + y < y + 8 := by sr_omega_names; sr_omega_fill
+example (x y : Nat) (h : x < 8) : x + y < y + 8 := by sr_omega_mc_uncached
+
+/-- the memory-stage `ved_omega_s` runs the uncached tactic: `vedOmegaOk` stays empty -/
+elab "sr_omega_s_uncached" : tactic => do
+  evalTactic (← `(tactic| ved_omega_c_reset))
+  evalTactic (← `(tactic| ved_omega_s))
+  unless (← Tools.VedU1ScriptSeq.vedOmegaOk.get).isEmpty do throwError "ved_omega_s ran the cached tactic"
+
+example (x y : Nat) (h : x < 8) : x + y < y + 8 := by sr_omega_s_uncached
 
 /-- seed `vedOmegaOk` for the main goal with a proof of an absent constant: `ved_omega_c` must not use it -/
 elab "sr_omegaok" : tactic => withMainContext do
