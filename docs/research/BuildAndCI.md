@@ -324,6 +324,7 @@ Rules that keep the split honest:
   | `ved-pr`, 11 parts grouped by line time, no cache (dispatch `set=pr`) | 46034780218 | 1920 s | 7016 s | `ved-deps` 1160 s, then 752 s |
   | `ved-pr`, same commit, `.lake` cache hit | 46039457475 | 990 s | 6472 s | `ved-deps` 32 s, then 950 s |
   | `ved-full`, `mem-close-h2` split, `.lake` cache hit | 46041928192 | 1487 s | 9663 s | `ved-deps` 37 s, then 1441 s |
+  | `ved-pr`, same parts, on pull request #182 (no `main` cache yet) | 46045411693 | 2070 s | 8432 s | `ved-deps` 1042 s |
 
   Without shared dependencies the parts spend most of their time rebuilding the Tools modules
   (one hierarchy line took 1108 s in its part against 201 s as a sequential step), which doubles
@@ -337,11 +338,14 @@ Rules that keep the split honest:
   `ved-pr` lines are grouped into 11 parts by their measured times so that no part is much
   longer than the longest single line (the 66 check targets are the same), and `ved-full`
   splits its longest part. `ved-deps` restores the `.lake` of an earlier `ved-deps` run from the
-  Actions cache (key: toolchain, manifest, lakefile, and the sources of `Sparkle`, `Tools` and
-  `IP`; an older entry with the same toolchain is restored when the sources changed, and Lake
-  rebuilds only what changed). With a full cache hit, `ved-pr` takes 990 s, inside the 20-minute
-  goal; without a cache it takes 1920 s, of which `ved-deps` is 1160 s. `ved-full` with a cache hit
-  takes 1487 s (2137 s before). The same part varies
+  Actions cache (key: runner OS, a hash of `lean-toolchain`, `lake-manifest.json` and
+  `lakefile.lean`, and a hash of the sources of `Sparkle`, `Tools` and `IP`; when the sources
+  changed, an older entry is restored only if the OS and the first hash are equal, and Lake
+  rebuilds only what changed). One dispatch with a full cache hit took 990 s for `ved-pr`, inside
+  the 20-minute goal; this is a single observation, not a guarantee that every run with a `main`
+  cache stays under 20 minutes. Without a cache it took 1920 s (dispatch) and 2070 s (on pull
+  request #182), of which `ved-deps` is 1042 to 1160 s; a partial hit lies in between. `ved-full`
+  with a cache hit took 1487 s (2137 s before), still above 20 minutes. The same part varies
   between runs (`mem-close` 673 s and 950 s; `ved-full` `compose` 1034 s and 1441 s), so the longest `ved-pr` part is about 10 to 16 minutes.
   A pull request can read only the caches of its own branch and of `main`, so a cache hit on a
   pull request needs an earlier `ved-deps` run on `main` (the weekly schedule, or a dispatch);
