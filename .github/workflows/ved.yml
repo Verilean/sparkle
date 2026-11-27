@@ -109,6 +109,9 @@ jobs:
     - name: Real memory entry next to asynchronous ved_ctrl_or_gate runs (Elab.async on; per-call leaf-failure flag)
       run: lake build Tests.Ved.VedCtrlAsyncCheck
 
+    - name: Scoped global refs of the closing tactics (proofCache / vedOmegaOk constants check, vedOmegaFail, declWidthTab per module, run-keyed hnormLoops / hstepAttempted; two real entries with unchanged proof summary)
+      run: lake build Tests.Ved.VedSharedRefsCheck
+
     - name: User lemma for one memory-loop causal side condition (ved.mem.userLemma; isDefEq on the full goal type, strict audit; refusal controls)
       run: lake build Tests.Ved.VedSupplementCheck
 
@@ -257,6 +260,9 @@ jobs:
 
     - name: Real memory entry next to asynchronous ved_ctrl_or_gate runs (Elab.async on; per-call leaf-failure flag)
       run: lake build Tests.Ved.VedCtrlAsyncCheck
+
+    - name: Scoped global refs of the closing tactics (proofCache / vedOmegaOk constants check, vedOmegaFail, declWidthTab per module, run-keyed hnormLoops / hstepAttempted; two real entries with unchanged proof summary)
+      run: lake build Tests.Ved.VedSharedRefsCheck
 
     - name: User lemma for one memory-loop causal side condition (ved.mem.userLemma; isDefEq on the full goal type, strict audit; refusal controls)
       run: lake build Tests.Ved.VedSupplementCheck

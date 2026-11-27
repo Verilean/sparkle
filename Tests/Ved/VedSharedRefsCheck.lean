@@ -32,6 +32,10 @@ set_option linter.unusedVariables false
 
 /-! ## `proofCache` -/
 
+/-- `VedMemPack` defines a second `ved_omega_c` (uncached, no signal hypotheses): both parse, so the cached tactic of `VedU1ScriptSeqGen` is run by its syntax kind -/
+def runOmegaC : TacticM Unit :=
+  evalTactic (mkNode `Tools.VedU1ScriptSeq.tacticVed_omega_c #[mkAtom "ved_omega_c"])
+
 /-- the fake auxiliary constant that is not in the environment -/
 def fakeName : Name := `SrFake.missing_proof_1
 
@@ -62,7 +66,7 @@ elab "sr_omegaok" : tactic => withMainContext do
   let tgt := (← instantiateMVars (← g.getType)).consumeMData
   evalTactic (← `(tactic| ved_omega_c_reset))
   Tools.VedU1ScriptSeq.vedOmegaOk.modify (·.insert tgt (mkConst fakeName, #[]))
-  evalTactic (← `(tactic| ved_omega_c))
+  runOmegaC
   let v ← instantiateMVars (mkMVar g)
   if v.getUsedConstants.contains fakeName then throwError "vedOmegaOk: a hit used a proof that mentions an absent constant"
   evalTactic (← `(tactic| ved_omega_c_reset))
@@ -77,14 +81,14 @@ elab "sr_omegafail" : tactic => withMainContext do
   evalTactic (← `(tactic| ved_omega_c_reset))
   let failed ← try
       withTheReader Core.Context (fun c => { c with maxRecDepth := c.currRecDepth + 4 }) do
-        evalTactic (← `(tactic| ved_omega_c))
+        runOmegaC
       pure none
     catch e => pure (some (← e.toMessageData.toString))
   match failed with
   | none => throwError "vedOmegaFail: the run under the recursion limit succeeded (vacuous control)"
   | some m => unless m.startsWith "ved_omega: no proof within the budget" do throwError "vedOmegaFail: other failure (vacuous control): {m}"
   unless (← Tools.VedU1ScriptSeq.vedOmegaFail.get).isEmpty do throwError "vedOmegaFail: a resource-limit failure was cached"
-  evalTactic (← `(tactic| ved_omega_c))
+  runOmegaC
 
 example (x y z : Nat) (h : x < 8) (h2 : y < x + z) : x + y < z + 16 := by sr_omegafail
 
@@ -187,6 +191,10 @@ def entrySummary (decl : Name) : TermElabM String := do
   let axs ← collectAxioms (decl ++ `ved_mem)
   return s!"depth {v.approxDepth} nodes {v.sizeWithoutSharing} axioms {axs.toList.map (·.toString) |>.toArray.qsort (· < ·)}"
 
+/-- depth, node count and axioms of the stored proofs, recorded on the code before the change (a28a4811) -/
+def srASummary : String := "depth 192 nodes 83957056 axioms #[Classical.choice, Quot.sound, propext]"
+def srBSummary : String := "depth 255 nodes 70110284 axioms #[Classical.choice, Quot.sound, propext]"
+
 /-- the entry's module constant (what `declWidthTab` is keyed by) -/
 def srModA : Name := `Tests.Ved.VedSharedRefsCheck.srA.ved_mod
 
@@ -206,14 +214,18 @@ run_cmd liftTermElabM do
   unless mine.size > 0 do throwError "declWidthTab: empty table for the entry's module"
   unless (← Tools.VedMemLoop.hnormLoops.get).isEmpty do throwError "hnormLoops: the run was not erased"
   unless (← Tools.VedMemLoop.hstepAttempted.get).isEmpty do throwError "hstepAttempted: the run was not erased"
-  logInfo m!"SUMMARY srA {← entrySummary ``srA}"
+  let a ← entrySummary ``srA
+  logInfo m!"SUMMARY srA {a}"
+  unless a == srASummary do throwError "srA: the stored proof differs from the one before the change: {a}"
   logInfo m!"caches after srA: proofCache {(← Tools.VedMemPack.proofCache.get).size} omegaOk {(← Tools.VedU1ScriptSeq.vedOmegaOk.get).size}"
 
 #guard_msgs (drop info) in
 #ved_u1_mem_packed srB
 
 run_cmd liftTermElabM do
-  logInfo m!"SUMMARY srB {← entrySummary ``srB}"
+  let b ← entrySummary ``srB
+  logInfo m!"SUMMARY srB {b}"
+  unless b == srBSummary do throwError "srB: the stored proof differs from the one before the change: {b}"
   logInfo m!"caches after srB: proofCache {(← Tools.VedMemPack.proofCache.get).size} omegaOk {(← Tools.VedU1ScriptSeq.vedOmegaOk.get).size}"
 
 end Tests.Ved.VedSharedRefsCheck
