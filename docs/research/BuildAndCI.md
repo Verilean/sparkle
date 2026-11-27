@@ -291,7 +291,7 @@ Two consequences follow:
 
 ## 5. Proposal: how to split CI
 
-This is a proposal. No workflow is changed by this page.
+This was written as a proposal; the matrix and the docs-only split below have since been tried.
 
 | Tier | Contents | When |
 |---|---|---|
@@ -304,19 +304,33 @@ Rules that keep the split honest:
 
 - **No silent skip.** Every check that a path filter removes from a pull request still runs in
   the weekly and release tiers. A skipped job is reported as skipped, never as a success.
-- **Same coverage, shorter wall time (to be tried, not yet shown).** The `ved-pr` and `ved-full`
-  steps are independent `lake build` targets, so they could run as a matrix with the same set of
-  checks. The resulting wall time is not known yet:
-  - Each matrix runner may rebuild the shared dependencies (the Sparkle library and the tool
-    libraries), so today's sequential step times are not a bound for it.
-  - The longest single step of `ved-pr` (the strict entry checks, 1408 s, 23.5 minutes) is
-    already longer than the target below.
+- **Same coverage, shorter wall time (tried 2026-11-27, pull request #177).** `ved.yml` now runs
+  `ved-pr` (9 parts) and `ved-full` (12 parts) as matrices. Every original `lake build` target is
+  in exactly one part (68 for `ved-pr`, 78 for `ved-full`, compared against the sequential
+  workflow), and each original step is one `lake build` line of a part, except that the strict
+  entry step is split over three parts. A `ved-deps` job builds the core library and the 28
+  Tools modules the checks import once; every part restores that `.lake` (Lake still checks
+  every trace: the restored core library is re-checked in 10 to 17 s). A job named `ved-pr` /
+  `ved-full` needs every part and fails unless all succeeded.
 
-  Open work: split that step's targets; design how the runners share the built dependencies (a
-  dependency job whose `.lake` the matrix jobs restore, or a cache keyed on the commit); then run
-  one matrix trial with the same set of checks and compare.
-- **Docs PRs.** Add a `paths-ignore` for `docs/**` and `**/*.md` to `build.yml` and
-  `downstream-smoke.yml`, and give the docs checks above their own small job.
+  | Job | Run | Wall | Runner time (sum of jobs) | Longest part |
+  |---|---|---|---|---|
+  | `ved-pr`, sequential | 45963356228 | 6063 s | 6063 s | — |
+  | `ved-pr`, matrix, each part builds its own dependencies | 45977532293 / 45983154376 | 2241 / 2415 s | 13808 / 13462 s | 2232 / 2408 s |
+  | `ved-full`, sequential (sum of steps) | 45945481960 | 8453 s | 8453 s | — |
+  | `ved-full`, matrix, each part builds its own dependencies | 45983157333 | 2747 s | 17483 s | 2609 s |
+  | `ved-full`, matrix with `ved-deps` | 45989034347 | 2137 s | 10178 s | `ved-deps` 864 s, then 1263 s |
+
+  Without shared dependencies the parts spend most of their time rebuilding the Tools modules
+  (one hierarchy line took 1108 s in its part against 201 s as a sequential step), which doubles
+  the runner time. With `ved-deps` the wall time is a quarter of the sequential one and the
+  runner time is 1.2 times it. The parts are not balanced yet (89 to 1263 s); moving targets
+  between parts changes only the wall time, not the check set.
+- **Docs PRs (done in the same pull request).** `build.yml` and `downstream-smoke.yml` skip a pull
+  request that changes only `docs/**` or `*.md` files, except the tutorial sources
+  (`docs/tutorial/**`, `docs/Tutorial.md`), which `build.yml` builds and type-checks. A new
+  `docs.yml` runs the link check and the coverage table check on such pull requests. Pushes to
+  `main` still run every workflow, so nothing is skipped there.
 
 ## 6. Targets, from the measurements
 
