@@ -1555,6 +1555,10 @@ lean_exe «toplevel-sim-test» where
   root := `Tests.Synthesis.TopLevelSim
   supportInterpreter := true
 
+lean_exe «shl-width-test» where
+  root := `Tests.Drivers.ShlWidthTestMain
+  supportInterpreter := true
+
 lean_exe «svparser-test» where
   root := `Tests.SVParser.ParserTest
   supportInterpreter := true
