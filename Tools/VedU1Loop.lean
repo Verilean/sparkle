@@ -87,6 +87,10 @@ def bitsMinOps : Nat := 1
 `ved_wire` first (the bit-serial CRC of a register: `Tools/VedU1Wire.lean`, `ved_pack_wire`) -/
 def bitsSmallOps : Nat := 16
 
+/-- the message of `ved_omega` when `omega` ran into a resource limit (heartbeats, recursion depth), as opposed to finding no proof: the caller
+must not remember it as a property of the goal (`ved_omega_c`) -/
+def vedOmegaLimitMsg : String := "ved_omega: no proof within the budget (resource limit)"
+
 open Lean Elab Tactic in
 /-- `omega` with a small heartbeat budget of its own (the rewrite rules below call it as a
 side-condition discharger, many times, on goals that can be large): running out of the budget is an
@@ -96,7 +100,7 @@ elab "ved_omega" : tactic => do
   tryCatchRuntimeEx
     (withTheReader Core.Context (fun c => { c with initHeartbeats := hb, maxHeartbeats := 2000 * 1000 })
       (Tactic.withoutRecover (evalTactic (← `(tactic| omega)))))
-    fun _ => throwError "ved_omega: no proof within the budget"
+    fun e => if e.isRuntime then throwError vedOmegaLimitMsg else throwError "ved_omega: no proof within the budget"
 
 theorem loop_val_unfold {dom : DomainConfig} {α : Type} [Inhabited α]
     (F : Signal dom α → Signal dom α)

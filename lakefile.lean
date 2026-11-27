@@ -1870,3 +1870,6 @@ lean_lib «Tools.VedU2HierMultiOutH» where
 
 lean_lib «Tests.Ved.VedCtrlAsyncCheck» where
   roots := #[`Tests.Ved.VedCtrlAsyncCheck]
+
+lean_lib «Tests.Ved.VedSharedRefsCheck» where
+  roots := #[`Tests.Ved.VedSharedRefsCheck]

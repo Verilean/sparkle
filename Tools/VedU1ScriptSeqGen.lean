@@ -456,9 +456,10 @@ elab "ved_omega_c" : tactic => withMainContext do
     evalTactic (← `(tactic| ved_omega))
     store (← instantiateMVars (mkMVar g))
   catch e =>
-    -- only "omega could not prove it" is a property of the target and the hypotheses; a heartbeat / recursion / interrupt failure depends on the
-    -- budget of this declaration and must not refuse another one
-    unless e.isRuntime || e.isInterrupt do vedOmegaFail.modify (·.insert tgt rel)
+    -- only "omega could not prove it" is a property of the target and the hypotheses; a heartbeat / recursion-depth / interrupt failure depends on the
+    -- limits of this declaration (`ved_omega` reports them with `vedOmegaLimitMsg`) and must not refuse another one
+    unless e.isRuntime || e.isInterrupt || (← e.toMessageData.toString) == Tools.VedU1Loop.vedOmegaLimitMsg do
+      vedOmegaFail.modify (·.insert tgt rel)
     throw e
 
 /-- the packed word `m + b` (a field that is the constant 1 of a register above the others, `2 ^ 4353 + ...`)
