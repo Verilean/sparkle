@@ -296,6 +296,13 @@ initialize vedOmegaOk : IO.Ref (Std.HashMap Lean.Expr (Lean.Expr × Array (Lean.
 initialize vedUbFail : IO.Ref (Std.HashMap Lean.Expr (Array (Lean.Expr × Nat))) ← IO.mkRef {}
 initialize vedOmegaFail : IO.Ref (Std.HashMap Lean.Expr (Array Lean.Expr)) ← IO.mkRef {}
 
+open Lean in
+/-- every constant `e` mentions is in the current environment.  A cached proof may mention an auxiliary constant (`_proof_N`) that another
+declaration (or a branch that was backtracked) added: the global caches must not hand it out where that constant does not exist. -/
+def usedConstsInEnv (e : Expr) : CoreM Bool := do
+  let env ← getEnv
+  return e.getUsedConstants.all env.contains
+
 open Lean Elab Tactic in
 /-- empty the caches of `ved_omega_c` (see `vedOmegaOk`) -/
 elab "ved_omega_c_reset" : tactic => do
@@ -413,7 +420,7 @@ elab "ved_omega_c" : tactic => withMainContext do
       match lctx.find? fv with
       | some d => unless (← instantiateMVars d.type) == ty do ok := false
       | none => ok := false
-    if ok then
+    if ok && (← usedConstsInEnv pf) then
       g.assign pf
       replaceMainGoal []
       return
@@ -449,7 +456,9 @@ elab "ved_omega_c" : tactic => withMainContext do
     evalTactic (← `(tactic| ved_omega))
     store (← instantiateMVars (mkMVar g))
   catch e =>
-    vedOmegaFail.modify (·.insert tgt rel)
+    -- only "omega could not prove it" is a property of the target and the hypotheses; a heartbeat / recursion / interrupt failure depends on the
+    -- budget of this declaration and must not refuse another one
+    unless e.isRuntime || e.isInterrupt do vedOmegaFail.modify (·.insert tgt rel)
     throw e
 
 /-- the packed word `m + b` (a field that is the constant 1 of a register above the others, `2 ^ 4353 + ...`)

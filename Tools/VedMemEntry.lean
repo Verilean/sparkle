@@ -817,9 +817,10 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     if Tools.VedMemLoop.ved.mem.hstepNorm.get (← getOptions) then
       let tab : Std.HashMap String Nat := m.wires.foldl (fun t p =>
         if t.contains p.name then t else t.insert p.name (Tools.VedU1Contract.declWidth m p.name)) {}
-      Tools.VedMemLoop.declWidthTab.set (some (nm.mod, tab))
+      Tools.VedMemLoop.declWidthTab.modify (·.insert nm.mod tab)
+    let runId ← Tools.VedMemLoop.freshRunId
     let pf ← try (tryCatchRuntimeEx
-      (withProofBudget do
+      (withOptions (·.insert `ved.mem.runId (.ofNat runId)) <| withProofBudget do
         withoutErrToSorry do
           rssNote "before elab"
           let tGen0 ← IO.monoMsNow
@@ -838,7 +839,9 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
         if ved.mem.showScript.get (← getOptions) then
           for msg in (← Core.getMessageLog).toList do IO.eprintln s!"VED MEM MSG {← msg.data.toString}"
         refuse decl "proof" e.toMessageData)
-      finally Tools.VedMemLoop.declWidthTab.set none
+      finally
+        Tools.VedMemLoop.hnormLoops.modify (·.erase runId)
+        Tools.VedMemLoop.hstepAttempted.modify (·.erase runId)
     if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM elaborated, proof term size {pf.approxDepth}"
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then

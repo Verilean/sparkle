@@ -208,7 +208,9 @@ def proveRead (S F : Lean.Expr) : TacticM (Option Lean.Expr) := do
   let fvs ← closure eq
   let closed ← mkForallFVars fvs eq
   if let some r := (← proofCache.get)[closed]? then
-    return r.map fun p => mkAppN p fvs
+    -- a stored proof may mention an auxiliary `_proof_N` of another declaration (or of a backtracked branch): a hit needs all its constants here
+    if ← (match r with | some p => Tools.VedU1ScriptSeq.usedConstsInEnv p | none => pure true) then
+      return r.map fun p => mkAppN p fvs
   let m ← withLCtx {} #[] (mkFreshExprMVar closed)
   let saved ← getGoals
   setGoals [m.mvarId!]
@@ -960,7 +962,7 @@ elab "ved_ctrl_or_gate " t:tactic : tactic => do
 
 /-- the proof caches of the closing tactics are emptied (see `ved_hstep_fallback_reset`) -/
 def hstepResetCaches : MetaM Unit := do
-  Tools.VedMemLoop.hstepAttempted.set false
+  Tools.VedMemLoop.hstepAttempted.modify (·.erase (Tools.VedMemLoop.runKey (← getOptions)))
   proofCache.set {}
   Tools.VedU1ScriptSeq.vedOmegaOk.set {}
   Tools.VedU1ScriptSeq.vedUbFail.set {}
@@ -973,7 +975,7 @@ caches of the closing tactics are emptied if the new branch has started.  The ca
 nothing changes.  (Test seam `hstepOldFail`: the old script fails here.) -/
 elab "ved_hstep_fallback_reset" : tactic => do
   if (← Tools.VedMemLoop.hstepOldFail.get) then throwError "ved_hstep_fallback: the old script fails (test seam)"
-  if (← Tools.VedMemLoop.hstepAttempted.get) then hstepResetCaches
+  if (← Tools.VedMemLoop.hstepAttempted.get).contains (Tools.VedMemLoop.runKey (← getOptions)) then hstepResetCaches
 
 /-- `ved_hstep_guard [new] [old]`: the guard wraps the WHOLE step case.
 * Option `ved.mem.hstepNorm` off (default): `old` runs, `new` is not tried (no `saveState`, no `try`).
