@@ -39,13 +39,14 @@ permissions:
   contents: read
 
 jobs:
-  # `ved-pr` runs as a matrix of independent parts.  Each part builds its own
-  # dependencies (no shared .lake between runners); every original check
-  # target is in exactly one part, one `lake build` line per original step.
-  # `ved-pr` (below) fails unless every part succeeded.
-  # Shared dependencies: the core library and the Tools modules the checks
-  # import, built once; the parts restore this .lake and build only the
-  # check files (Lake still checks every trace, so nothing stale is used).
+  # `ved-pr` and `ved-full` run as matrices of independent parts; every
+  # original check target is in exactly one part, one `lake build` line per
+  # original step.  `ved-pr` / `ved-full` (below) fail unless every part
+  # succeeded.
+  # Shared dependencies (`ved-deps`): the core library and the Tools modules
+  # the checks import, built once and uploaded as an artifact of this run;
+  # every part restores this .lake and builds only its check files (Lake
+  # still checks every trace, so nothing stale is used).
   ved-deps:
     runs-on: ubuntu-latest
     timeout-minutes: 120

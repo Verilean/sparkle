@@ -317,20 +317,24 @@ Rules that keep the split honest:
   |---|---|---|---|---|
   | `ved-pr`, sequential | 45963356228 | 6063 s | 6063 s | — |
   | `ved-pr`, matrix, each part builds its own dependencies | 45977532293 / 45983154376 | 2241 / 2415 s | 13808 / 13462 s | 2232 / 2408 s |
+  | `ved-pr`, matrix with `ved-deps` | 45994126752 | 2398 s | 8027 s | 1510 s |
   | `ved-full`, sequential (sum of steps) | 45945481960 | 8453 s | 8453 s | — |
   | `ved-full`, matrix, each part builds its own dependencies | 45983157333 | 2747 s | 17483 s | 2609 s |
   | `ved-full`, matrix with `ved-deps` | 45989034347 | 2137 s | 10178 s | `ved-deps` 864 s, then 1263 s |
 
   Without shared dependencies the parts spend most of their time rebuilding the Tools modules
   (one hierarchy line took 1108 s in its part against 201 s as a sequential step), which doubles
-  the runner time. With `ved-deps` the wall time is a quarter of the sequential one and the
-  runner time is 1.2 times it. The parts are not balanced yet (89 to 1263 s); moving targets
-  between parts changes only the wall time, not the check set.
+  the runner time. With `ved-deps`, `ved-full` takes about a quarter of the sequential wall
+  time with 1.2 times its runner time, and `ved-pr` takes about 40 minutes (0.4 of the sequential
+  wall time) with 1.34 times its runner time. Both are still above the 20-minute target below. The parts are not
+  balanced yet (89 to 1263 s); moving targets between parts changes only the wall time, not the
+  check set.
 - **Docs PRs (done in the same pull request).** `build.yml` and `downstream-smoke.yml` skip a pull
   request that changes only `docs/**` or `*.md` files, except the tutorial sources
   (`docs/tutorial/**`, `docs/Tutorial.md`), which `build.yml` builds and type-checks. A new
-  `docs.yml` runs the link check and the coverage table check on such pull requests. Pushes to
-  `main` still run every workflow, so nothing is skipped there.
+  `docs.yml` runs the link check and the coverage table check on such pull requests. Build and
+  Downstream Smoke keep their push trigger unchanged, so they still run on every push to `main`
+  (VED and Docs have no push trigger).
 
 ## 6. Targets, from the measurements
 
