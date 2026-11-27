@@ -58,6 +58,12 @@ jobs:
     - name: Tutorial runtime smoke test (executes the Step-1 counter)
       run: lake exe tutorial-smoke
 
+    - name: Extended tutorial (docs/Tutorial_Extended.md, docs/Tutorial_LTL.md)
+      run: |
+        lake build TutorialExtended
+        lake exe tutorial-extended-run
+        lake exe tutorial-mermaid-test
+
     - name: Run Sparkle-16 CPU Core
       run: lake env lean --run Examples/Sparkle16/Core.lean
 
