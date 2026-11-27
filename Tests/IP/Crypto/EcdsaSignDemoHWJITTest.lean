@@ -76,7 +76,9 @@ def main : IO Unit := do
   IO.println s!"  signDone after {doneAt} cycles from the last request byte; {bytes.size} reply bytes"
   let mut ok := true
   if bytes.size != 64 then
-    IO.println s!"  ✗ expected 64 reply bytes within {cap} cycles"
+    IO.println s!"  ✗ expected 64 reply bytes within {cap} cycles; decoded {bytes}"
+    let falls := (List.range (samples.size - 1)).filter (fun i => samples[i]! && !samples[i+1]!)
+    IO.println s!"    TX falling edges: {falls.length}, first {falls.take 12}"
     ok := false
   else
     let r := Uart.beNat bytes 0 32

@@ -1240,6 +1240,8 @@ lean_exe «ecdsa-sign-hw-jit-test» where
   supportInterpreter := true
 
 -- JIT co-sim of the UART top `ecdsaSignDemo`: 96 request bytes in, 64 reply bytes out.
+-- NOT in CI: fails until `(fun c => !(c == 0#7)) <$> txCntSig` stops lowering to
+-- `(c ^ 127) & 1` (the TX streamer stops after two bytes).
 lean_exe «ecdsa-sign-demo-hw-jit-test» where
   root := `Tests.Drivers.EcdsaSignDemoHWJITTestMain
   supportInterpreter := true
