@@ -6,10 +6,11 @@ import Tools.VedMemPack
 /-!
 # Real `#ved_u1_mem_packed` entry next to asynchronous `ved_ctrl_cases` runs (P2-1: the leaf-failure flag is per call)
 
-`ccBaseSeq` is elaborated with `Elab.async false` before anything else runs; `ccBaseAsy` (the same body) is elaborated with `Elab.async true`
-while the theorems `asyncTrue*` / `asyncGate*` (each runs `ved_ctrl_or_gate`, the closing script's tactic; the second kind fails on a false leaf with
-big hypotheses and is refused) are still running in their own tasks.  The two entries' stored statements and proof terms (size, node count) are compared,
-and the refusal of the altered body (`ccBad*`) is compared.
+`ccBaseSeq` is elaborated with `Elab.async false` before anything else runs.  Then `Elab.async true` is set, the theorems `asyncTrue*` /
+`asyncGate*` / `asyncSmall1` (each runs `ved_ctrl_or_gate`, the closing script's tactic; `asyncGate*` fail on a false leaf with big hypotheses and
+are refused) are elaborated, and `ccBaseAsy` (the same body) follows.  Lean may run these theorems in their own tasks, so they can overlap the
+entry; the file does not depend on, and does not check, that they actually overlap.  Compared: the depth, node count and axioms of the two
+entries' stored proofs, and the refusal stage of the altered body (`ccBad*`), which must be `proof` on both sides.
 -/
 
 namespace Tests.Ved.VedCtrlAsyncCheck
@@ -92,7 +93,7 @@ def modOf (base : Name) : TermElabM Sparkle.IR.AST.Module := do
   let some v := (← getConstInfo (base ++ `ved_mod)).value? | throwError "no value"
   evalModule v
 
-/-- the entry's theorem: stored type, proof term size, node count, axioms -/
+/-- the entry's theorem: depth and node count of the stored proof term, and its axioms -/
 def entrySummary (decl : Name) : TermElabM String := do
   let ti ← getConstInfo (decl ++ `ved_mem)
   let .thmInfo t := ti | throwError "not a theorem"
@@ -115,9 +116,12 @@ set_option Elab.async false
 
 run_cmd liftTermElabM do
   let (stmt, _) ← specialiseDomain ``ccBadSeq
-  logInfo m!"SEQ refusal: {← refusalStage (discard <| checkMemE ``ccBadSeq `ctlCcSeq stmt (← modOf ``ccBaseSeq) (packed := true))}"
+  let st ← refusalStage (discard <| checkMemE ``ccBadSeq `ctlCcSeq stmt (← modOf ``ccBaseSeq) (packed := true))
+  logInfo m!"SEQ refusal: {st}"
+  unless st == "proof" do throwError "SEQ: the altered body must be refused at the proof stage, got {st}"
 
-/-! ## Asynchronous closing runs: statements and test-only helpers -/
+/-! ## Asynchronous closing runs: statements and test-only helpers (Elab.async on from here) -/
+set_option Elab.async true
 
 set_option hygiene false in
 local macro "TRUE54" : term => `((if c.toNat % 8 = 4 then
@@ -163,15 +167,16 @@ theorem asyncSmall1 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 
   trivial
 
 
-/-! ## The same entries with Elab.async on, while the theorems above run in their own tasks -/
-set_option Elab.async true
+/-! ## The same entries with Elab.async on (the theorems above may still be running; not checked) -/
 
 #guard_msgs (drop info) in
 #ved_u1_mem_packed ccBaseAsy
 
 run_cmd liftTermElabM do
   let (stmt, _) ← specialiseDomain ``ccBadAsy
-  logInfo m!"ASY refusal: {← refusalStage (discard <| checkMemE ``ccBadAsy `ctlCcAsy stmt (← modOf ``ccBaseAsy) (packed := true))}"
+  let st ← refusalStage (discard <| checkMemE ``ccBadAsy `ctlCcAsy stmt (← modOf ``ccBaseAsy) (packed := true))
+  logInfo m!"ASY refusal: {st}"
+  unless st == "proof" do throwError "ASY: the altered body must be refused at the proof stage, got {st}"
 
 run_cmd liftTermElabM do
   let a ← entrySummary ``ccBaseSeq
