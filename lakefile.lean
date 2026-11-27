@@ -1288,6 +1288,12 @@ lean_exe «concat-lambda-order-test» where
   root := `Tests.Drivers.ConcatLambdaOrderTestMain
   supportInterpreter := true
 
+-- Unary `<$>` lambdas with `!` over a compound term (`!(c == 0#7)`):
+-- source value vs evaluated synthesised IR.
+lean_exe «map-not-eq-test» where
+  root := `Tests.Drivers.MapNotEqTestMain
+  supportInterpreter := true
+
 lean_exe «policy-sign-demo-test» where
   root := `Tests.Drivers.PolicySignDemoTestMain
   supportInterpreter := true

@@ -61,6 +61,7 @@ jobs:
               run-circuit-h-test sim-runner-test cdc-multi-clock-test
               svparser-test multi-output-submodule-hang-repro
               cuda-sim-test cuda-intra-cosim smt-bmc-test
+              map-not-eq-test
 
           - group: bus
             exes: >-
