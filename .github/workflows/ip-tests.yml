@@ -138,6 +138,7 @@ jobs:
               rlp-hw-test merkle-hw-test hkdf-hw-test
               sha512-hw-test aes-hw-test aes-gcm-hw-test
               keccak256-hw-test
+              ecdsa-sign-hw-jit-test p256-sign-hw-jit-test
 
           - group: zk
             exes: >-

@@ -1240,6 +1240,19 @@ lean_exe «ecdsa-sign-demo-test» where
   root := `Tests.Drivers.EcdsaSignDemoTestMain
   supportInterpreter := true
 
+-- JIT co-sim of the generated signCore hardware vs the pure-data
+-- `Secp256k1ECDSA.sign` (~1.8 M cycles per signature).
+lean_exe «ecdsa-sign-hw-jit-test» where
+  root := `Tests.Drivers.EcdsaSignHWJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the UART top `ecdsaSignDemo`: 96 request bytes in, 64 reply bytes out.
+-- NOT in CI: fails until `(fun c => !(c == 0#7)) <$> txCntSig` stops lowering to
+-- `(c ^ 127) & 1` (the TX streamer stops after two bytes).
+lean_exe «ecdsa-sign-demo-hw-jit-test» where
+  root := `Tests.Drivers.EcdsaSignDemoHWJITTestMain
+  supportInterpreter := true
+
 lean_exe «tx-policy-test» where
   root := `Tests.Drivers.TxPolicyTestMain
   supportInterpreter := true
@@ -1369,6 +1382,11 @@ lean_exe «p256-ecdsa-hw-test» where
 
 lean_exe «p256-sign-core-test» where
   root := `Tests.Drivers.P256SignDemoTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the generated p256SignCore hardware vs `P256ECDSA.sign`.
+lean_exe «p256-sign-hw-jit-test» where
+  root := `Tests.Drivers.P256SignHWJITTestMain
   supportInterpreter := true
 
 lean_exe «sha256-stream-test» where
