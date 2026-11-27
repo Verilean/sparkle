@@ -2256,6 +2256,18 @@ mutual
       -- `idx ≤ 1` needs no check at all.  Guarding on that first keeps the
       -- `inferType`+`whnf` off the hot path — running it on every `.proj`
       -- blew the 200k-heartbeat budget on the BLS12-381 Fp12 records.
+      -- A non-attributed def that inlining cannot express as one wire is
+      -- synthesised as a sub-module instance by the call itself (translating it
+      -- fills the port map).  Take the field from that instance's port, as the
+      -- `@[hardware_module]` branch above does, instead of slicing.
+      let wireS ← translateExprToWire eStruct "s"
+      if recArg.getAppFn.isConst then
+        let fields := Lean.getStructureFields (← CompilerM.liftMetaM getEnv) sName
+        if idx < fields.size then
+          let portMap ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+          let callKey : UInt64 := hash (← canonHardwareKey recArg)
+          if let some w := portMap.get? (callKey, fields[idx]!.toString) then
+            return w
       let numFields ← if idx <= 1 then pure 2 else CompilerM.liftMetaM do
         let sTy ← Lean.Meta.inferType eStruct
         let sTy ← Lean.Meta.whnf sTy
@@ -2278,7 +2290,6 @@ mutual
              the sub-module's named output ports instead (call the \
              `@[hardware_module]` def directly, e.g. `let kf := wKeccakF …; kf.done`, \
              so the multi-output port map resolves the field by name)."
-      let wireS ← translateExprToWire eStruct "s"
       -- Infer result type from the expression type
       let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
