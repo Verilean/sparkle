@@ -116,6 +116,8 @@ jobs:
           - group: crypto
             exes: >-
               sha256-test sha256-jit-test sha512-check keccak256-test rlp-test
+              hmac-sha256-jit-test
+              rfc6979-jit-test
               eip1559-tx-test erc20-abi-test bip39-test bip32-test
               eth-wallet-test
               aes-test aes-gcm-test ghash-test ghash-hw-test
