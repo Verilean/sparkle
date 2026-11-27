@@ -1800,7 +1800,17 @@ mutual
                        return none
                    let fn := e.getAppFn
                    let args := e.getAppArgs
-                   if let .const opNm _ := fn then
+                   if let .const opNm lvls := fn then
+                     -- Only the standard BitVec/Bool instances of the
+                     -- overloaded operators (`==`, `!=`, `~~~`, `-`, `+`, …)
+                     -- have the meaning the IR gives them; refuse others.
+                     -- `bne a b` is checked as `a == b` with the same
+                     -- `BEq` instance (same argument layout).
+                     let chkFn := if opNm == ``bne then Lean.mkConst ``BEq.beq lvls else fn
+                     if let some m ← CompilerM.liftMetaM (nonStandardOpMsg? chkFn args) then
+                       CompilerM.liftMetaM <| throwError
+                         "Unsupported lambda in unary `<$>`/`Signal.map`: {m} (the operator \
+                          must use the standard instance; lambda: {f})"
                      -- BitVec literal (`OfNat.ofNat n k` or
                      -- `BitVec.ofNat w n`).
                      if opNm == ``OfNat.ofNat ∨ opNm == ``BitVec.ofNat then

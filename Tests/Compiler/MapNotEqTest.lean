@@ -11,6 +11,16 @@
   the SOURCE (`Signal.atTime`) and the returned IR (`Sparkle.IR.Semantics`) at
   several input values and requires equal results.  The checks are
   `run_meta`, so a mismatch fails the build of this module.
+
+  Counts: 7 forms x 7 width/constant cases = 49 BitVec synthesis calls, plus
+  6 Bool forms = 55 synthesis calls in the equivalence block (1 synthesis
+  each); value checks are 17 inputs per BitVec call (`testVals`), 2 per
+  `chkB1` call, 4 per `chkB2` call.
+
+  Controls: the operators `!=`, `==`, `~~~`, `-` must use the standard
+  instances.  Non-standard `BEq`/`Neg`/`Complement` instances over a compound
+  body must be REFUSED at synthesis; standard `-(c + k)` must evaluate like the
+  source.
 -/
 
 import Sparkle
@@ -188,6 +198,37 @@ def bOr {dom : DomainConfig} (a b : Signal dom Bool) : Signal dom Bool :=
 def bAndN {dom : DomainConfig} (a b : Signal dom Bool) : Signal dom Bool :=
   (fun x y => !(x && !y)) <$> a <*> b
 
+def mNegAdd_8_3 {dom : DomainConfig} (s : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  (fun c => -(c + 3#8)) <$> s
+
+/-! Non-standard instances: must be refused. -/
+def alwaysBEq7 : BEq (BitVec 7) := ⟨fun _ _ => true⟩
+def badNeg8 : Neg (BitVec 8) := ⟨fun x => x⟩
+def badCompl8 : Complement (BitVec 8) := ⟨fun x => x⟩
+
+def badNe {dom : DomainConfig} (s : Signal dom (BitVec 7)) : Signal dom (Bool) :=
+  (fun c => @bne (BitVec 7) alwaysBEq7 c 0#7) <$> s
+def badNotEq {dom : DomainConfig} (s : Signal dom (BitVec 7)) : Signal dom (Bool) :=
+  (fun c => !(@BEq.beq (BitVec 7) alwaysBEq7 c 0#7)) <$> s
+def badNegAdd {dom : DomainConfig} (s : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  (fun c => @Neg.neg (BitVec 8) badNeg8 (c + 3#8)) <$> s
+def badComplAdd {dom : DomainConfig} (s : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  (fun c => @Complement.complement (BitVec 8) badCompl8 (c + 3#8)) <$> s
+
+/-- `true` iff synthesis of `declName` is refused with the non-standard-instance message. -/
+def refused (declName : Name) : MetaM Bool := do
+  try
+    let _ ← Sparkle.Compiler.Elab.synthesizeCombinational declName
+    IO.println s!"[map-not-eq] {declName}: ACCEPTED (expected refusal)"
+    return false
+  catch e =>
+    let msg ← e.toMessageData.toString
+    if (msg.splitOn "non-standard instance").length > 1 then
+      IO.println s!"[map-not-eq] {declName}: refused ok"
+      return true
+    IO.println s!"[map-not-eq] {declName}: refused for the wrong reason: {msg}"
+    return false
+
 private def portWidth : HWType → Nat
   | .bitVector w => w
   | .bit => 1
@@ -320,7 +361,10 @@ run_meta do
   unless (← chkB2 ``bAnd (bAnd (dom := defaultDomain))) do bad := bad ++ [``bAnd]
   unless (← chkB2 ``bOr (bOr (dom := defaultDomain))) do bad := bad ++ [``bOr]
   unless (← chkB2 ``bAndN (bAndN (dom := defaultDomain))) do bad := bad ++ [``bAndN]
+  unless (← chkBV ``mNegAdd_8_3 (mNegAdd_8_3 (dom := defaultDomain)) 8 3) do bad := bad ++ [``mNegAdd_8_3]
+  for n in [``badNe, ``badNotEq, ``badNegAdd, ``badComplAdd] do
+    unless (← refused n) do bad := bad ++ [n]
   unless bad.isEmpty do
-    throwError "source/IR mismatch for {bad}"
+    throwError "source/IR mismatch (or non-refusal) for {bad}"
 
 end Sparkle.Tests.Compiler.MapNotEq
