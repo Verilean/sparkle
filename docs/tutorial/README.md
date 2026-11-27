@@ -52,9 +52,10 @@ automatically.
 | 14 | Market Making on Silicon: a Quoting Engine with a Proved Position Bound | [`md/Ch14_HftMarketMaking.md`](md/Ch14_HftMarketMaking.md) |
 
 Chapters 13 and 14 are not part of the `TutorialNotebooks` library
-(`Notebooks.lean` imports chapters 0 to 12); their code is checked by
-other targets (the run commands are inside each chapter, for example
-`lake exe hft-quote-test` and `lake exe cuda-sim-test`).
+(`Notebooks.lean` imports chapters 0 to 12), so their code cells are
+not type-checked by any build or CI job. The tests they mention (for
+example `lake exe hft-quote-test` and `lake exe cuda-sim-test`) check
+the related implementation in the repository, not the chapter's cells.
 
 ## How to run
 
@@ -94,7 +95,8 @@ export PATH="/tmp/xeus-lean/.lake/build/bin:$PATH"
 # 2. Regenerate Notebooks/Gen/ from md/.
 bash docs/tutorial/build-from-md.sh
 
-# 3. Typecheck every code cell.
+# 3. Typecheck the code cells of chapters 0 to 12 (13 and 14 are not
+#    imported by Notebooks.lean, see above).
 lake build TutorialNotebooks
 
 # 4. (optional) launch JupyterLab to actually run the cells.
@@ -119,8 +121,9 @@ the synthesis-safety rules every ` ```lean ` cell must follow.
 
 `.github/workflows/build.yml` defines a `tutorial-notebooks` job
 that builds `xlean-convert` from upstream xeus-lean, runs
-`build-from-md.sh`, and then `lake build TutorialNotebooks`.  Any
-chapter whose code cells stop typechecking will fail CI.
+`build-from-md.sh`, and then `lake build TutorialNotebooks`.  A
+chapter from 0 to 12 whose code cells stop typechecking fails CI;
+chapters 13 and 14 are converted but not type-checked.
 
 ## Research release
 

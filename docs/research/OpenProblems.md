@@ -174,7 +174,7 @@ a statement uniform in the number of instances.
 *Reproduce.* In the release, the refused nested-hierarchy rows show up in
 [appendix F](appendix/F-AllCommandRows.md) with blocker `hier-shape`. The work in progress on
 this problem is described, unreviewed, in
-[PerCircuitVerification.md](PerCircuitVerification.md#6-in-progress-not-in-this-release-not-reviewed)
+[PerCircuitVerification.md](PerCircuitVerification.md#6-not-in-this-release-not-counted)
 and the [development snapshot](appendix/E-DevelopmentSnapshot.md); do not rely on it.
 
 *Minimal goal.* The statement and proof of `parent_of_children` over the release's definitions

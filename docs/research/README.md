@@ -239,7 +239,7 @@ that lists the commits.
 | Strict command rows (historical measurement of code `2bcf256b`, measured at `fb7124fc`; not a measurement of current `main`) | **243 / 327** (real-IP rows 168 / 220, regression rows 75 / 107; 84 not strict), 7 proof routes; approved ledger `pr16-fb71` |
 | Earlier baseline | `d331ff24` (an earlier candidate, not `main`): 43 / 327 |
 | Current `main` | later than the release: it contains the release code (the packed, hierarchy and `#ved_write_checked` entries described here) plus newer VED units. The numbers on this page were not re-measured on it |
-| Not in this snapshot, not counted | work in progress: [PerCircuitVerification.md, section 6](PerCircuitVerification.md#6-in-progress-not-in-this-release-not-reviewed), and the development snapshot of [appendix E](appendix/E-DevelopmentSnapshot.md) |
+| Not in this snapshot, not counted | work in progress: [PerCircuitVerification.md, section 6](PerCircuitVerification.md#6-not-in-this-release-not-counted), and the development snapshot of [appendix E](appendix/E-DevelopmentSnapshot.md) |
 | Page generation | `python3 -I scripts/research/coverage_table.py --check`, `python3 -I scripts/research/check_links.py` |
 
 The two SHAs `2bcf256b` and `fb7124fc` are provenance of the numbers, not something to check

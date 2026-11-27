@@ -41,9 +41,10 @@ the Markdown files in [`tutorial/md/`](tutorial/md/).
 
 The chapters are authored as plain Markdown in `docs/tutorial/md/`.
 Running `bash docs/tutorial/build-from-md.sh` regenerates the
-JupyterLab `.ipynb` notebooks and the Lake-build target
-(`docs/tutorial/Notebooks/Gen/`, checked with
-`lake build TutorialNotebooks`). Both are produced by xeus-lean's
+JupyterLab `.ipynb` notebooks and the Lake-build sources
+(`docs/tutorial/Notebooks/Gen/`) for every chapter; `lake build
+TutorialNotebooks` type-checks the code cells of chapters 0 to 12
+only (13 and 14 are not imported). Both are produced by xeus-lean's
 `xlean-convert` CLI and are not committed to the repo.
 
 Older single-page tutorials remain at the top of `docs/` (see

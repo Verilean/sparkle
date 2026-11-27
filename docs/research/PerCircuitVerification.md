@@ -171,10 +171,17 @@ tables are one run, including the loading of imports; there is no performance cl
 * *Measure separately*: heartbeats for budget walls; elaboration time, kernel time and peak memory
   as three numbers.
 
-## 6. In progress, not in this release, not reviewed
+## 6. Not in this release, not counted
 
-These lines of work exist on unmerged branches or local lines (the composition route of section 6.2 has since reached `main`; see there). **None of it is part of the
-release, none of it is counted in the 243 of 327, and nothing in it has been reviewed.**
+The work below is **not part of the release** and **none of it is counted in the 243 of 327**.
+Its review state is a separate question and differs by item:
+
+* the single observed runs of section 6.1, and the nested and table routes of section 6.2, are
+  **not reviewed**;
+* the composition route of section 6.2 has since reached current `main` with #167; its units were
+  reviewed one by one before that merge. That review covers those units only: no coverage number
+  was measured or reviewed for them, and being on `main` does not by itself make anything reviewed.
+
 Publishing the release does not wait for any of it.
 
 ### 6.1 Single observed runs

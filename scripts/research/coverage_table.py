@@ -418,7 +418,7 @@ them (see [C-Reproduction.md](C-Reproduction.md)).
 * It does not say that the compose route is correct or reviewed.
 * It says nothing about the single local runs of the nested-hierarchy route (rows R163, R164):
   those are not ledger rows and are described only in
-  [PerCircuitVerification.md](../PerCircuitVerification.md#6-in-progress-not-in-this-release-not-reviewed).
+  [PerCircuitVerification.md](../PerCircuitVerification.md#6-not-in-this-release-not-counted).
 """
 
 
