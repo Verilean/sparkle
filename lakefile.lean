@@ -1255,6 +1255,22 @@ lean_exe «sha256-jit-test» where
   root := `Tests.Drivers.SHA256JITTestMain
   supportInterpreter := true
 
+-- JIT co-sim of the multi-block streaming wrapper (`sha256StreamHW`):
+-- FIPS 180-4 vectors incl. the 448/896-bit two-block messages.
+lean_exe «sha256-stream-jit-test» where
+  root := `Tests.Drivers.SHA256StreamJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the HMAC-SHA256 FSM (`hmacSha256`): RFC 4231 cases 1-6.
+lean_exe «hmac-sha256-jit-test» where
+  root := `Tests.Drivers.HMACSHA256JITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the RFC 6979 nonce FSM (`rfc6979HW`, secp256k1 + SHA-256).
+lean_exe «rfc6979-jit-test» where
+  root := `Tests.Drivers.Rfc6979JITTestMain
+  supportInterpreter := true
+
 -- Fixed-point control datapaths (IIR biquad / PID / LQR).  Each driver runs the
 -- cycle-by-cycle sim; the `#synthesizeVerilog` checks live in the test modules
 -- and run at `lake build` time.
