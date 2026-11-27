@@ -62,6 +62,7 @@ jobs:
               svparser-test multi-output-submodule-hang-repro
               proj-register-input-test
               cuda-sim-test cuda-intra-cosim smt-bmc-test
+              shl-width-test
 
           - group: bus
             exes: >-
@@ -115,7 +116,9 @@ jobs:
 
           - group: crypto
             exes: >-
-              sha256-test sha512-check keccak256-test rlp-test
+              sha256-test sha256-jit-test sha512-check keccak256-test rlp-test
+              hmac-sha256-jit-test
+              rfc6979-jit-test
               eip1559-tx-test erc20-abi-test bip39-test bip32-test
               eth-wallet-test
               aes-test aes-gcm-test ghash-test ghash-hw-test

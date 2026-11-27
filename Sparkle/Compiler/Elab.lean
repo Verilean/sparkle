@@ -16,6 +16,7 @@ import Sparkle.Backend.CSim
 import Sparkle.Backend.CudaSim
 import Sparkle.Backend.CudaIntra
 import Sparkle.IR.Optimize
+import Sparkle.IR.Semantics
 import Sparkle.IR.ZeroWidth
 import Sparkle.IR.RegDedup
 import Sparkle.Compiler.DRC
@@ -187,7 +188,28 @@ def freshName (hint : String) (named : Bool := false) : CompilerM String := do
   set cs'
   return name
 
+/-- Elaborated (Signal / BitVec) shifts are fixed-width: `x <<< k` keeps the
+    width of `x`, which `IR.Semantics` models by masking.  Backends size a
+    bare `.op .shl` from its context instead (Verilog-parsed IR relies on
+    that, so `x << k` may grow to `width(x) + k`), so state the truncation
+    explicitly, as a slice to the shifted operand's width.  `we` gives the
+    width of a wire. -/
+private partial def fixShlWidths (we : String → Nat) :
+    Sparkle.IR.AST.Expr → Sparkle.IR.AST.Expr
+  | .op .shl [a, b] =>
+    let a' := fixShlWidths we a
+    let b' := fixShlWidths we b
+    let wa := Sparkle.IR.Semantics.widthOf we a'
+    let e := Sparkle.IR.AST.Expr.op .shl [a', b']
+    if wa == 0 then e else .slice e (wa - 1) 0
+  | .op o args => .op o (args.map (fixShlWidths we))
+  | .concat args => .concat (args.map (fixShlWidths we))
+  | .slice e hi lo => .slice (fixShlWidths we e) hi lo
+  | e => e
+
 def emitAssign (lhs : String) (rhs : Sparkle.IR.AST.Expr) : CompilerM Unit := do
+  let cache ← liftMetaM (sparkleWireWidthCache.get : IO _)
+  let rhs := fixShlWidths (fun n => cache.getD n 0) rhs
   let cs ← get
   let ((), cs') := CircuitM.emitAssign lhs rhs cs
   set cs'
@@ -4810,9 +4832,23 @@ elab "#sim" id:ident : command => do
       outputs.map fun p => s!"  {simLeanIdent p.name} : BitVec {p.ty.bitWidth}"
     elabSimStr s!"structure SimOutput where\n{fields}\n  deriving Repr, BEq, Inhabited"
   elabSimStr "structure Simulator where\n  handle : JITHandle"
-  let inputsIdx := (List.range userInputs.length).zip userInputs
-  let setCalls := inputsIdx.map fun (idx, p) =>
-    s!"  JIT.setInput sim.handle {idx} i.{simLeanIdent p.name}.toNat.toUInt64"
+  -- The C `set_input` numbers a > 64-bit input as ⌈w/32⌉ consecutive
+  -- 32-bit slots (low word first), like the output side below.  Indexing
+  -- one slot per port set only the low 64 bits of a wide input and shifted
+  -- every later port's index (e.g. `sha256Block`'s `first` landed on a
+  -- `blockIn` word).
+  let (setCalls, _) := userInputs.foldl
+    (fun (acc : List String × Nat) (p : Port) =>
+      let w := p.ty.bitWidth
+      let nm := simLeanIdent p.name
+      if w ≤ 64 then
+        (acc.1 ++ [s!"  JIT.setInput sim.handle {acc.2} i.{nm}.toNat.toUInt64"], acc.2 + 1)
+      else
+        let nWords := (w + 31) / 32
+        let calls := (List.range nWords).map fun j =>
+          s!"  JIT.setInput sim.handle {acc.2 + j} ((i.{nm}.toNat >>> {32 * j}) &&& 0xFFFFFFFF).toUInt64"
+        (acc.1 ++ calls, acc.2 + nWords))
+    ([], 0)
   let stepBody := String.intercalate "\n" setCalls
   elabSimStr s!"def Simulator.step (sim : Simulator) (i : SimInput) : IO Unit := do\n{stepBody}\n  JIT.evalTick sim.handle"
   -- For each output port: when the port width is > 64 bits,

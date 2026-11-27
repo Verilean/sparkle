@@ -1256,6 +1256,28 @@ lean_exe «keccak256-sponge-jit-test» where
   root := `Tests.Drivers.Keccak256SpongeJITTestMain
   supportInterpreter := true
 
+-- JIT co-sim of the SHA-256 block core (`sha256Block`): known digests of
+-- "abc" and multi-block messages, ports addressed by name.
+lean_exe «sha256-jit-test» where
+  root := `Tests.Drivers.SHA256JITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the multi-block streaming wrapper (`sha256StreamHW`):
+-- FIPS 180-4 vectors incl. the 448/896-bit two-block messages.
+lean_exe «sha256-stream-jit-test» where
+  root := `Tests.Drivers.SHA256StreamJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the HMAC-SHA256 FSM (`hmacSha256`): RFC 4231 cases 1-6.
+lean_exe «hmac-sha256-jit-test» where
+  root := `Tests.Drivers.HMACSHA256JITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the RFC 6979 nonce FSM (`rfc6979HW`, secp256k1 + SHA-256).
+lean_exe «rfc6979-jit-test» where
+  root := `Tests.Drivers.Rfc6979JITTestMain
+  supportInterpreter := true
+
 -- Fixed-point control datapaths (IIR biquad / PID / LQR).  Each driver runs the
 -- cycle-by-cycle sim; the `#synthesizeVerilog` checks live in the test modules
 -- and run at `lake build` time.
@@ -1556,6 +1578,10 @@ lean_exe «toplevel-sim-test» where
   root := `Tests.Synthesis.TopLevelSim
   supportInterpreter := true
 
+lean_exe «shl-width-test» where
+  root := `Tests.Drivers.ShlWidthTestMain
+  supportInterpreter := true
+
 lean_exe «svparser-test» where
   root := `Tests.SVParser.ParserTest
   supportInterpreter := true
@@ -1656,18 +1682,6 @@ lean_exe «signcore-jit» where
 
 lean_exe «signdemo-jit» where
   root := `Tests.Drivers.SignDemoJIT
-  supportInterpreter := true
-
-lean_exe «sha256stream-jit» where
-  root := `Tests.Drivers.Sha256StreamJIT
-  supportInterpreter := true
-
-lean_exe «hmac-jit» where
-  root := `Tests.Drivers.HmacJIT
-  supportInterpreter := true
-
-lean_exe «rfc6979-jit» where
-  root := `Tests.Drivers.Rfc6979JIT
   supportInterpreter := true
 
 lean_exe «keccak-sponge-jit» where
