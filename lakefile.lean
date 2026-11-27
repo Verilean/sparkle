@@ -1249,6 +1249,12 @@ lean_exe «keccak256-sponge-jit-test» where
   root := `Tests.Drivers.Keccak256SpongeJITTestMain
   supportInterpreter := true
 
+-- JIT co-sim of the SHA-256 block core (`sha256Block`): known digests of
+-- "abc" and multi-block messages, ports addressed by name.
+lean_exe «sha256-jit-test» where
+  root := `Tests.Drivers.SHA256JITTestMain
+  supportInterpreter := true
+
 -- Fixed-point control datapaths (IIR biquad / PID / LQR).  Each driver runs the
 -- cycle-by-cycle sim; the `#synthesizeVerilog` checks live in the test modules
 -- and run at `lake build` time.
