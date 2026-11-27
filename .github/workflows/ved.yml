@@ -123,6 +123,8 @@ jobs:
           - part: mem-close
             builds: |
               Tests.Ved.VedMemCloseCheck
+              Tests.Ved.VedCtrlAsyncCheck
+              Tests.Ved.VedSharedRefsCheck Tests.Ved.VedSharedRefsEnvCheck
               Tests.Ved.U2HierStateCallCheck
           - part: open-deep2-h3
             builds: |
@@ -278,6 +280,8 @@ jobs:
           - part: mem-close
             builds: |
               Tests.Ved.VedMemCloseCheck
+              Tests.Ved.VedCtrlAsyncCheck
+              Tests.Ved.VedSharedRefsCheck Tests.Ved.VedSharedRefsEnvCheck
               Tests.Ved.U2HierStateCallCheck
           - part: compose
             builds: |

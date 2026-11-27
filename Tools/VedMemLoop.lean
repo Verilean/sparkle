@@ -2008,15 +2008,29 @@ register_option ved.mem.hstepNormBudget : Nat := {
 /-- test/diagnosis counter: answered from the table (`declWidth M "lit"`) -/
 initialize declWidthHits : IO.Ref Nat ← IO.mkRef 0
 
-/-- the new branch of the step case has started (set by `ved_hstep_norm_on`; read and reset by `ved_hstep_fallback_reset`, `Tools/VedMemPack.lean`).
-Global, like the caches it guards; one script runs at a time. -/
-initialize hstepAttempted : IO.Ref Bool ← IO.mkRef false
+/-- id of the run (one `checkMemE` proof elaboration) the tactics below belong to; `0` outside a run.  `checkMemE` sets it with `withOptions` around the
+proof elaboration, so the per-run state below is not shared with another declaration elaborated at the same time (`Elab.async`, several entries). -/
+register_option ved.mem.runId : Nat := {
+  defValue := 0
+  descr := "internal: id of the `checkMemE` run (keys `hnormLoops` / `hstepAttempted`)"
+}
+
+def runKey (o : Lean.Options) : Nat := ved.mem.runId.get o
+
+/-- the next fresh run id -/
+initialize runCounter : IO.Ref Nat ← IO.mkRef 0
+
+def freshRunId : IO Nat := runCounter.modifyGet fun n => (n + 1, n + 1)
+
+/-- the runs whose new branch of the step case has started (set by `ved_hstep_norm_on`; read and reset by `ved_hstep_fallback_reset`,
+`Tools/VedMemPack.lean`), keyed by `ved.mem.runId`; `checkMemE` erases its run at the end -/
+initialize hstepAttempted : IO.Ref (Std.HashSet Nat) ← IO.mkRef {}
 
 /-- `ved_hstep_norm_on`: fails (fixed text) unless the option `ved.mem.hstepNorm` is on, or when the test seam `hstepRefuse` is set -/
 elab "ved_hstep_norm_on" : tactic => do
   unless (← getOptions).getBool `ved.mem.hstepNorm false do throwError "ved_hstep_norm: option ved.mem.hstepNorm is off"
   if (← hstepRefuse.get) then throwError "ved_hstep_norm: refused (test seam)"
-  hstepAttempted.set true
+  hstepAttempted.modify (·.insert (runKey (← getOptions)))
 
 /-- test seam: the new branch fails at its very end (after the tail stages, whose auxiliary proofs it has created) -/
 initialize hstepFailLate : IO.Ref Bool ← IO.mkRef false
@@ -2045,8 +2059,8 @@ elab "ved_hstep_norm_ran" : tactic => do
     let g ← mkFreshExprMVar (mkConst ``False)
     setGoals ((← getGoals) ++ [g.mvarId!])
 
-/-- the loops of the hypotheses (types), the targets of `vedMemLoopFreeze` -/
-initialize hnormLoops : IO.Ref (Array Expr) ← IO.mkRef #[]
+/-- the loops of the hypotheses (types), the targets of `vedMemLoopFreeze`, per run (`ved.mem.runId`) -/
+initialize hnormLoops : IO.Ref (Std.HashMap Nat (Array Expr)) ← IO.mkRef {}
 
 /-- (loops replaced by a hypothesis' loop, loops left alone) of the last `ved_hstep_unify`, test log -/
 initialize hnormStats : IO.Ref (Nat × Nat) ← IO.mkRef (0, 0)
@@ -2058,14 +2072,14 @@ elab "ved_hstep_loops" : tactic => withMainContext do
     unless d.isImplementationDetail do
       for l in outerLoops (← instantiateMVars d.type) do
         unless ls.contains l do ls := ls.push l
-  hnormLoops.set ls
+  hnormLoops.modify (·.insert (runKey (← getOptions)) ls)
   hnormStats.set (0, 0)
   dbgLog s!"hstep_loops: {ls.size} loops of the hypotheses"
 
 /-- `ved_hstep_loops_clear`: forget them -/
 elab "ved_hstep_loops_clear" : tactic => do
   dbgLog s!"hstep_loops_clear: converted/left {← hnormStats.get} declWidth answered {← declWidthHits.get}"
-  hnormLoops.set #[]
+  hnormLoops.modify (·.erase (runKey (← getOptions)))
 
 open Lean Meta Simp in
 /-- `simp [↓vedMemLoopFreeze, ..]` does not look into a `Signal.loop` (the goal's loops are made the hypotheses' loops afterwards, `ved_hstep_unify`; same simproc as `vedLoopFreeze` of `Tools/VedU1ScriptSeqGen.lean`).
@@ -2083,15 +2097,25 @@ visits (pre-simproc calls) grow linearly at 5.4e3 per second (2.0e6 visits at 37
 `vedDeclWidth` answers `declWidth M "lit"` from it (`.done`, definitional: the kernel checks the step by evaluating the lookup once), and
 `vedDeclWidth1` keeps the partial application `declWidth M` (the `we` of `evalAssigns`) from being unfolded into the `find?` lambda. -/
 
-/-- (module constant, its table), set by `checkMemE` around the proof elaboration when `ved.mem.hstepNorm` is on -/
-initialize declWidthTab : IO.Ref (Option (Name × Std.HashMap String Nat)) ← IO.mkRef none
+/-- module constant ↦ (its value, its table), filled by `checkMemE` before the proof elaboration when `ved.mem.hstepNorm` is on and not erased: the table is a
+function of the module constant alone, so entries of other modules (another declaration elaborated at the same time) neither clear nor change it.  The value
+the table was computed from is stored with it: after an environment rollback (a failed command, a re-declaration under another `namespace`) a constant of the
+same name can have another value, and `declWidthTabOf` then answers nothing -/
+initialize declWidthTab : IO.Ref (Std.HashMap Name (Expr × Std.HashMap String Nat)) ← IO.mkRef {}
+
+open Lean Meta in
+/-- the table of the module constant `mn`, if it was computed from the value `mn` has in this environment -/
+def declWidthTabOf (mn : Name) : MetaM (Option (Std.HashMap String Nat)) := do
+  let some (v, tab) := (← declWidthTab.get)[mn]? | return none
+  let some cur := (← getEnv).find? mn |>.bind (·.value?) | return none
+  return if cur == v then some tab else none
 
 open Lean Meta Simp in
 def declWidthAnswer (e : Expr) : SimpM Step := do
-  let some (mn, tab) ← declWidthTab.get | return .continue
   unless e.isAppOfArity ``Tools.VedU1Contract.declWidth 2 do return .continue
   let args := e.getAppArgs
-  unless args[0]!.isConstOf mn do return .continue
+  let .const mn _ := args[0]! | return .continue
+  let some tab ← declWidthTabOf mn | return .continue
   let .lit (.strVal s) := args[1]! | return .continue
   declWidthHits.modify (· + 1)
   return .done { expr := mkNatLit (tab.getD s 0) }
@@ -2101,8 +2125,9 @@ simproc_decl vedDeclWidth (Tools.VedU1Contract.declWidth _ _) := declWidthAnswer
 
 open Lean Meta Simp in
 simproc_decl vedDeclWidth1 (Tools.VedU1Contract.declWidth _) := fun e => do
-  let some (mn, _) ← declWidthTab.get | return .continue
-  if e.isAppOfArity ``Tools.VedU1Contract.declWidth 1 && e.appArg!.isConstOf mn then return .done { expr := e }
+  if e.isAppOfArity ``Tools.VedU1Contract.declWidth 1 then
+    if let .const mn _ := e.appArg! then
+      if (← declWidthTabOf mn).isSome then return .done { expr := e }
   return .continue
 
 /-! ### `Option.bind m f` is evaluated in order: `m` first, the continuation `f` only after `m` is `some x`
@@ -2171,7 +2196,7 @@ elab "ved_hstep_logfail " t:tactic : tactic => do
 by `Signal.val dom α' l s` (`α'` the type argument of `l`: the entry spells the state `QState`, the declaration the product, and `generalize` matches the
 spelling).  One `Expr.replace` over the DAG per goal, one `replaceTargetDefEq` (the kernel compares the two targets, which differ only at those loops). -/
 elab "ved_hstep_unify" : tactic => do
-  let ls ← hnormLoops.get
+  let ls := (← hnormLoops.get).getD (runKey (← getOptions)) #[]
   let n := (← getOptions).get `ved.mem.hstepNormBudget (2000 : Nat)
   let mut out : List MVarId := []
   let mut conv := 0
