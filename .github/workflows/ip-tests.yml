@@ -63,6 +63,7 @@ jobs:
               proj-register-input-test
               cuda-sim-test cuda-intra-cosim smt-bmc-test
               shl-width-test
+              map-not-eq-test
 
           - group: bus
             exes: >-

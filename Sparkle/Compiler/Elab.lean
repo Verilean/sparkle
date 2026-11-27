@@ -373,6 +373,13 @@ def isPrimitive (name : Name) : Bool :=
 def getOperator (name : Name) : Option Operator :=
   primitiveRegistry.lookup name
 
+/-- A lambda body `op p` whose operand is the lambda parameter itself
+    (`.bvar 0`).  The unary-primitive shortcuts may only lower such a body
+    as `op wire`; `!(c == 0#7)` also has head `not`, but its operand is a
+    compound term the shortcut would otherwise drop. -/
+def isUnaryOfParam (body : Lean.Expr) : Bool :=
+  body.getAppArgs.back? == some (.bvar 0)
+
 partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
   -- Use `.all` transparency so reducible defs like `HList`
   -- (which unfolds to a nested `Prod`/`Unit` chain via
@@ -1768,7 +1775,7 @@ mutual
                -- through to the composite-body path below
                -- (Issue #73).
                if let some op := getOperator opName then
-                 let isUnary := op == .not || op == .neg
+                 let isUnary := (op == .not || op == .neg) && isUnaryOfParam body
                  if isUnary then
                    let wireS ← translateExprToWire s "s" (isTopLevel := false)
                    let exprType ← cachedInferType e
@@ -1815,7 +1822,17 @@ mutual
                        return none
                    let fn := e.getAppFn
                    let args := e.getAppArgs
-                   if let .const opNm _ := fn then
+                   if let .const opNm lvls := fn then
+                     -- Only the standard BitVec/Bool instances of the
+                     -- overloaded operators (`==`, `!=`, `~~~`, `-`, `+`, …)
+                     -- have the meaning the IR gives them; refuse others.
+                     -- `bne a b` is checked as `a == b` with the same
+                     -- `BEq` instance (same argument layout).
+                     let chkFn := if opNm == ``bne then Lean.mkConst ``BEq.beq lvls else fn
+                     if let some m ← CompilerM.liftMetaM (nonStandardOpMsg? chkFn args) then
+                       CompilerM.liftMetaM <| throwError
+                         "Unsupported lambda in unary `<$>`/`Signal.map`: {m} (the operator \
+                          must use the standard instance; lambda: {f})"
                      -- BitVec literal (`OfNat.ofNat n k` or
                      -- `BitVec.ofNat w n`).
                      if opNm == ``OfNat.ofNat ∨ opNm == ``BitVec.ofNat then
@@ -1831,6 +1848,22 @@ mutual
                        match (← toIR a), (← toIR b) with
                        | some ea, some eb => return some (.concat [ea, eb])
                        | _, _ => return none
+                     -- Bool literals.
+                     if opNm == ``Bool.true ∧ args.isEmpty then
+                       return some (.const 1 1)
+                     if opNm == ``Bool.false ∧ args.isEmpty then
+                       return some (.const 0 1)
+                     -- `a != b` is `!(a == b)`.
+                     if opNm == ``bne ∧ args.size ≥ 4 then
+                       match (← toIR args[args.size - 2]!), (← toIR args[args.size - 1]!) with
+                       | some ea, some eb => return some (.op .not [.op .eq [ea, eb]])
+                       | _, _ => return none
+                     -- Unary primitive (`!x`, `~~~x`, `-x`) over a compound term.
+                     if let some op := getOperator opNm then
+                       if (op == .not || op == .neg) && args.size ≥ 1 then
+                         match (← toIR args[args.size - 1]!) with
+                         | some ea => return some (.op op [ea])
+                         | none => return none
                      -- Binary primitive op (HOr / HAnd / ...).
                      if let some op := getOperator opNm then
                        if args.size ≥ 2 then
@@ -2083,7 +2116,7 @@ mutual
                      return ← lowerZeroExtendWire hint wireA targetWidth (isNamed := isNamed)
 
                  if let some op := getOperator opName then
-                   if op == .not || op == .neg then
+                   if (op == .not || op == .neg) && isUnaryOfParam bodyApp then
                      let wireA ← translateExprToWire a "a" (isTopLevel := false)
                      let exprType ← cachedInferType e
                      let hwType ← inferHWTypeFromSignal exprType
@@ -2123,7 +2156,8 @@ mutual
                          CompilerM.emitAssign resWire (.concat [.ref constWire, .ref wireA])
                          return resWire
                      -- Other binary primitives (add, sub, and, or, xor, etc.)
-                     if let some op := getOperator opName then
+                     -- (NOT/NEG are unary: their leading args are type/instance.)
+                     if let some op := (getOperator opName).filter (fun o => o != .not && o != .neg) then
                        let exprType ← cachedInferType e
                        let hwType ← inferHWTypeFromSignal exprType
                        if arg1HasBVar then
@@ -2148,7 +2182,10 @@ mutual
                    let bodyArgs := bodyApp.getAppArgs
                    -- Only if the body has exactly 1 loose-bvar arg (the lambda param)
                    let numBVarArgs := bodyArgs.toList.filter (·.hasLooseBVars) |>.length
-                   if numBVarArgs ≤ 1 then
+                   -- NOT/NEG over a compound operand (`!(c == 0#7)`) is not
+                   -- `op wire`: leave it to the Signal.map body lowering.
+                   let compoundUnary := (op == .not || op == .neg) && !isUnaryOfParam bodyApp
+                   if numBVarArgs ≤ 1 && !compoundUnary then
                      let wireA ← translateExprToWire a "a" (isTopLevel := false)
                      let exprType ← cachedInferType e
                      let hwType ← inferHWTypeFromSignal exprType
