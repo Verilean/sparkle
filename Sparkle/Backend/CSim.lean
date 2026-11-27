@@ -205,7 +205,7 @@ partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
   -- every bit destined for words 2-3 was silently dropped.
   --
   -- A fixed-width shift (`Signal.<<<`, `BitVec <<<`) states its
-  -- truncation as an explicit `.slice` (Elab `fixedWidthShl`), so a bare
+  -- truncation as an explicit `.slice` (Elab `fixShlWidths`), so a bare
   -- `.shl` here is context-sized (Verilog-parsed IR) and grows.
   | .op .shl [a, .const k _] =>
     inferExprWidth typeMap a + (if k ≥ 0 then k.toNat else 0)

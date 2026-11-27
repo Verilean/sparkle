@@ -45,6 +45,18 @@ def inlineTop (x y : Signal D (BitVec 32)) : Signal D (BitVec 64) :=
 
 private def inlineRef (x y : BitVec 32) : BitVec 64 := ((x <<< (25#32)) + y) ++ y
 
+/-- A 1-bit fixed-width shift in the low part of a concat: `x <<< 1` on one
+    bit is 0, so the result is `y * 2`.  If the slice over the shift were
+    dropped, the C backend would size the shift as 2 bits and `y` would
+    land one bit higher. -/
+def oneBitTop (x : Signal D (BitVec 1)) (y : Signal D (BitVec 7)) : Signal D (BitVec 8) :=
+  let c1 : Signal D (BitVec 1) := Signal.pure 1#1
+  y ++ (x <<< c1)
+
+#sim oneBitTop
+
+private def oneBitRef (x : BitVec 1) (y : BitVec 7) : BitVec 8 := y ++ (x <<< (1#1))
+
 private def sigmaRef (x y : BitVec 32) : BitVec 64 :=
   let a : BitVec 32 := (x >>> (7#32)) ||| (x <<< (25#32))
   (a + y) ++ a
@@ -80,6 +92,25 @@ private def sigmaTest (ok : IO.Ref Bool) : IO Unit := do
     let o ← Sparkle.Core.Sim.Sim.read sim2
     check ok s!"Signal (x<<<25 + y) ++ y x={hex x.toNat}" o.out.toNat (inlineRef x y).toNat
   sim2.destroy
+  let sim3 ← oneBitTop.Sim.load
+  for (x, y) in [(1#1, 0x7F#7), (1#1, 0x15#7), (0#1, 0x2A#7)] do
+    Sparkle.Core.Sim.Sim.reset sim3
+    Sparkle.Core.Sim.Sim.step sim3 ({ _gen_x := x, _gen_y := y } : oneBitTop.Sim.SimInput)
+    let o ← Sparkle.Core.Sim.Sim.read sim3
+    check ok s!"Signal y ++ (x <<< 1) 1-bit x={x.toNat} y={hex y.toNat}" o.out.toNat (oneBitRef x y).toNat
+  sim3.destroy
+
+/-- The optimizer keeps a 1-bit slice over a shift (`inferWidth` of the
+    shift is its operand's width, 1, which the `[0:0]` peephole would
+    otherwise take as "slice is a no-op"). -/
+private def optKeepsOneBitShlSlice (ok : IO.Ref Bool) : IO Unit := do
+  let wm : Sparkle.IR.Optimize.WidthMap := ({} : Std.HashMap String Nat).insert "x" 1
+  let e : Sparkle.IR.AST.Expr := .slice (.op .shl [.ref "x", .const 1 1]) 0 0
+  match Sparkle.IR.Optimize.eliminateZeroBitInExpr wm e with
+  | .slice (.op .shl _) 0 0 => IO.println "  ✓ optimizer keeps slice [0:0] over a 1-bit shl"
+  | e' =>
+    IO.println s!"  ✗ optimizer dropped the slice over a 1-bit shl: {e'}"
+    ok.set false
 
 /-- Run an SV combinational module through the C simulator; return the
     outputs for the given inputs.  `opt` also runs the IR optimizer. -/
@@ -130,6 +161,7 @@ def main : IO Unit := do
   IO.println "=== left-shift width regressions (C sim vs semantics) ==="
   let ok ← IO.mkRef true
   sigmaTest ok
+  optKeepsOneBitShlSlice ok
   svTests ok
   if !(← ok.get) then
     IO.println "\nFAIL"
