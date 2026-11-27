@@ -414,6 +414,18 @@ def vedBoundFacts : MetaM (Array (Expr × Nat × Expr × Expr)) := do
         out := out.push (t.getArg! 2, n, t.getArg! 3, d.toExpr)
   return out
 
+open Lean Meta in
+/-- the hit of `ved_omega_c`: the stored proof when the context has its free variables with equal types and the constants it mentions have their signatures
+(`readPf`, `readSigs`: the two reads of the caches) -/
+def omegaOkHit (lctx : LocalContext) (readPf : IO (Option (Expr × Array (FVarId × Expr)))) (readSigs : IO (Array ConstSig)) : MetaM (Option Expr) := do
+  let some (pf, used) ← readPf | return none
+  for (fv, ty) in used do
+    match lctx.find? fv with
+    | some d => unless (← instantiateMVars d.type) == ty do return none
+    | none => return none
+  if (← constsMatch pf (← readSigs)) then return some pf
+  return none
+
 open Lean Meta Elab Tactic in
 /-- `ved_omega` with a cache (see `vedOmegaOk` for what is cached and when it is reused): the register
 goals of a loop (`ved_pack_simp_c`) read the same packed words, so the range side conditions
@@ -435,16 +447,10 @@ elab "ved_omega_c" : tactic => withMainContext do
       for fv in fvs do used := used.push (fv, ← instantiateMVars (← fv.getType))
       vedOmegaOk.modify (·.insert tgt (pf, used))
       vedOmegaOkConsts.modify (·.insert tgt (← constSigs pf))
-  if let some (pf, used) := (← vedOmegaOk.get)[tgt]? then
-    let mut ok := true
-    for (fv, ty) in used do
-      match lctx.find? fv with
-      | some d => unless (← instantiateMVars d.type) == ty do ok := false
-      | none => ok := false
-    if ok && (← constsMatch pf ((← vedOmegaOkConsts.get).getD tgt #[])) then
-      g.assign pf
-      replaceMainGoal []
-      return
+  if let some pf ← omegaOkHit lctx (do return (← vedOmegaOk.get)[tgt]?) (do return (← vedOmegaOkConsts.get).getD tgt #[]) then
+    g.assign pf
+    replaceMainGoal []
+    return
   -- interval bound first: sums of bounded atoms (no `omega` run, which timed out on the failing ones)
   if tgt.isAppOfArity ``LT.lt 4 && (tgt.getArg! 0).isConstOf ``Nat then
     if let some nv := vedLitVal (tgt.getArg! 3) then

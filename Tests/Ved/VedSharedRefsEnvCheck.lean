@@ -129,6 +129,42 @@ elab "sr_omegaok_type" : tactic => withMainContext do
 
 example (x y : Nat) (h : x < 8) : x + y < y + 8 := by sr_omegaok_type
 
+/-! ## 2b. a reader whose two reads straddle the write of another task (the proof and its signatures are read separately) -/
+
+/-- `SrAux.p : dom → True := fun _ => True.intro` -/
+def addAuxFun (dom : Expr) : CoreM Unit :=
+  addAux (mkForall `x .default dom (Lean.mkConst ``True)) (mkLambda `x .default dom (Lean.mkConst ``True.intro))
+
+run_cmd liftTermElabM do
+  let env0 ← getEnv
+  let tgt := Lean.mkConst ``True
+  -- task A: `SrAux.p : Nat → True`; its proof of `True` and the signatures are stored
+  addAuxFun (Lean.mkConst ``Nat)
+  let pfA := mkApp (Lean.mkConst `SrAux.p) (mkNatLit 0)
+  unless (← isDefEq (← inferType pfA) tgt) do throwError "SR2b: proof A does not check in environment A (vacuous control)"
+  seedOmegaOk tgt pfA
+  -- task B (another environment): `SrAux.p : Bool → True`
+  setEnv env0
+  addAuxFun (Lean.mkConst ``Bool)
+  let pfB := mkApp (Lean.mkConst `SrAux.p) (Lean.mkConst ``Bool.true)
+  unless (← isDefEq (← inferType pfB) tgt) do throwError "SR2b: proof B does not check in environment B (vacuous control)"
+  let sigsB ← Tools.VedU1ScriptSeq.constSigs pfB
+  -- the reader (environment B) reads the proof, B writes both refs, the reader reads the signatures
+  let writeB : IO Unit := do
+    Tools.VedU1ScriptSeq.vedOmegaOk.modify (·.insert tgt (pfB, #[]))
+    Tools.VedU1ScriptSeq.vedOmegaOkConsts.modify (·.insert tgt sigsB)
+  let r ← Tools.VedU1ScriptSeq.omegaOkHit {}
+    (do let e := (← Tools.VedU1ScriptSeq.vedOmegaOk.get)[tgt]?; writeB; return e)
+    (do return (← Tools.VedU1ScriptSeq.vedOmegaOkConsts.get).getD tgt #[])
+  match r with
+  | some p =>
+    if p == pfA then
+      let typedInB ← try Meta.check p; pure true catch _ => pure false
+      logInfo m!"SR2b BUG: the reader got proof A with the signatures of B (constsMatch passed in environment B); proof A type-checks in environment B: {typedInB}"
+      throwError "vedOmegaOk: proof A was accepted with the signatures of B (torn read)"
+    else logInfo m!"SR2b the reader got proof B"
+  | none => logInfo m!"SR2b the mixed pair is rejected"
+
 /-! ## 3. a module constant re-declared with another value -/
 
 def srWMod (k : Nat) : Sparkle.IR.AST.Module :=
