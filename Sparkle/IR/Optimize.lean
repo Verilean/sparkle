@@ -621,6 +621,10 @@ partial def eliminateZeroBitInExpr (wm : WidthMap) : Expr → Expr
     if hi == 0 && lo == 0 && w == 1 then e'
     else
       match e' with
+      -- A left shift is context-sized in the backends (it can grow past
+      -- its operand), so the slice over it is the explicit truncation
+      -- the elaborator emitted for a fixed-width shift: keep it.
+      | .op .shl _ => .slice e' hi lo
       | .op _ _ =>
         if lo == 0 && w == hi + 1 then e'
         else .slice e' hi lo

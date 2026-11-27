@@ -16,6 +16,7 @@ import Sparkle.Backend.CSim
 import Sparkle.Backend.CudaSim
 import Sparkle.Backend.CudaIntra
 import Sparkle.IR.Optimize
+import Sparkle.IR.Semantics
 import Sparkle.IR.ZeroWidth
 import Sparkle.IR.RegDedup
 import Sparkle.Compiler.DRC
@@ -187,7 +188,28 @@ def freshName (hint : String) (named : Bool := false) : CompilerM String := do
   set cs'
   return name
 
+/-- Elaborated (Signal / BitVec) shifts are fixed-width: `x <<< k` keeps the
+    width of `x`, which `IR.Semantics` models by masking.  Backends size a
+    bare `.op .shl` from its context instead (Verilog-parsed IR relies on
+    that, so `x << k` may grow to `width(x) + k`), so state the truncation
+    explicitly, as a slice to the shifted operand's width.  `we` gives the
+    width of a wire. -/
+private partial def fixShlWidths (we : String → Nat) :
+    Sparkle.IR.AST.Expr → Sparkle.IR.AST.Expr
+  | .op .shl [a, b] =>
+    let a' := fixShlWidths we a
+    let b' := fixShlWidths we b
+    let wa := Sparkle.IR.Semantics.widthOf we a'
+    let e := Sparkle.IR.AST.Expr.op .shl [a', b']
+    if wa == 0 then e else .slice e (wa - 1) 0
+  | .op o args => .op o (args.map (fixShlWidths we))
+  | .concat args => .concat (args.map (fixShlWidths we))
+  | .slice e hi lo => .slice (fixShlWidths we e) hi lo
+  | e => e
+
 def emitAssign (lhs : String) (rhs : Sparkle.IR.AST.Expr) : CompilerM Unit := do
+  let cache ← liftMetaM (sparkleWireWidthCache.get : IO _)
+  let rhs := fixShlWidths (fun n => cache.getD n 0) rhs
   let cs ← get
   let ((), cs') := CircuitM.emitAssign lhs rhs cs
   set cs'

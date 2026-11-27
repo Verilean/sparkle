@@ -204,18 +204,11 @@ partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
   -- SRAM is `(wdata >> 16) << 48`, computed in a uint64 scalar, so
   -- every bit destined for words 2-3 was silently dropped.
   --
-  -- That growth is only right for context-sized shifts (Verilog-parsed
-  -- IR: a 16-bit `wdata` shifted by a narrow literal).  A same-width
-  -- shift — what `Signal.<<<` lowers to, the amount constant having the
-  -- value's own width — keeps its width and truncates (`IR.Semantics`
-  -- `mask w`).  Growing it inflated `σ₀`'s `x << 25` and so every sum it
-  -- fed to 57 bits: the wide `bufLow ++ newW` in `sha256Block` then split
-  -- at bit 57 instead of 32 and the JIT's W schedule (hence the digest)
-  -- came out wrong from W[17] on.
-  | .op .shl [a, .const k kw] =>
-    let wa := inferExprWidth typeMap a
-    if kw == wa then wa
-    else wa + (if k ≥ 0 then k.toNat else 0)
+  -- A fixed-width shift (`Signal.<<<`, `BitVec <<<`) states its
+  -- truncation as an explicit `.slice` (Elab `fixedWidthShl`), so a bare
+  -- `.shl` here is context-sized (Verilog-parsed IR) and grows.
+  | .op .shl [a, .const k _] =>
+    inferExprWidth typeMap a + (if k ≥ 0 then k.toNat else 0)
   -- A right shift only drops bits: the amount's width must not leak
   -- into the value's (twin of the formal `widthOf` rule).
   | .op .shr [a, _] => inferExprWidth typeMap a
