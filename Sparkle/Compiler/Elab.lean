@@ -4782,9 +4782,23 @@ elab "#sim" id:ident : command => do
       outputs.map fun p => s!"  {simLeanIdent p.name} : BitVec {p.ty.bitWidth}"
     elabSimStr s!"structure SimOutput where\n{fields}\n  deriving Repr, BEq, Inhabited"
   elabSimStr "structure Simulator where\n  handle : JITHandle"
-  let inputsIdx := (List.range userInputs.length).zip userInputs
-  let setCalls := inputsIdx.map fun (idx, p) =>
-    s!"  JIT.setInput sim.handle {idx} i.{simLeanIdent p.name}.toNat.toUInt64"
+  -- The C `set_input` numbers a > 64-bit input as ⌈w/32⌉ consecutive
+  -- 32-bit slots (low word first), like the output side below.  Indexing
+  -- one slot per port set only the low 64 bits of a wide input and shifted
+  -- every later port's index (e.g. `sha256Block`'s `first` landed on a
+  -- `blockIn` word).
+  let (setCalls, _) := userInputs.foldl
+    (fun (acc : List String × Nat) (p : Port) =>
+      let w := p.ty.bitWidth
+      let nm := simLeanIdent p.name
+      if w ≤ 64 then
+        (acc.1 ++ [s!"  JIT.setInput sim.handle {acc.2} i.{nm}.toNat.toUInt64"], acc.2 + 1)
+      else
+        let nWords := (w + 31) / 32
+        let calls := (List.range nWords).map fun j =>
+          s!"  JIT.setInput sim.handle {acc.2 + j} ((i.{nm}.toNat >>> {32 * j}) &&& 0xFFFFFFFF).toUInt64"
+        (acc.1 ++ calls, acc.2 + nWords))
+    ([], 0)
   let stepBody := String.intercalate "\n" setCalls
   elabSimStr s!"def Simulator.step (sim : Simulator) (i : SimInput) : IO Unit := do\n{stepBody}\n  JIT.evalTick sim.handle"
   -- For each output port: when the port width is > 64 bits,
