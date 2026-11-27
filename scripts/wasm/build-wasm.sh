@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# tools/wasm/build-wasm.sh — Pack Sparkle into a staging directory
+# scripts/wasm/build-wasm.sh — Pack Sparkle into a staging directory
 # consumable by xeus-lean's `-DEXTRA_WASM_DIRS=<staging>` extension
 # point.  Modeled on
 #   https://github.com/Verilean/xeus-lean/blob/main/tests/fixtures/mock-extra/build-wasm.sh
@@ -18,7 +18,7 @@
 # `pixi run -e wasm-build …`) so emcc / emar / lake are on PATH.
 #
 # Usage:
-#   tools/wasm/build-wasm.sh <staging-dir>
+#   scripts/wasm/build-wasm.sh <staging-dir>
 
 set -euo pipefail
 

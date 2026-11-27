@@ -4,8 +4,8 @@
 #
 # Usage (from the repo root):
 #
-#     bash tests/e2e/run.sh            # full cycle, headless
-#     SPARKLE_E2E_HEADED=1 bash tests/e2e/run.sh   # show the browser
+#     bash scripts/e2e/run.sh            # full cycle, headless
+#     SPARKLE_E2E_HEADED=1 bash scripts/e2e/run.sh   # show the browser
 #
 # Prerequisites:
 #     - Docker  (we run the existing `sparkle-tutorial:latest` image

@@ -53,7 +53,7 @@ xeus-lean's docs CI uses:
 ```bash
 # Inside an xeus-lean checkout (peer to sparkle/):
 cd /path/to/xeus-lean
-pixi run -e wasm-build bash /path/to/sparkle/tools/wasm/build-wasm.sh \
+pixi run -e wasm-build bash /path/to/sparkle/scripts/wasm/build-wasm.sh \
   /tmp/sparkle-staging
 
 # Then feed the staging dir to xlean's WASM build:

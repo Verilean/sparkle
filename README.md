@@ -35,7 +35,7 @@ For the full Signal DSL syntax, see
 **Try it in the browser:** Sparkle plugs into
 [xeus-lean](https://github.com/Verilean/xeus-lean)'s WASM kernel
 via the [`EXTRA_WASM_DIRS`](https://github.com/Verilean/xeus-lean#extending-the-kernel-with-your-own-lean-lib)
-extension point.  See [`tools/wasm/`](tools/wasm/) for the
+extension point.  See [`scripts/wasm/`](scripts/wasm/) for the
 staging-builder script.  `#synthesizeVerilog`, `#showVerilog`, and
 pure `Signal.atTime` simulation all work under WASM; the native JIT
 path (`Sparkle.Core.JIT.compileAndLoad`) is stubbed and only

@@ -914,7 +914,7 @@ jobs:
             # lab answer `import Sparkle.Core.Domain` instead of
             # "unknown namespace", we have to
             # (a) build a Sparkle staging dir via
-            #     tools/wasm/build-wasm.sh, then
+            #     scripts/wasm/build-wasm.sh, then
             # (b) re-configure xlean with
             #     `-DEXTRA_WASM_DIRS=<staging>` and re-install it
             #     into a fresh prefix.
@@ -937,7 +937,7 @@ jobs:
             # branch (run 27527531979).
             SPARKLE_PREFIX=""
             STOCK_PREFIX=/opt/xeus-lean/.pixi/envs/wasm-host
-            if [ -f /work/tools/wasm/build-wasm.sh ] \
+            if [ -f /work/scripts/wasm/build-wasm.sh ] \
                && [ -f /opt/xeus-lean/CMakeLists.txt ] \
                && [ -d "$STOCK_PREFIX/conda-meta" ]; then
               echo "::group::Sparkle WASM staging + xlean rebuild"
@@ -953,7 +953,7 @@ jobs:
               # then `https://verilean.github.io/sparkle/xeus/kernels.json` → `[]`.
               CAND=/work/sparkle-kernel-prefix
               if pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
-                   bash /work/tools/wasm/build-wasm.sh /work/.sparkle-staging \
+                   bash /work/scripts/wasm/build-wasm.sh /work/.sparkle-staging \
                  && cp -a "$STOCK_PREFIX" "$CAND" \
                  && pixi run --manifest-path /opt/xeus-lean/pixi.toml -e wasm-build \
                       emcmake cmake -S /opt/xeus-lean -B /work/.wasm-rebuild \

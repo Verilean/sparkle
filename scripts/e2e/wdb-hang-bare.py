@@ -34,7 +34,7 @@ messaging spec v5.3.
 
 Run inside the tutorial Docker image:
 
-    docker exec sparkle-tutorial python3 tests/e2e/wdb-hang-bare.py
+    docker exec sparkle-tutorial python3 scripts/e2e/wdb-hang-bare.py
 
 Exits 0 if every scenario passes (no hang).
 """

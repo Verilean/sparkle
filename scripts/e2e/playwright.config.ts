@@ -8,7 +8,7 @@
  *      output (or the error).
  *
  * The container is started outside Playwright (see Makefile target
- * or `tests/e2e/run.sh`) and is expected to be reachable on
+ * or `scripts/e2e/run.sh`) and is expected to be reachable on
  * SPARKLE_E2E_PORT (default 18888) before `npx playwright test`
  * runs.  We don't manage the container lifecycle from inside
  * Playwright because rebuilding the 8 GB image on every test run

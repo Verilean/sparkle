@@ -1,5 +1,7 @@
 # TODO
 
+> **Development record, not user documentation; last updated 2026-06.** Current known problems are in [docs/known-issues/KnownIssues.md](../docs/known-issues/KnownIssues.md).
+
 Open work items captured across active development sessions.
 Keep entries scoped (one item = one self-contained PR-worth of
 work) and add an "Owner / status" line once someone picks one up.

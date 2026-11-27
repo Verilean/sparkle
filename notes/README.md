@@ -6,3 +6,4 @@ Not user documentation and not kept current; the current description is
 
 * [`ved/`](ved/): records of the `#verify_elab_deep` / `#ved_*` work.
 * [`build/`](build/): write-ups of build problems (for example the Lean/Lake load-order problem the `lakefile.lean` workaround cites).
+* [`TODO.md`](TODO.md): open work items collected during development sessions (last updated 2026-06).

@@ -460,7 +460,7 @@ test('open ch01 after ch02 (no wdb): second notebook still runs', async ({ page 
  * spec kept tripping over UI quirks.
  *
  * The kernel-spawn race itself is now exercised by
- * `tests/e2e/wdb-hang-race.py`, which uses `jupyter_client`
+ * `scripts/e2e/wdb-hang-race.py`, which uses `jupyter_client`
  * directly (no browser, no UI dance).  That script reveals an
  * unexpected fact: the race is NOT in the xlean binary.  Two
  * coexisting xlean processes driven straight from

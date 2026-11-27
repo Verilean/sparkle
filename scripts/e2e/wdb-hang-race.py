@@ -28,7 +28,7 @@ the old one is gone.
 Run inside the tutorial Docker image:
 
     docker exec -e JUPYTER_PATH=/root/.local/share/jupyter \\
-        sparkle-tutorial python3 tests/e2e/wdb-hang-race.py
+        sparkle-tutorial python3 scripts/e2e/wdb-hang-race.py
 
 The script exits 0 if every trial passes.  Failures are
 reported per-trial with the kernel PIDs involved, so a future
