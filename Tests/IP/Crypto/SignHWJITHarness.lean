@@ -86,3 +86,30 @@ def check (label : String) (res : Result) (ref : Option (Nat × Nat)) (cap : Nat
       pure false
 
 end Sparkle.Tests.IP.Crypto.SignHWJIT
+
+/-! ### UART helpers (8-N-1, LSB first) shared by the UART-top co-sims. -/
+
+namespace Uart
+
+/-- Decode 8-N-1 bytes (mid-bit sampling) from a per-cycle TX line trace. -/
+def decode (samples : Array Bool) (cpb : Nat) (want : Nat) : Array Nat := Id.run do
+  let mut bytes : Array Nat := #[]
+  let mut pos := 0
+  while bytes.size < want && pos + cpb * 10 < samples.size do
+    if samples[pos]! && !samples[pos+1]! then
+      let start := pos + 1
+      let mut byte := 0
+      for b in [0:8] do
+        if samples[start + cpb * (b + 1) + cpb / 2]! then byte := byte ||| (1 <<< b)
+      bytes := bytes.push byte
+      pos := start + cpb * 9
+    else pos := pos + 1
+  return bytes
+
+/-- Big-endian bytes → Nat. -/
+def beNat (bs : Array Nat) (off len : Nat) : Nat := Id.run do
+  let mut v := 0
+  for i in [0:len] do v := (v <<< 8) ||| bs[off + i]!
+  return v
+
+end Uart

@@ -1239,6 +1239,11 @@ lean_exe «ecdsa-sign-hw-jit-test» where
   root := `Tests.Drivers.EcdsaSignHWJITTestMain
   supportInterpreter := true
 
+-- JIT co-sim of the UART top `ecdsaSignDemo`: 96 request bytes in, 64 reply bytes out.
+lean_exe «ecdsa-sign-demo-hw-jit-test» where
+  root := `Tests.Drivers.EcdsaSignDemoHWJITTestMain
+  supportInterpreter := true
+
 lean_exe «tx-policy-test» where
   root := `Tests.Drivers.TxPolicyTestMain
   supportInterpreter := true
