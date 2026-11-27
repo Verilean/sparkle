@@ -53,6 +53,23 @@ elab "#assertRegReadsPort" id:ident port:str : command => do
 
 #assertRegReadsPort doneReg "done"
 
+/-- Field 0 taken straight off the call (no `let`), registered. -/
+@[hardware_module]
+def valDirectReg {dom : DomainConfig} (start : Signal dom Bool) : Signal dom (BitVec 8) := circuit do
+  let vR ← Signal.reg (0#8)
+  vR <~ (counter start).val
+  return (vR : Signal dom (BitVec 8))
+
+/-- Field 1 taken straight off the call (no `let`), registered. -/
+@[hardware_module]
+def doneDirectReg {dom : DomainConfig} (start : Signal dom Bool) : Signal dom Bool := circuit do
+  let dR ← Signal.reg false
+  dR <~ (counter start).done
+  return (dR : Signal dom Bool)
+
+#assertRegReadsPort valDirectReg "val"
+#assertRegReadsPort doneDirectReg "done"
+
 def main : IO Unit := do
   IO.println "ProjRegisterInputTest: build-only regression test."
   IO.println "  ✓ doneReg latches the counter's `done` port (was `val[0:0]`)"
