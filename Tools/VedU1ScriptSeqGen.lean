@@ -280,6 +280,30 @@ def vedSplitBool (g : MVarId) (e : Expr) : MetaM (List MVarId) := g.withContext 
   g.assign (mkApp6 (mkConst ``Or.elim) eT eF tgt (← mkAppM ``Bool.eq_false_or_eq_true #[e] ) pt pf)
   pure [gt, gf]
 
+open Lean in
+/-- what a stored proof needs of a non-imported constant it mentions: its type and, for a definition, its value -/
+abbrev ConstSig := Name × Expr × Option Expr
+
+open Lean in
+def constSig? (env : Environment) (c : Name) : Option ConstSig := do
+  let ci ← env.find? c
+  some (c, ci.type, match ci with | .defnInfo d => some d.value | _ => none)
+
+open Lean in
+/-- the signatures of the non-imported constants `e` mentions (the auxiliary `_proof_N` / `_auxLemma` of the declarations of this file) -/
+def constSigs (e : Expr) : CoreM (Array ConstSig) := do
+  let env ← getEnv
+  return e.getUsedConstants.filterMap fun c => if (env.getModuleIdxFor? c).isSome then none else constSig? env c
+
+open Lean in
+/-- a stored proof may be used here: every constant it mentions exists, and each non-imported one has the signature it had when the proof was stored
+(`sigs`).  A name alone is not enough: after a backtracked branch or in another declaration an auxiliary constant can have the same name and another type.
+Imported constants are checked by name only: the imports of a process are fixed, so a name of an imported module is the same constant everywhere. -/
+def constsMatch (e : Expr) (sigs : Array ConstSig) : CoreM Bool := do
+  let env ← getEnv
+  return e.getUsedConstants.all fun c =>
+    env.contains c && ((env.getModuleIdxFor? c).isSome || sigs.any fun s => s.1 == c && constSig? env c == some s)
+
 /-- the caches of `ved_omega_c` (the same side condition is asked again in every goal of a block).
 Invariant: each cache is reused only when the inputs of the computation that filled it are equal.
 * `vedOmegaOk`: target ↦ (proof, `(FVarId, type)` of the free variables the proof uses).  The proof is
@@ -295,18 +319,14 @@ Lifetime: one script run; `ved_omega_c_reset` (first of the closing tactics) emp
 initialize vedOmegaOk : IO.Ref (Std.HashMap Lean.Expr (Lean.Expr × Array (Lean.FVarId × Lean.Expr))) ← IO.mkRef {}
 initialize vedUbFail : IO.Ref (Std.HashMap Lean.Expr (Array (Lean.Expr × Nat))) ← IO.mkRef {}
 initialize vedOmegaFail : IO.Ref (Std.HashMap Lean.Expr (Array Lean.Expr)) ← IO.mkRef {}
-
-open Lean in
-/-- every constant `e` mentions is in the current environment.  A cached proof may mention an auxiliary constant (`_proof_N`) that another
-declaration (or a branch that was backtracked) added: the global caches must not hand it out where that constant does not exist. -/
-def usedConstsInEnv (e : Expr) : CoreM Bool := do
-  let env ← getEnv
-  return e.getUsedConstants.all env.contains
+/-- target ↦ the signatures of the non-imported constants of its `vedOmegaOk` proof (see `constsMatch`); a hit needs them -/
+initialize vedOmegaOkConsts : IO.Ref (Std.HashMap Lean.Expr (Array ConstSig)) ← IO.mkRef {}
 
 open Lean Elab Tactic in
 /-- empty the caches of `ved_omega_c` (see `vedOmegaOk`) -/
 elab "ved_omega_c_reset" : tactic => do
   vedOmegaOk.set {}
+  vedOmegaOkConsts.set {}
   vedUbFail.set {}
   vedOmegaFail.set {}
 
@@ -414,13 +434,14 @@ elab "ved_omega_c" : tactic => withMainContext do
       let mut used : Array (FVarId × Expr) := #[]
       for fv in fvs do used := used.push (fv, ← instantiateMVars (← fv.getType))
       vedOmegaOk.modify (·.insert tgt (pf, used))
+      vedOmegaOkConsts.modify (·.insert tgt (← constSigs pf))
   if let some (pf, used) := (← vedOmegaOk.get)[tgt]? then
     let mut ok := true
     for (fv, ty) in used do
       match lctx.find? fv with
       | some d => unless (← instantiateMVars d.type) == ty do ok := false
       | none => ok := false
-    if ok && (← usedConstsInEnv pf) then
+    if ok && (← constsMatch pf ((← vedOmegaOkConsts.get).getD tgt #[])) then
       g.assign pf
       replaceMainGoal []
       return

@@ -180,7 +180,17 @@ initialize bigShown : IO.Ref Nat ← IO.mkRef 0
 It is read by nothing in the proof path. -/
 initialize ranLog : IO.Ref (Array String) ← IO.mkRef #[]
 
-initialize proofCache : IO.Ref (Std.HashMap Lean.Expr (Option Lean.Expr)) ← IO.mkRef {}
+/-- what a failure of `proveRead` depends on besides its statement: the heartbeat limit, the recursion depth left (`ved_omega`, the discharger of `ved_pack_simp`,
+turns running out of it into an ordinary failure), `omegaMaxTree` (decides whether `omega` is tried) and the options (they can change the simp set) -/
+abbrev ReadBudget := Nat × Nat × Nat × Lean.Options
+
+/-- `proveRead` result for a closed statement: a proof with the signatures of the non-imported constants it mentions (`Tools.VedU1ScriptSeq.constsMatch`), or a
+failure with the budget it happened under (a proof is a proof under any budget; a failure only under the budget that produced it) -/
+inductive ProofEntry where
+  | proof (p : Lean.Expr) (sigs : Array Tools.VedU1ScriptSeq.ConstSig)
+  | failed (budget : ReadBudget)
+
+initialize proofCache : IO.Ref (Std.HashMap Lean.Expr ProofEntry) ← IO.mkRef {}
 
 /-- the fvars of `e` and of their types, in the order of the local context -/
 def closure (e : Lean.Expr) : MetaM (Array Lean.Expr) := do
@@ -202,15 +212,23 @@ def closure (e : Lean.Expr) : MetaM (Array Lean.Expr) := do
 /-- `proveRead` tries `omega` after `ved_pack_simp` only on a read with fewer tree nodes than this -/
 def omegaMaxTree : Nat := 20000
 
-/-- the proof of `S = F` as a closed statement over its free variables (cached by the closed statement); `none` when `ved_pack_simp` fails -/
+/-- see `ReadBudget` -/
+def readBudget : CoreM ReadBudget := do
+  let c ← read
+  return (c.maxHeartbeats, c.maxRecDepth - c.currRecDepth, omegaMaxTree, (← getOptions))
+
+/-- the proof of `S = F` as a closed statement over its free variables (cached by the closed statement; a failure also by the budget); `none` when `ved_pack_simp` fails -/
 def proveRead (S F : Lean.Expr) : TacticM (Option Lean.Expr) := do
   let eq ← mkEq S F
   let fvs ← closure eq
   let closed ← mkForallFVars fvs eq
-  if let some r := (← proofCache.get)[closed]? then
-    -- a stored proof may mention an auxiliary `_proof_N` of another declaration (or of a backtracked branch): a hit needs all its constants here
-    if ← (match r with | some p => Tools.VedU1ScriptSeq.usedConstsInEnv p | none => pure true) then
-      return r.map fun p => mkAppN p fvs
+  let budget ← readBudget
+  match (← proofCache.get)[closed]? with
+  | some (.proof p sigs) =>
+    -- a stored proof may mention an auxiliary `_proof_N` of another declaration (or of a backtracked branch): a hit needs those constants here, with their types
+    if ← Tools.VedU1ScriptSeq.constsMatch p sigs then return some (mkAppN p fvs)
+  | some (.failed b) => if b == budget then return none
+  | none => pure ()
   let m ← withLCtx {} #[] (mkFreshExprMVar closed)
   let saved ← getGoals
   setGoals [m.mvarId!]
@@ -225,7 +243,10 @@ def proveRead (S F : Lean.Expr) : TacticM (Option Lean.Expr) := do
     catch _ => pure false
   setGoals saved
   let r ← if ok then pure (some (← instantiateMVars m)) else pure none
-  proofCache.modify (·.insert closed r)
+  let entry : ProofEntry ← match r with
+    | some p => pure (.proof p (← Tools.VedU1ScriptSeq.constSigs p))
+    | none => pure (.failed budget)
+  proofCache.modify (·.insert closed entry)
   return r.map fun p => mkAppN p fvs
 
 /-- a goal with fewer tree nodes than this is left to the packing step of the loop script (the rewriting below is for goals whose tree is

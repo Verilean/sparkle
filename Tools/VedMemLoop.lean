@@ -2097,16 +2097,25 @@ visits (pre-simproc calls) grow linearly at 5.4e3 per second (2.0e6 visits at 37
 `vedDeclWidth` answers `declWidth M "lit"` from it (`.done`, definitional: the kernel checks the step by evaluating the lookup once), and
 `vedDeclWidth1` keeps the partial application `declWidth M` (the `we` of `evalAssigns`) from being unfolded into the `find?` lambda. -/
 
-/-- module constant ↦ its table, filled by `checkMemE` before the proof elaboration when `ved.mem.hstepNorm` is on and never erased: the table is a
-function of the module constant alone, so entries of other modules (another declaration elaborated at the same time) neither clear nor change it -/
-initialize declWidthTab : IO.Ref (Std.HashMap Name (Std.HashMap String Nat)) ← IO.mkRef {}
+/-- module constant ↦ (its value, its table), filled by `checkMemE` before the proof elaboration when `ved.mem.hstepNorm` is on and not erased: the table is a
+function of the module constant alone, so entries of other modules (another declaration elaborated at the same time) neither clear nor change it.  The value
+the table was computed from is stored with it: after an environment rollback (a failed command, a re-declaration under another `namespace`) a constant of the
+same name can have another value, and `declWidthTabOf` then answers nothing -/
+initialize declWidthTab : IO.Ref (Std.HashMap Name (Expr × Std.HashMap String Nat)) ← IO.mkRef {}
+
+open Lean Meta in
+/-- the table of the module constant `mn`, if it was computed from the value `mn` has in this environment -/
+def declWidthTabOf (mn : Name) : MetaM (Option (Std.HashMap String Nat)) := do
+  let some (v, tab) := (← declWidthTab.get)[mn]? | return none
+  let some cur := (← getEnv).find? mn |>.bind (·.value?) | return none
+  return if cur == v then some tab else none
 
 open Lean Meta Simp in
 def declWidthAnswer (e : Expr) : SimpM Step := do
   unless e.isAppOfArity ``Tools.VedU1Contract.declWidth 2 do return .continue
   let args := e.getAppArgs
   let .const mn _ := args[0]! | return .continue
-  let some tab := (← declWidthTab.get)[mn]? | return .continue
+  let some tab ← declWidthTabOf mn | return .continue
   let .lit (.strVal s) := args[1]! | return .continue
   declWidthHits.modify (· + 1)
   return .done { expr := mkNatLit (tab.getD s 0) }
@@ -2118,7 +2127,7 @@ open Lean Meta Simp in
 simproc_decl vedDeclWidth1 (Tools.VedU1Contract.declWidth _) := fun e => do
   if e.isAppOfArity ``Tools.VedU1Contract.declWidth 1 then
     if let .const mn _ := e.appArg! then
-      if (← declWidthTab.get).contains mn then return .done { expr := e }
+      if (← declWidthTabOf mn).isSome then return .done { expr := e }
   return .continue
 
 /-! ### `Option.bind m f` is evaluated in order: `m` first, the continuation `f` only after `m` is `some x`

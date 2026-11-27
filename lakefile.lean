@@ -1873,3 +1873,6 @@ lean_lib «Tests.Ved.VedCtrlAsyncCheck» where
 
 lean_lib «Tests.Ved.VedSharedRefsCheck» where
   roots := #[`Tests.Ved.VedSharedRefsCheck]
+
+lean_lib «Tests.Ved.VedSharedRefsEnvCheck» where
+  roots := #[`Tests.Ved.VedSharedRefsEnvCheck]

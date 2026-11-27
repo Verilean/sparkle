@@ -817,7 +817,8 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     if Tools.VedMemLoop.ved.mem.hstepNorm.get (← getOptions) then
       let tab : Std.HashMap String Nat := m.wires.foldl (fun t p =>
         if t.contains p.name then t else t.insert p.name (Tools.VedU1Contract.declWidth m p.name)) {}
-      Tools.VedMemLoop.declWidthTab.modify (·.insert nm.mod tab)
+      if let some v := (← getEnv).find? nm.mod |>.bind (·.value?) then
+        Tools.VedMemLoop.declWidthTab.modify (·.insert nm.mod (v, tab))
     let runId ← Tools.VedMemLoop.freshRunId
     let pf ← try (tryCatchRuntimeEx
       (withOptions (·.insert `ved.mem.runId (.ofNat runId)) <| withProofBudget do

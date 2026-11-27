@@ -46,12 +46,12 @@ elab "sr_proofcache" : tactic => withMainContext do
   let fvs ← Tools.VedMemPack.closure eq
   let closed ← mkForallFVars fvs eq
   Tools.VedMemPack.proofCache.set {}
-  Tools.VedMemPack.proofCache.modify (·.insert closed (some (mkConst fakeName)))
+  Tools.VedMemPack.proofCache.modify (·.insert closed (.proof (mkConst fakeName) #[]))
   let some p ← Tools.VedMemPack.proveRead S F | throwError "proveRead: no proof"
   if p.getUsedConstants.contains fakeName then throwError "proofCache: a hit returned a proof that mentions an absent constant"
   -- the fresh proof replaced the seed
   match (← Tools.VedMemPack.proofCache.get)[closed]? with
-  | some (some q) => if q.getUsedConstants.contains fakeName then throwError "proofCache: the seed is still stored"
+  | some (.proof q _) => if q.getUsedConstants.contains fakeName then throwError "proofCache: the seed is still stored"
   | _ => throwError "proofCache: no fresh proof stored"
   Tools.VedMemPack.proofCache.set {}
   (← getMainGoal).assign p
@@ -167,7 +167,7 @@ example (d : DomainConfig) :
 
 /-- the fallback reset of run 2 does not empty the caches while only run 1's new branch started; run 1's does -/
 elab "sr_marker_set" : tactic => do
-  Tools.VedMemPack.proofCache.modify (·.insert (mkConst `SrMarker) none)
+  Tools.VedMemPack.proofCache.modify (·.insert (mkConst `SrMarker) (.failed (0, 0, 0, {})))
 
 elab "sr_marker_clear" : tactic => Tools.VedMemPack.proofCache.set {}
 
@@ -232,7 +232,7 @@ def srModA : Name := `Tests.Ved.VedSharedRefsCheck.srA.ved_mod
 
 -- the table of another module is in `declWidthTab` before the entry runs; it must be the same afterwards (the entry puts its own table next to it)
 run_cmd do
-  Tools.VedMemLoop.declWidthTab.modify (·.insert `SrOther.ved_mod (({} : Std.HashMap String Nat).insert "w" 7))
+  Tools.VedMemLoop.declWidthTab.modify (·.insert `SrOther.ved_mod (mkNatLit 0, ({} : Std.HashMap String Nat).insert "w" 7))
 
 #guard_msgs (drop info) in
 set_option ved.mem.hstepNorm true in
@@ -241,9 +241,9 @@ set_option ved.mem.hstepNorm true in
 run_cmd liftTermElabM do
   let tabs ← Tools.VedMemLoop.declWidthTab.get
   let some o := tabs[`SrOther.ved_mod]? | throwError "declWidthTab: the table of another module was removed"
-  unless o.toList == [("w", 7)] do throwError "declWidthTab: the table of another module changed"
+  unless o.2.toList == [("w", 7)] do throwError "declWidthTab: the table of another module changed"
   let some mine := tabs[srModA]? | throwError "declWidthTab: no table for the entry's module (the module is erased)"
-  unless mine.size > 0 do throwError "declWidthTab: empty table for the entry's module"
+  unless mine.2.size > 0 do throwError "declWidthTab: empty table for the entry's module"
   unless (← Tools.VedMemLoop.hnormLoops.get).isEmpty do throwError "hnormLoops: the run was not erased"
   unless (← Tools.VedMemLoop.hstepAttempted.get).isEmpty do throwError "hstepAttempted: the run was not erased"
   let a ← entrySummary ``srA
