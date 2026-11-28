@@ -42,9 +42,17 @@ Test classes:
 
 Added (all in CI, with synthetic negative controls): `uart-hw-jit-test`
 (group ethernet), `spi-hw-jit-test` (group bus-hw), `slip-hw-jit-test` (group
-ethernet).  Defects they found are kept in separate exes that are NOT in CI (the SPI
-ones were fixed and their cases folded into `spi-hw-jit-test`, now covering
-MOSI/MISO at the sampling edge for modes 0-3 and starts on any cycle):
-`uart-rx-framing-error-hw-jit-test` and
-`slip-hw-jit-defects-test` (each header describes inputs, cycle, expected vs
+ethernet).  The three defects they found are fixed, and every probe is now in CI:
+- UART: `uartRxHW` waits for the idle line after a framing error;
+  `uart-rx-framing-error-hw-jit-test` is in CI (group ethernet).
+- SPI: `spiMasterHW` accepts start on any idle cycle, MOSI is valid at its sampling edge, CPHA 0/1 is
+  implemented; the probe cases are folded into `spi-hw-jit-test` (MOSI/MISO at the sampling edge for
+  modes 0-3).
+- SLIP: see below.
+Before the fixes, each probe header described inputs, cycle, expected vs
 observed and the suspected source).
+
+The SLIP defect (deframer in idle took ESC as data, so a frame whose first
+payload byte is C0/DB decoded wrongly) is fixed in `slipDeframerHW`; its
+probe is folded into `slip-hw-jit-test` together with a framer→deframer
+loopback over every first byte.

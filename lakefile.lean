@@ -1970,8 +1970,3 @@ lean_exe «spi-hw-jit-test» where
 lean_exe «slip-hw-jit-test» where
   root := `Tests.Drivers.SlipHWJITTestMain
   supportInterpreter := true
-
--- NOT in CI: `slipDeframerHW` does not decode a frame whose first byte is escaped.
-lean_exe «slip-hw-jit-defects-test» where
-  root := `Tests.Drivers.SlipHWJITDefectsMain
-  supportInterpreter := true
