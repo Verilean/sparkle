@@ -216,6 +216,7 @@ success condition in [OpenProblems.md](OpenProblems.md).
 
 | If you want… | Read |
 |---|---|
+| What one theorem says, on the smallest circuit, and what it does not | [ReadingTheTheorem.md](ReadingTheTheorem.md) |
 | A guided example you can run | [Tutorial chapter 7c](../tutorial/md/Ch07c_VerifiedSynthesis.md) |
 | How to write circuits whose proofs go through: small runnable examples, a refusal and the ways past it | [ProofFriendlyCircuits.md](ProofFriendlyCircuits.md) |
 | What is proved, on which artifact, which lemmas are reused, worked examples | [PerCircuitVerification.md](PerCircuitVerification.md) |
