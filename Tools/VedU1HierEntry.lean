@@ -7,7 +7,7 @@ import Tools.VedStrictAudit
 /-!
 # Hierarchical U1 entry, H1 (`#ved_u1_hier decl`)
 
-Design: docs/VED-HIER-DESIGN-v1.md (§7, option A).  `Sparkle/` is not changed.
+Design: notes/ved/VED-HIER-DESIGN-v1.md (§7, option A).  `Sparkle/` is not changed.
 
 `vedU1HierEntry declName`:
 

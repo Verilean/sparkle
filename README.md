@@ -47,7 +47,7 @@ available from a native `lake exe` build.
 |---|---|
 | Try Sparkle for the first time | the [tutorial](docs/tutorial/README.md): [setup](docs/tutorial/md/Ch00_Setup.md), then chapters 1–5 |
 | Look up DSL syntax or a synthesis error | [SignalDSL_Syntax.md](docs/reference/SignalDSL_Syntax.md), [Troubleshooting_Synthesis.md](docs/reference/Troubleshooting_Synthesis.md) |
-| Get a proof with every synthesised circuit (VED) | tutorial [chapter 7c](docs/tutorial/md/Ch07c_VerifiedSynthesis.md), then [docs/VED.md](docs/VED.md), then the [research release](docs/research/README.md) |
+| Get a machine-checked proof that a synthesised circuit matches its Lean source, where supported (VED) | tutorial [chapter 7c](docs/tutorial/md/Ch07c_VerifiedSynthesis.md), then [docs/VED.md](docs/VED.md), then the [research release](docs/research/README.md) |
 | Use an IP block | the [IP catalog](docs/ip-catalog/README.md) |
 | Check known problems | [KnownIssues.md](docs/known-issues/KnownIssues.md) |
 | Contribute or change CI | [CONTRIBUTING.md](CONTRIBUTING.md), [BuildAndCI.md](docs/research/BuildAndCI.md) |

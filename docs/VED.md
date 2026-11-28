@@ -54,8 +54,9 @@ artifact to the written files (byte comparison in `Tests/Ved/WriteCheckedCheck.l
 The VED tools and Checks are `lean_lib` targets in `lakefile.lean` and are not default targets:
 build them by name, for example `lake build Tests.Ved.U1EntryCheck`. CI
 (`.github/workflows/ved.yml`) has two jobs: `ved-pr` (representative Checks, on pull requests
-that touch the compiler, the VED tools or their tests) and `ved-full` (every VED Check, weekly
-and on demand). Build times and the CI layout are in [research/BuildAndCI.md](research/BuildAndCI.md).
+that touch the compiler, the VED tools or their tests) and `ved-full` (a larger set
+of Checks listed in the workflow, weekly and on demand; some Checks named below are not in CI
+at all). Build times and the CI layout are in [research/BuildAndCI.md](research/BuildAndCI.md).
 
 ## Accepted and refused
 
@@ -67,14 +68,28 @@ An entry **accepts** (`VED U1 OK …`, `VED U2 HIER OK …`) only when all of th
    rebuilt expected type;
 3. the strict audit accepts its axiom closure.
 
-Otherwise it **refuses** with `VED U1 REFUSED f [stage]` (or the U2 form) and restores the
-saved state, so no `ved_*` constant is left behind. Stages, in order: `table` (the declaration's
-type is not readable as a port table), `multi-output` / `packed` (result shape not handled by
-this entry), `synthesis`, `artifact`, `hier-shape`, `clkrst`, `order` (no admissible arrangement:
-combinational cycle, self-read, undriven read, duplicate driver, write to an input), `scope`,
-`conns`, `child`, `open`, `deep`, `type`, `proof` (the generated proof did not check within the
-budget), `kernel`, `checker`, `audit`. A refusal is never turned into an acceptance of a weaker
-statement, and budgets are not raised to make a row pass. When `f` has a leading implicit
+Otherwise it **refuses** with `VED U1 REFUSED f [stage]` (or the U2 form). Stages, in order:
+`table` (the declaration's type is not readable as a port table), `multi-output` / `packed`
+(result shape not handled by this entry), `synthesis`, `artifact`, `hier-shape`, `clkrst`,
+`order` (no admissible arrangement: combinational cycle, self-read, undriven read, duplicate
+driver, write to an input), `scope`, `conns`, `child`, `open`, `deep`, `type`, `proof` (the
+generated proof did not check within the budget), `kernel`, `checker`, `audit`.
+
+What a refusal undoes is limited. The checker saves the elaborator state when it starts, which
+is after synthesis, and on a failure inside it restores that state: the `ved_*` constants it
+added and its messages are removed. Nothing synthesis did before that point (environment changes,
+caches, files) is rolled back. Not every failure is reported in the stage form either: an
+interrupt, and a heartbeat or recursion-limit exception raised while reading the port table or
+during synthesis (before the checker starts), propagate as their own errors. Inside the checker,
+a runtime limit while elaborating the proof is reported at `proof`, and one in the kernel step at
+`kernel` (`Tools/VedU1Entry.lean`, header of the file).
+
+The proof is elaborated with a budget floor: heartbeats and recursion depth are at least the
+`ved.u1.proofHeartbeats` / `ved.u1.proofRecDepth` options (the larger of those and the caller's
+limit), so an entry can take more than the caller's `maxHeartbeats`. A larger budget only lets a
+proof run longer; it never changes the statement that is checked, and a refusal is never turned
+into an acceptance of a weaker statement.
+When `f` has a leading implicit
 `DomainConfig` binder, the theorem is about `@f defaultDomain` and the OK line says so.
 
 ## Trust base

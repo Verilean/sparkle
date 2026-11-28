@@ -6,7 +6,7 @@ import Tools.VedU1Contract
 /-!
 # Closed hierarchical semantics for the VED U1 hierarchy slice (H1)
 
-Design: docs/VED-HIER-DESIGN-v1.md (§7, reviewer rulings of 2026-11-10, option A).
+Design: notes/ved/VED-HIER-DESIGN-v1.md (§7, reviewer rulings of 2026-11-10, option A).
 
 `Sparkle.IR.Semantics` is an OPEN-module semantics: `.inst` is a no-op and the
 instance outputs are free inputs.  This file defines a CLOSED semantics,
