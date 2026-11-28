@@ -80,9 +80,9 @@ jobs:
             # trajectory sanity for FSMs) and ships a
             # `#synthesizeVerilog` check inside its Test file.
             exes: >-
-              lin-hw-test i2c-hw-test spi-hw-test
+              lin-hw-test i2c-hw-test i2c-hw-jit-test spi-hw-test spi-hw-jit-test
               sbus-hw-test crsf-hw-test mil1553-hw-test
-              canopen-hw-test dronecan-hw-test
+              canopen-hw-test dronecan-hw-test can-family-hw-jit-test
 
           - group: ethernet
             exes: >-
@@ -102,7 +102,7 @@ jobs:
             # which exercises the same end-to-end coverage via the
             # `#sim` flow at hardware speed.
             exes: >-
-              uart-test slip-test usb-webserver-jit-test
+              uart-test uart-hw-jit-test uart-rx-framing-error-hw-jit-test slip-test slip-hw-jit-test usb-webserver-jit-test
 
           - group: memcached
             # `memcached-server-test` has the same O(t)
@@ -113,7 +113,7 @@ jobs:
             # ("STORED\r\n", "VALUE…hello…END\r\n"), runs in
             # ~3 s instead of past the per-IP timeout.
             exes: >-
-              memcached-oracle-test memcached-hw-test memcached-server-jit-test
+              memcached-oracle-test memcached-hw-test memcached-hw-jit-test memcached-hw-busy-start-probe memcached-server-jit-test
 
           - group: crypto
             exes: >-
@@ -142,6 +142,9 @@ jobs:
               ecdsa-sign-demo-hw-jit-test uart-hw-jit-harness-test
               policy-sign-demo-hw-jit-test policy-sign-demo-m2-hw-jit-test
               fido2-demo-hw-jit-test
+              done-hw-jit-harness-test sha256-block-done-hw-jit-test
+              sha256-stream-done-hw-jit-test hmac-sha256-done-hw-jit-test
+              keccak256-sponge-done-hw-jit-test rfc6979-done-hw-jit-test
 
           - group: zk
             exes: >-

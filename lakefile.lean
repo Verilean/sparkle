@@ -1945,3 +1945,84 @@ lean_lib «Tests.Ved.VedSharedRefsCheck» where
 
 lean_lib «Tests.Ved.VedSharedRefsEnvCheck» where
   roots := #[`Tests.Ved.VedSharedRefsEnvCheck]
+
+-- JIT co-sim of the plain UART blocks `uartTxHW` / `uartRxHW`: frame
+-- bit slots, txReady busy window per frame, one 1-cycle rxValid per frame in
+-- its stop window with the right byte; synthetic controls for both checkers.
+lean_exe «uart-hw-jit-test» where
+  root := `Tests.Drivers.UartHWJITTestMain
+  supportInterpreter := true
+
+-- CI (group usb-webserver): after a frame with a low stop bit, `uartRxHW` must report no byte for it,
+-- no phantom byte, and the next frame intact (regression for the framing-error fix).
+lean_exe «uart-rx-framing-error-hw-jit-test» where
+  root := `Tests.Drivers.UartRxFramingErrorHWJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the SPI master `spiMasterHW`: cs / done per transfer, 16 SCLK
+-- toggles, MOSI at the sampling edge, misoByte vs a slave model, modes 0-3,
+-- bitDiv 0/1/3, starts on arbitrary cycles; checker + live negative controls.
+lean_exe «spi-hw-jit-test» where
+  root := `Tests.Drivers.SpiHWJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the SLIP framer / deframer: per-cycle txValid/txByte/txReady and
+-- outValid/outByte/frameDone against the pure encoder/decoder; checker controls.
+lean_exe «slip-hw-jit-test» where
+  root := `Tests.Drivers.SlipHWJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the I2C master `i2cMasterHW`: busy exactly once per start (rise at
+-- start+1, width 39 half-periods, start pulse on any idle cycle), per-half-slot
+-- state / SCL / SDA against the documented FSM plus the I2C bus view (START, bits at
+-- SCL rises, SDA stable while SCL high, STOP); extra start while busy ignored;
+-- checker + live negative controls.
+lean_exe «i2c-hw-jit-test» where
+  root := `Tests.Drivers.I2CHWJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the memcached KV engine `kvHw`: replyValid exactly once per command
+-- at the slot-dependent cycle, busy window, reply kind / VALUE fields vs the pure
+-- oracle over a 63-command script (FIFO wrap); checker + live negative controls.
+lean_exe «memcached-hw-jit-test» where
+  root := `Tests.Drivers.MemcachedHWJITTestMain
+  supportInterpreter := true
+
+-- A start pulse while busy must be ignored: the in-flight get still replies VALUE.
+lean_exe «memcached-hw-busy-start-probe» where
+  root := `Tests.Drivers.MemcachedHWBusyStartProbeMain
+  supportInterpreter := true
+
+-- JIT co-sim of the CAN-family HW blocks: crc15HW (start/valid/hold vs crc15Step, real
+-- frames incl. residue), nmtStateFsmHW (vs the NmtCommand table) and the DroneCAN
+-- transferIdTrackerHW error strobe (by-construction timeline); controls for each.
+lean_exe «can-family-hw-jit-test» where
+  root := `Tests.Drivers.CanFamilyHWJITTestMain
+  supportInterpreter := true
+
+-- Controls for the generic done-once-per-request checker used by the crypto core
+-- JIT co-sims (synthetic traces, no JIT).
+lean_exe «done-hw-jit-harness-test» where
+  root := `Tests.Drivers.DoneHWJITHarnessTestMain
+  supportInterpreter := true
+
+-- Done-once-per-request JIT co-sim of `sha256Block` (generic DoneHWJITHarness).
+lean_exe «sha256-block-done-hw-jit-test» where
+  root := `Tests.Drivers.Sha256BlockDoneHWJITTestMain
+  supportInterpreter := true
+
+lean_exe «sha256-stream-done-hw-jit-test» where
+  root := `Tests.Drivers.Sha256StreamDoneHWJITTestMain
+  supportInterpreter := true
+
+lean_exe «hmac-sha256-done-hw-jit-test» where
+  root := `Tests.Drivers.HmacSha256DoneHWJITTestMain
+  supportInterpreter := true
+
+lean_exe «keccak256-sponge-done-hw-jit-test» where
+  root := `Tests.Drivers.Keccak256SpongeDoneHWJITTestMain
+  supportInterpreter := true
+
+lean_exe «rfc6979-done-hw-jit-test» where
+  root := `Tests.Drivers.Rfc6979DoneHWJITTestMain
+  supportInterpreter := true

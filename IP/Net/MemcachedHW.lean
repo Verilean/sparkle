@@ -215,8 +215,11 @@ instance {dom : DomainConfig} :
        : Signal dom Bool) : Signal dom Bool)
     let foundThisCycle := (inScanCmp &&& slotMatches : Signal dom Bool)
 
+    -- A start pulse while busy is ignored (host contract: wait for busy low).
+    let startOk := (opStart &&& isIdle : Signal dom Bool)
+
     -- State next
-    let stNextFromIdle := Signal.mux opStart p1_3 stSig
+    let stNextFromIdle := Signal.mux startOk p1_3 stSig
     let stNextFromLookup :=
       Signal.mux foundThisCycle p2_3            -- hit → DECIDE
         (Signal.mux scanDone p2_3 stSig)        -- exhausted → DECIDE (miss)
@@ -233,23 +236,23 @@ instance {dom : DomainConfig} :
       Signal.mux foundThisCycle scanSig
         (Signal.mux scanDone p0_5 scanInc)
     let scanNext :=
-      Signal.mux opStart p0_5
+      Signal.mux startOk p0_5
         (Signal.mux isLookup scanNextLookup
           (Signal.mux isEmit p0_5 scanSig))
 
     -- hit / hitIdx next
     let hitNext :=
-      Signal.mux opStart (Signal.pure false)
+      Signal.mux startOk (Signal.pure false)
         (Signal.mux foundThisCycle (Signal.pure true) hitSig)
     let hitIdxNext :=
-      Signal.mux opStart (Signal.pure 0#4)
+      Signal.mux startOk (Signal.pure 0#4)
         (Signal.mux foundThisCycle scanMinus1_4 hitIdxSig)
 
     -- Latch op fields on start.
-    let opCodeNext := Signal.mux opStart opCode codeSig
-    let opKeyNext := Signal.mux opStart opKey keyR_sig
-    let opValueNext := Signal.mux opStart opValue valueR_sig
-    let opFlagsNext := Signal.mux opStart opFlags flagsR_sig
+    let opCodeNext := Signal.mux startOk opCode codeSig
+    let opKeyNext := Signal.mux startOk opKey keyR_sig
+    let opValueNext := Signal.mux startOk opValue valueR_sig
+    let opFlagsNext := Signal.mux startOk opFlags flagsR_sig
 
     -- Bump nextSlot on a successful set/add miss (= when we just
     -- consumed a fresh slot).

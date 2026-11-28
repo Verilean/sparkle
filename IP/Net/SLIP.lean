@@ -9,10 +9,11 @@
 
   Wire format (each byte fed one at a time over UART):
 
-    * END (0xC0) marks frame boundaries.  We emit one END
-      before and one END after each IP packet ( = the "double-
-      END" convention from RFC 1055 §4; it makes line-noise
-      bytes harmless because they look like empty frames).
+    * END (0xC0) marks frame boundaries.  The framer emits one END
+      after each IP packet and no leading END (the leading END of
+      RFC 1055 §4 is optional); the deframer skips any END seen
+      between frames, so a sender that does emit a leading END
+      (the "double-END" convention) is accepted too.
     * ESC (0xDB) escapes byte values that collide with END or
       ESC inside the payload:
         END → ESC + ESC_END (0xDC)
@@ -25,9 +26,8 @@
               (txByte, txValid)
               Stages: 1 cycle = 1 transmitted byte.
               Pulse `frameEnd` once after the last payload byte;
-              the framer emits the closing END.  If the framer
-              is idle and a new payload byte arrives, it emits a
-              leading END the cycle before, then the payload.
+              the framer emits the closing END.  No leading END
+              is emitted: the first payload byte follows directly.
 
     Deframer: (rxByte, rxValid) → (outByte, outValid, frameDone)
               Strips END / ESC escaping.  `frameDone` pulses
@@ -105,8 +105,8 @@ instance {dom : DomainConfig} :
 /-- TX framer.  Stages per cycle (interleaved):
 
     * idle:           tx_line idle; if payloadValid is asserted
-                      and we haven't sent the leading END yet,
-                      emit END this cycle, latch byte for next.
+                      the first payload byte is emitted directly
+                      (no leading END).
     * sending body:   emit payload byte (or ESC + escape-replace
                       across 2 cycles when escaping is needed).
     * sending tail:   on `frameEnd` pulse, emit trailing END.
@@ -294,9 +294,15 @@ def slipDeframerHW {dom : DomainConfig}
     let evIdleEnd :=                            -- idle + END → stay idle (skip)
       ((· && ·) <$> ((isIdle &&& rxValid : Signal dom Bool))
         <*> byteIsEnd : Signal dom Bool)
-    let evIdleData :=                           -- idle + non-END → enter body, emit byte
+    let evIdleEsc :=                            -- idle + ESC → enter esc (first byte escaped)
       ((· && ·) <$> ((isIdle &&& rxValid : Signal dom Bool))
-        <*> (~~~byteIsEnd : Signal dom Bool) : Signal dom Bool)
+        <*> byteIsEsc : Signal dom Bool)
+    let evIdleData :=                           -- idle + other → enter body, emit byte
+      ((· && ·) <$> ((isIdle &&& rxValid : Signal dom Bool))
+        <*> ((· && ·) <$>
+             (~~~byteIsEnd : Signal dom Bool) <*>
+             (~~~byteIsEsc : Signal dom Bool)
+             : Signal dom Bool) : Signal dom Bool)
     let evBodyEnd :=                            -- body + END → frame done
       ((· && ·) <$> ((isBody &&& rxValid : Signal dom Bool))
         <*> byteIsEnd : Signal dom Bool)
@@ -333,10 +339,11 @@ def slipDeframerHW {dom : DomainConfig}
 
     let stNext :=
       Signal.mux evIdleEnd p0_2
-        (Signal.mux evIdleData p1_2
-          (Signal.mux evBodyEnd p0_2
-            (Signal.mux evBodyEsc p2_2
-              (Signal.mux evEscAny p1_2 stSig))))
+        (Signal.mux evIdleEsc p2_2
+          (Signal.mux evIdleData p1_2
+            (Signal.mux evBodyEnd p0_2
+              (Signal.mux evBodyEsc p2_2
+                (Signal.mux evEscAny p1_2 stSig)))))
 
     st        <~ stNext
     outByteR  <~ outByteNext

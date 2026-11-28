@@ -4,7 +4,11 @@
   Implements a single-byte SPI master:
       idle → shift 8 MOSI bits (with corresponding MISO
               sampling per CPHA) → idle
-  supporting all four (CPOL, CPHA) modes.
+  supporting all four (CPOL, CPHA) modes: with CPHA=0 MOSI is valid at the
+  leading SCLK edge and MISO is sampled there; with CPHA=1 MOSI changes on the
+  leading edge and both lines are sampled at the trailing edge.  `start` is
+  accepted on any cycle while idle (level-sensitive in idle: a pulse begins one
+  transfer; it is ignored while a transfer runs).
 
   Wiring:
       start   : Bool — begin transfer
@@ -52,7 +56,7 @@ instance {dom : DomainConfig} :
 def spiMasterHW {dom : DomainConfig}
     (start : Signal dom Bool)
     (cpol : Signal dom Bool)
-    (_cpha : Signal dom Bool)
+    (cpha : Signal dom Bool)
     (bitDiv : Signal dom (BitVec 16))
     (mosiByte : Signal dom (BitVec 8))
     (misoBit : Signal dom Bool) :
@@ -96,15 +100,14 @@ def spiMasterHW {dom : DomainConfig}
 
     let bcAtMax := (bcSig === p15_4 : Signal dom Bool)
 
-    -- Next state on tick.
+    -- Next state.  `start` is accepted on any idle cycle (not only on a
+    -- divider tick); the other transitions happen on divider ticks.
     let idleNext := Signal.mux start stActive stIdle
     let activeNext := Signal.mux bcAtMax stPost stActive
-    let postNext := stIdle
     let stNextOnTick :=
-      Signal.mux isIdle idleNext
-        (Signal.mux isActive activeNext
-          (Signal.mux isPost postNext stIdle))
-    let stNext := Signal.mux tick stNextOnTick stSig
+      Signal.mux isActive activeNext stIdle
+    let stNextBusy := Signal.mux tick stNextOnTick stSig
+    let stNext := Signal.mux isIdle idleNext stNextBusy
     stR <~ stNext
 
     -- Bit counter: incremented every tick in active; reset on transitions.
@@ -119,24 +122,38 @@ def spiMasterHW {dom : DomainConfig}
     let dcAfterStart := Signal.mux (isIdle &&& start : Signal dom Bool) bitDiv dcNext
     divR <~ dcAfterStart
 
-    -- MOSI shift: load mosiByte on transition idle→active; shift-left every 2 ticks in active.
-    let loadMosi := (tick &&& (isIdle &&& start : Signal dom Bool)
-                    : Signal dom Bool)
-    let mosiSh := (mosiShSig <<< p1_8 : Signal dom (BitVec 8))
-    -- Only advance on even-numbered ticks within a bit (bc bit 0 == 0).
+    -- Tick k of a transfer (bc = k) toggles SCLK: even k = leading edge,
+    -- odd k = trailing edge.
     let bcBit0 := bcSig.map (BitVec.extractLsb' 0 1 ·)
     let p0_1 := (Signal.pure 0#1 : Signal dom (BitVec 1))
     let bcEven := (bcBit0 === p0_1 : Signal dom Bool)
-    let shiftMosi := (tick &&& (isActive &&& bcEven : Signal dom Bool)
+    let bcOdd := (~~~bcEven : Signal dom Bool)
+    let bcNonZero := (~~~(bcSig === p0_4) : Signal dom Bool)
+
+    -- MOSI shift: load mosiByte when the transfer starts (MSB is on the
+    -- line from then on).  Bit k must be valid at its sampling edge:
+    --   CPHA=0: sampled at the leading edge, so data changes on the trailing
+    --           edge (shift on odd ticks);
+    --   CPHA=1: data changes on the leading edge, sampled at the trailing
+    --           edge (shift on even ticks except the first: bit 0 is already
+    --           out).
+    let loadMosi := (isIdle &&& start : Signal dom Bool)
+    let mosiSh := (mosiShSig <<< p1_8 : Signal dom (BitVec 8))
+    let shiftSel := ((cpha &&& (bcEven &&& bcNonZero : Signal dom Bool) : Signal dom Bool)
+                    ||| (~~~cpha &&& bcOdd : Signal dom Bool) : Signal dom Bool)
+    let shiftMosi := (tick &&& (isActive &&& shiftSel : Signal dom Bool)
                     : Signal dom Bool)
     let mosiShNext :=
       Signal.mux loadMosi mosiByte
         (Signal.mux shiftMosi mosiSh mosiShSig)
     mosiShR <~ mosiShNext
 
-    -- MISO shift-in: on odd ticks (sample edge), shift misoBit into low bit.
-    let bcOdd := (~~~bcEven : Signal dom Bool)
-    let sampleMiso := (tick &&& (isActive &&& bcOdd : Signal dom Bool)
+    -- MISO shift-in at the sampling edge (CPHA=0: leading = even ticks,
+    -- CPHA=1: trailing = odd ticks): `misoBit` is read in the cycle before
+    -- the SCLK edge becomes visible and shifted into the low bit.
+    let sampleSel := ((cpha &&& bcOdd : Signal dom Bool)
+                     ||| (~~~cpha &&& bcEven : Signal dom Bool) : Signal dom Bool)
+    let sampleMiso := (tick &&& (isActive &&& sampleSel : Signal dom Bool)
                      : Signal dom Bool)
     let misoShL := (misoShSig <<< p1_8 : Signal dom (BitVec 8))
     -- OR-in the sampled bit as low bit of the shifted result.
@@ -147,11 +164,9 @@ def spiMasterHW {dom : DomainConfig}
 
     -- SCLK toggles every tick while active.
     let sclkTog := (~~~sclkRSig : Signal dom Bool)
-    let sclkTicked :=
-      Signal.mux isActive sclkTog
-        (Signal.mux isPost cpol
-          (Signal.mux isIdle cpol sclkRSig))
-    let sclkNext := Signal.mux tick sclkTicked sclkRSig
+    let sclkTicked := Signal.mux isActive sclkTog cpol
+    let sclkBusy := Signal.mux tick sclkTicked sclkRSig
+    let sclkNext := Signal.mux isIdle cpol sclkBusy
     sclkR <~ sclkNext
 
     -- CS: goes low on idle→active (start), returns high on post→idle.
