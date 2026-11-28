@@ -507,8 +507,18 @@ where
         else if fnConst.isConstOf ``HMul.hMul then return a * b
         else return a ^ b
       else
-        return 8
-    | _ => return 8
+        widthStuck e
+    | _ => widthStuck e
+  /-- The width did not reduce at default transparency: retry once at `.all`
+      (so an `@[irreducible]` constant still resolves), otherwise refuse.  A
+      guessed 8 would silently build a wrong-width port. -/
+  widthStuck (e : Lean.Expr) : MetaM Nat := do
+    let e' ← withTransparency TransparencyMode.all $ whnf e
+    if e' != e then extractWidth e'
+    else throwError
+      "cannot determine the width of `{e}`: it is neither a literal nor closed Nat \
+       arithmetic.  Write the width as a numeric literal, use a reducible constant, or \
+       synthesise through the parameterized API so the binder is retained."
 
 /-- Preserve a retained top-level Nat binder as a closed symbolic dimension. -/
 partial def extractDimExpr (expr : Lean.Expr) : CompilerM DimExpr := do
