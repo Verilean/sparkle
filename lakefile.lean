@@ -1968,3 +1968,14 @@ lean_exe «spi-hw-jit-test» where
 lean_exe «spi-hw-jit-defects-test» where
   root := `Tests.Drivers.SpiHWJITDefectsMain
   supportInterpreter := true
+
+-- JIT co-sim of the SLIP framer / deframer: per-cycle txValid/txByte/txReady and
+-- outValid/outByte/frameDone against the pure encoder/decoder; checker controls.
+lean_exe «slip-hw-jit-test» where
+  root := `Tests.Drivers.SlipHWJITTestMain
+  supportInterpreter := true
+
+-- NOT in CI: `slipDeframerHW` does not decode a frame whose first byte is escaped.
+lean_exe «slip-hw-jit-defects-test» where
+  root := `Tests.Drivers.SlipHWJITDefectsMain
+  supportInterpreter := true

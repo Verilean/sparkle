@@ -15,9 +15,9 @@ Test classes:
 
 | IP file | Top(s) | Handshake outputs | Existing tests | Class | Priority |
 |---|---|---|---|---|---|
-| IP/Net/UART.lean | `uartTxHW`, `uartRxHW` | `txReady`, `rxValid` | UARTTest (S, loopback happy path only); UsbWebServerJITTest (indirect) | S | **high** (every UART top is built on it; user-facing serial protocol) |
-| IP/Bus/SPIHW.lean | `spiMasterHW` | `done`, `cs` | SPIHWTest (S: "done seen") | S | **high** (multi-cycle FSM, `done` exactly-once never checked) |
-| IP/Net/SLIP.lean | `slipFramerHW`, `slipDeframerHW` | `txValid`, `txReady`, `outValid`, `frameDone` | SLIPTest (P + S loopback) | S | **high** (framing/escape protocol) |
+| IP/Net/UART.lean | `uartTxHW`, `uartRxHW` | `txReady`, `rxValid` | UARTTest (S, loopback happy path only); UsbWebServerJITTest (indirect); **uart-hw-jit-test (C)** | C | was **high** (every UART top is built on it; user-facing serial protocol) |
+| IP/Bus/SPIHW.lean | `spiMasterHW` | `done`, `cs` | SPIHWTest (S: "done seen"); **spi-hw-jit-test (C)** | C | was **high** (multi-cycle FSM, `done` exactly-once never checked) |
+| IP/Net/SLIP.lean | `slipFramerHW`, `slipDeframerHW` | `txValid`, `txReady`, `outValid`, `frameDone` | SLIPTest (P + S loopback); **slip-hw-jit-test (C)** | C | was **high** (framing/escape protocol) |
 | IP/Bus/I2CHW.lean | `i2cMasterHW` | `busy` | I2CHWTest (S state trajectory, eyeballed) | S | medium |
 | IP/Bus/CANHW, CANopenHW, DroneCANHW, LINHW, MIL1553HW, SBUSHW, CRSFHW | per file | frame-done / error strobes | `*HWTest` (S) | S | medium |
 | IP/Net/MemcachedHW.lean | memcached HW | `replyValid`, `busy` | MemcachedHWTest (S), MultiOutputSubModuleHangRepro | S | medium |
@@ -40,4 +40,9 @@ Test classes:
 2. SPI master (`spiMasterHW`)
 3. SLIP framer + deframer, if time allows (`slipFramerHW` / `slipDeframerHW`)
 
-Tests added are listed with their results in the job report.
+Added (all in CI, with synthetic negative controls): `uart-hw-jit-test`
+(group ethernet), `spi-hw-jit-test` (group bus-hw), `slip-hw-jit-test` (group
+ethernet).  Defects they found are kept in separate exes that are NOT in CI:
+`uart-rx-framing-error-hw-jit-test`, `spi-hw-jit-defects-test`,
+`slip-hw-jit-defects-test` (each header describes inputs, cycle, expected vs
+observed and the suspected source).

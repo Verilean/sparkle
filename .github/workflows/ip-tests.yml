@@ -102,7 +102,7 @@ jobs:
             # which exercises the same end-to-end coverage via the
             # `#sim` flow at hardware speed.
             exes: >-
-              uart-test uart-hw-jit-test slip-test usb-webserver-jit-test
+              uart-test uart-hw-jit-test slip-test slip-hw-jit-test usb-webserver-jit-test
 
           - group: memcached
             # `memcached-server-test` has the same O(t)
