@@ -2004,3 +2004,9 @@ lean_exe «memcached-hw-busy-start-probe» where
 lean_exe «can-family-hw-jit-test» where
   root := `Tests.Drivers.CanFamilyHWJITTestMain
   supportInterpreter := true
+
+-- Controls for the generic done-once-per-request checker used by the crypto core
+-- JIT co-sims (synthetic traces, no JIT).
+lean_exe «done-hw-jit-harness-test» where
+  root := `Tests.Drivers.DoneHWJITHarnessTestMain
+  supportInterpreter := true
