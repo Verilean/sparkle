@@ -111,12 +111,31 @@ standard axioms. That means no `sorry` and no extra assumption was used.
 | **Other starting states.** The run starts from the declared initial value 0. | A register that powers up with another value is not covered. |
 | **Inputs wider than 8 bits.** Only streams whose values fit the declared width. | The IR stores numbers; out-of-range values are excluded by assumption. |
 | **The optimiser.** The statement is about the module synthesis returned. | If an optimisation pass runs afterwards, its output is not covered (with `#ved_write_checked` the files are written from the checked module). |
-| **The SystemVerilog text.** The meaning used is Sparkle's IR semantics (`Sparkle/IR/Semantics.lean`). | Whether the printed `.sv` file means the same to a simulator or a synthesis tool is not proved. |
+| **The SystemVerilog text.** The meaning used is Sparkle's IR semantics (`Sparkle/IR/Semantics.lean`). | `delay8.ved_u1` stops at the IR. The step from the IR to SystemVerilog has its own, separate theorems for a fragment, and tests beyond it: see section 6. |
 | **Timing, the FPGA or chip.** | Clock frequency, glitches, the board: nothing physical. |
 | **Other circuits.** | The theorem is about `delay8` only. A circuit the entry refuses gets no claim, and a refusal is not a counterexample. |
 | **The compiler in general.** | This is a proof for one compilation result, not a theorem that the compiler is correct for every input ([CompilerGeneralTheorem.md](CompilerGeneralTheorem.md)). |
 
-## 6. Where next
+## 6. From the module to SystemVerilog: proved for a fragment, tested beyond it
+
+The step from the IR module to SystemVerilog is not left unchecked, but it is covered by
+**other** theorems than `delay8.ved_u1`, and only partly:
+
+| What | Status | Where |
+|---|---|---|
+| An IR expression emitted to the SystemVerilog syntax tree and read back keeps its width and value | **proved**, for a fragment: references, constants that fit their width, and/or/xor/add/mul, mux, not, slices, casts | `roundtrip_sem`, `Tools/SVParser/RoundtripProof.lean` |
+| For a module whose body passes the check `seqCheck`, the emitted Verilog's run equals the IR's run at every cycle | **proved**, against a SystemVerilog meaning written in Lean (`Tools/SVParser/SVSemantics.lean`) | `certified_forward_trace_module`, `Tools/SVParser/EmitSem.lean` |
+| Printing the syntax tree as text and parsing the text back | not proved (a separate printer/parser obligation) | |
+| The shipping emitter and parser themselves | not proved directly: they are `partial def`s (73 on the path), about which Lean states no theorems. The proofs are about total copies with the same equations, tied to the shipping code by executable checks | `Tools/SVParser/RoundtripProof.lean` header |
+| Constructs outside the fragment / outside `seqCheck` | tested, not proved: parse → IR → re-emit on the XiangShan CPU sources (99.95 % coverage), co-simulation of the original Verilog, the re-emitted RTL and the C simulation on every runnable leaf module, and a CI gate with formal equivalence by yosys. Tests cover the inputs they run, not every input | README "Round-trip testing", `bench/xiangshan/` |
+| The official SystemVerilog standard, a simulator's or a synthesis tool's reading of the file | not connected: the Lean meaning above is a model, not the standard | [appendix B](appendix/B-TrustBase.md) |
+| Joining these with `delay8.ved_u1` into one theorem from `delay8` to the `.sv` file | not done | |
+
+Bugs of exactly this kind have happened: the XiangShan campaign found emitted Verilog that dropped
+a slice offset, gave a concatenation the wrong width, and widened `~` by context. All were fixed, and
+they are the reason the proved fragment is the translation layer.
+
+## 7. Where next
 
 - The same theorem with more background, and how mutated modules are refused:
   [tutorial chapter 7c](../tutorial/md/Ch07c_VerifiedSynthesis.md).
