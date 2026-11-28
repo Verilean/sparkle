@@ -5,7 +5,7 @@ import Tools.VedU2HierMultiBundle
 /-!
 # VED compose research: the cone connection (prototype, new file, nothing existing is changed)
 
-See docs/VED-COMPOSE-RESEARCH.md.  The published decomposition methods (ACL2 SV override transparency, Kami modular
+See notes/ved/VED-COMPOSE-RESEARCH.md.  The published decomposition methods (ACL2 SV override transparency, Kami modular
 refinement) both reduce to one local obligation per cut point: *the cone that is proved about equals the cone that the
 design computes*.  For Sparkle the cut (instance outputs replaced by oracle wires) is already sound and generic
 (`fold_oracle`, `step_local`); what is missing is a kernel-checked statement that the RETURNED statement list, read from

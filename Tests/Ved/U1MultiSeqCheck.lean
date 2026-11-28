@@ -3,8 +3,8 @@ import Tools.VedU1PackedEntry
 /-!
 # Checks for the packed result with registers (`#ved_u1_packed` on a `Signal.loop` body)
 
-A product result is ONE port `out` (docs/VED-U1-PACKED.md); when the body has registers the contract also
-carries the clock/reset names and the register initial values (docs/VED-U1-MULTISEQ.md), read from the returned
+A product result is ONE port `out` (notes/ved/VED-U1-PACKED.md); when the body has registers the contract also
+carries the clock/reset names and the register initial values (notes/ved/VED-U1-MULTISEQ.md), read from the returned
 module like `contractOf` does for a single port, and the statement is the same `PackedStmt`.
 
 Positives: the registered theorem has EXACTLY the type `PackedStmt <ved_contract> <ved_mod> <decl>`; the

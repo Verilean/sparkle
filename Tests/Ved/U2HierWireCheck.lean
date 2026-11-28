@@ -13,7 +13,7 @@ the type); no binder was added.
 What H2c adds to H2b: a child DATA port may be connected to a parent wire that is a pure function of
 the parent DATA inputs (an assigned wire all of whose reads are, recursively, data inputs or such
 wires).  The child's own theorem is applied to the stream that wire carries (`kid_inst_net`); the
-tie of that stream to the stream the declaration's call expects (`F2`, docs/VED-HIER-H2-DESIGN.md
+tie of that stream to the stream the declaration's call expects (`F2`, notes/ved/VED-HIER-H2-DESIGN.md
 §2.1) is a goal the generated proof discharges from the closed run (`closed_run_asgOf`: every
 assignment holds in every cycle's environment) — a wrong net is refused at `[proof]`.
 

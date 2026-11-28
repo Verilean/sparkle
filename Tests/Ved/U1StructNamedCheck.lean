@@ -17,7 +17,7 @@ accepted
 
 Controls (option on): the statement of `chainN` against a module whose REGISTER UPDATE is wrong (`chainNR`: `q <~ w3 + qS` instead of `w3 + rS`), and against a
 module whose OUTPUT WIRE is wrong (`chainNO`: port `o3` reads `w2` instead of `w3`) are refused by the checker (`VED U1 REFUSED`, observed stage pinned
-below).  The scaling numbers and the cost on the real children are in docs/VED-COMPOSE-CONNECT.md, unit 23.
+below).  The scaling numbers and the cost on the real children are in notes/ved/VED-COMPOSE-CONNECT.md, unit 23.
 -/
 
 namespace Tests.Ved.U1StructNamedCheck

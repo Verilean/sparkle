@@ -9,7 +9,7 @@ import Sparkle.Core.CircuitDo
 
 Issue sparkle-ved-hier2-h2e.  Real IP rows R228 (`synth_icmpRequesterByte`) and R210 (`synth_arpResponderByte`) stopped in
 the register-step proof of the open parent.  What stood between a parent whose child reads `~~~(sum of register state)`
-and acceptance (`docs/VED-HIER-H2E.md`):
+and acceptance (`notes/ved/VED-HIER-H2E.md`):
 
 * `omega` does not read `x ^^^ 65535`: the complement of a bounded value is rewritten (`Tools/VedU2HierXor.lean`, one lemma
   per width) inside `ved_hier_close`;

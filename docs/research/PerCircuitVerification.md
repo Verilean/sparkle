@@ -148,9 +148,9 @@ tables are one run, including the loading of imports; there is no performance cl
 * **Memories in sub-modules.** Instances are covered for the shapes the hierarchy statements
   handle; memories inside children are not.
 * **Deep nesting.** Sub-modules that themselves contain sub-modules, beyond the shapes of the
-  design records ([VED-HIER-H2D](../VED-HIER-H2D.md), [VED-HIER-H2E](../VED-HIER-H2E.md)).
+  design records ([VED.md](../VED.md#hierarchy-limits)).
 * **Large arithmetic.** Wide arithmetic and cryptographic cones whose unfolded term is
-  exponentially large ([VED-U1-WIRE-SHARE](../VED-U1-WIRE-SHARE.md)).
+  exponentially large ([VED.md](../VED.md#single-module-large-shared-dag)).
 * **Budgets.** Elaboration, heartbeat and kernel limits are fixed; a proof that does not fit is
   refused at `proof`, never accepted with a smaller statement.
 * **Reset low.** The statements cover runs with reset deasserted from the start.
@@ -171,10 +171,20 @@ tables are one run, including the loading of imports; there is no performance cl
 * *Measure separately*: heartbeats for budget walls; elaboration time, kernel time and peak memory
   as three numbers.
 
-## 6. In progress, not in this release, not reviewed
+## 6. Not in this release, not counted
 
-These lines of work exist on unmerged branches or local lines. **None of it is part of the
-release, none of it is counted in the 243 of 327, and nothing in it has been reviewed.**
+The work below is **not part of the release** and **none of it is counted in the 243 of 327**.
+Its review state is a separate question and differs by item:
+
+* the single observed runs of section 6.1, and the nested and table routes of section 6.2, are
+  **not reviewed**;
+* the composition route of section 6.2 has since reached current `main` with #167; its units were
+  reviewed one by one before that merge. That review covers those units only, and being on `main`
+  does not by itself make anything reviewed. No new coverage measurement is reported here for the
+  current `main` integration. The earlier development snapshot has its own measurement-only
+  acceptance ([appendix E](appendix/E-DevelopmentSnapshot.md)), which does not transfer to current
+  `main`.
+
 Publishing the release does not wait for any of it.
 
 ### 6.1 Single observed runs
@@ -201,7 +211,7 @@ branches named (present there, **absent in the release**).
 | `U2HStmt`, `U2HRStmt` (hierarchy, with registers) | **yes** | `Tools/VedU2HierStmt.lean`, `Tools/VedU2HierReg.lean`; `#ved_u2_hier` |
 | `Cdo.elab_general` (deep grammar) | **yes** | `Tools/DeepElab.lean`; `#verify_elab_deep` |
 | `#ved_write_checked` | **yes** | `Tools/VedWriteChecked.lean` |
-| **Composition route**: options `ved.compose.step`, `ved.compose.connect`, `ved.compose.multiCircuit`, `sparkle.deepExportState`; lemmas such as `step_local` (`Tools/VedComposeStep.lean`), `ren_eval`, `tauOf` (`Tools/VedComposeConnect.lean`) | **no** (0 hits in the release) | public branch `meas/ved-route-compose` (the development snapshot of [appendix E](appendix/E-DevelopmentSnapshot.md)); lemma lines also on `ved/compose-connect`, `ved/proof-compose` |
+| **Composition route**: options `ved.compose.step`, `ved.compose.connect`, `ved.compose.multiCircuit`, `sparkle.deepExportState`; lemmas such as `step_local` (`Tools/VedComposeStep.lean`), `ren_eval`, `tauOf` (`Tools/VedComposeConnect.lean`) | **no** (0 hits in the release snapshot). Since the release these files are on current `main` (added by #167), without a new coverage measurement | the release snapshot has none of it; the development snapshot of [appendix E](appendix/E-DevelopmentSnapshot.md) (public branch `meas/ved-route-compose`) ran on this line; lemma lines also on `ved/compose-connect`, `ved/proof-compose` |
 | **Nested route**: `ved.compose.nested`, `U2HRStmtR`, `U2HRStmtR_iff_K`, `U2HRStmtR_of_S` | **no** (0 hits) | public branch `ved/nested` (`Tools/VedU2HierRec*.lean`, `Tests/Ved/U2HierRec*Check.lean`); 210 commits beyond the release; not reviewed |
 | **Table route** (in the style of the SVEXL tool): a node table with a per-node soundness lemma, a literal cut check and cone satisfiability (proposed lemma shapes `key_sound`, `conn_equal_many`) | **no** (0 hits) | **not public**: no branch on the public remote contains these names |
 

@@ -95,7 +95,7 @@ ENV PATH="/opt/venv/bin:${PATH}"
 # race), `struct.unpack` blows up trying to allocate ~400 MB,
 # the WebSocket stream dies, and the new tab's kernel sits at
 # `kernelPoll` forever waiting for an `execute_request` that
-# never arrives.  Verified to take `tests/e2e/wdb-hang.spec.ts`
+# never arrives.  Verified to take `scripts/e2e/wdb-hang.spec.ts`
 # from ~80% failure to 10/10 pass.
 #
 # This patch is meant to ship upstream as a PR to
@@ -191,7 +191,7 @@ WORKDIR /opt/xeus-lean
 # `jupyter_server` from running its 5.3→5.4 adapter, which
 # slightly reduces the surface for a separate
 # `deserialize_binary_message` race on kernel restart (see
-# `tests/e2e/wdb-hang.spec.ts` and the docs/tutorial Ch00
+# `scripts/e2e/wdb-hang.spec.ts` and the docs/tutorial Ch00
 # "Switching between chapters" note).
 #
 # This patch alone does NOT eliminate the wdb-hang race — that
@@ -358,7 +358,7 @@ p.write_text(json.dumps(spec,indent=2))"
 # alive, the new process's main thread blocks at
 # `futex_wait_queue` (Lean runtime mutex) and never reaches
 # kernelLoop.  Reproduces ~80% of the time via Playwright
-# (tests/e2e/wdb-hang.spec.ts), in BOTH wdb (ch03→ch01) and
+# (scripts/e2e/wdb-hang.spec.ts), in BOTH wdb (ch03→ch01) and
 # non-wdb (ch02→ch01) navigation paths — i.e. the wdb session is
 # incidental, the trigger is "two xlean processes coexist
 # briefly."

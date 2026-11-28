@@ -180,7 +180,17 @@ initialize bigShown : IO.Ref Nat ← IO.mkRef 0
 It is read by nothing in the proof path. -/
 initialize ranLog : IO.Ref (Array String) ← IO.mkRef #[]
 
-initialize proofCache : IO.Ref (Std.HashMap Lean.Expr (Option Lean.Expr)) ← IO.mkRef {}
+/-- what a failure of `proveRead` depends on besides its statement: the heartbeat limit, the recursion depth left (`ved_omega`, the discharger of `ved_pack_simp`,
+turns running out of it into an ordinary failure), `omegaMaxTree` (decides whether `omega` is tried) and the options (they can change the simp set) -/
+abbrev ReadBudget := Nat × Nat × Nat × Lean.Options
+
+/-- `proveRead` result for a closed statement: a proof with the signatures of the non-imported constants it mentions (`Tools.VedU1ScriptSeq.constsMatch`), or a
+failure with the budget it happened under (a proof is a proof under any budget; a failure only under the budget that produced it) -/
+inductive ProofEntry where
+  | proof (p : Lean.Expr) (sigs : Array Tools.VedU1ScriptSeq.ConstSig)
+  | failed (budget : ReadBudget)
+
+initialize proofCache : IO.Ref (Std.HashMap Lean.Expr ProofEntry) ← IO.mkRef {}
 
 /-- the fvars of `e` and of their types, in the order of the local context -/
 def closure (e : Lean.Expr) : MetaM (Array Lean.Expr) := do
@@ -202,13 +212,23 @@ def closure (e : Lean.Expr) : MetaM (Array Lean.Expr) := do
 /-- `proveRead` tries `omega` after `ved_pack_simp` only on a read with fewer tree nodes than this -/
 def omegaMaxTree : Nat := 20000
 
-/-- the proof of `S = F` as a closed statement over its free variables (cached by the closed statement); `none` when `ved_pack_simp` fails -/
+/-- see `ReadBudget` -/
+def readBudget : CoreM ReadBudget := do
+  let c ← read
+  return (c.maxHeartbeats, c.maxRecDepth - c.currRecDepth, omegaMaxTree, (← getOptions))
+
+/-- the proof of `S = F` as a closed statement over its free variables (cached by the closed statement; a failure also by the budget); `none` when `ved_pack_simp` fails -/
 def proveRead (S F : Lean.Expr) : TacticM (Option Lean.Expr) := do
   let eq ← mkEq S F
   let fvs ← closure eq
   let closed ← mkForallFVars fvs eq
-  if let some r := (← proofCache.get)[closed]? then
-    return r.map fun p => mkAppN p fvs
+  let budget ← readBudget
+  match (← proofCache.get)[closed]? with
+  | some (.proof p sigs) =>
+    -- a stored proof may mention an auxiliary `_proof_N` of another declaration (or of a backtracked branch): a hit needs those constants here, with their types
+    if ← Tools.VedU1ScriptSeq.constsMatch p sigs then return some (mkAppN p fvs)
+  | some (.failed b) => if b == budget then return none
+  | none => pure ()
   let m ← withLCtx {} #[] (mkFreshExprMVar closed)
   let saved ← getGoals
   setGoals [m.mvarId!]
@@ -223,7 +243,10 @@ def proveRead (S F : Lean.Expr) : TacticM (Option Lean.Expr) := do
     catch _ => pure false
   setGoals saved
   let r ← if ok then pure (some (← instantiateMVars m)) else pure none
-  proofCache.modify (·.insert closed r)
+  let entry : ProofEntry ← match r with
+    | some p => pure (.proof p (← Tools.VedU1ScriptSeq.constSigs p))
+    | none => pure (.failed budget)
+  proofCache.modify (·.insert closed entry)
   return r.map fun p => mkAppN p fvs
 
 /-- a goal with fewer tree nodes than this is left to the packing step of the loop script (the rewriting below is for goals whose tree is
@@ -488,9 +511,9 @@ elab "ved_pack_dag_wire_all" : tactic => do
   if dump then Tools.VedMemLoop.dbgLog s!"pack_dag_wire_all: goals={gs.length} skipped_wire={skipped} sizes after dag {allSz}"
   setGoals rest
 
-/-- `ved_omega` on a side condition without the hypotheses about signals (the packed memory rows `hM1`, `hD1`, ..: 1.6e8 tree nodes in R034;
+/-- Memory-stage `ved_omega` (not `ved_omega_c` of `VedU1ScriptSeqGen`, which is cached and keeps the signal hypotheses; the same name made both parse and this one ran): `ved_omega` on a side condition without the hypotheses about signals (the packed memory rows `hM1`, `hD1`, ..: 1.6e8 tree nodes in R034;
 `omega` reads every hypothesis, and they are no `Nat` / `Int` facts).  Only the side-condition goal loses them. -/
-elab "ved_omega_c" : tactic => do
+elab "ved_omega_mc" : tactic => do
   let mut g ← getMainGoal
   for d in ← g.withContext getLCtx do
     unless d.isImplementationDetail do
@@ -517,12 +540,12 @@ elab "ved_omega_c" : tactic => do
     IO.FS.writeFile s!"{dir}/omega_last.txt" txt
   evalTactic (← `(tactic| ved_omega))
 
-/-- `ved_omega_c`, also without the hypotheses of at least this many tree nodes: the packed reads left in the context (`this : S = F`,
+/-- `ved_omega_mc`, also without the hypotheses of at least this many tree nodes: the packed reads left in the context (`this : S = F`,
 900-1100 nodes each) and the register equalities (`hreg0..7`, 600-960): `omega` reads them as `/` `%` chains and its elimination
 (no heartbeat check) does not end on a failing side condition (R034 goal 44 of stage 6: 8 of them, > 500 s, 100% in `Lean.Omega`) -/
 def omegaHypMaxTree : Nat := 300
 
-/-- `ved_omega_c` with only the small hypotheses (range facts) -/
+/-- `ved_omega_mc` with only the small hypotheses (range facts) -/
 elab "ved_omega_s" : tactic => do
   let mut g ← getMainGoal
   for d in ← g.withContext getLCtx do
@@ -530,7 +553,7 @@ elab "ved_omega_s" : tactic => do
       if Tools.VedU1Loop.treeSizeVal (← g.withContext (instantiateMVars d.type)) ≥ omegaHypMaxTree then
         g ← g.tryClear d.fvarId
   setGoals [g]
-  evalTactic (← `(tactic| ved_omega_c))
+  evalTactic (← `(tactic| ved_omega_mc))
 
 /-- `omega` on the small hypotheses only (as `ved_omega_s`, no signal hypotheses, none of `omegaHypMaxTree` nodes or more) and without the
 2M heartbeat cap of `ved_omega`: the leaf of `ved_ctrl_cases` is a data goal that holds, and `omega` needs more than the cap for the
@@ -620,19 +643,6 @@ elab "ved_omega_n" : tactic => do
     saved.restore
     evalTactic (← `(tactic| ved_omega_t))
 
-/-- set when the leaf of `ved_ctrl_cases` fails (a data goal after the control cases that `omega` could not prove), the context has a
-hypothesis of `omegaHypMaxTree` nodes or more, and the residual has at least two DISTINCT subterms `(a % m) / k` with a literal `k`.
-A heuristic refusal rule: it does not check the width (16 bit or other) nor that the `a % m` are spellings of the same sum.
-Cleared by `ved_ctrl_cases` on entry and on success, and by `ved_leaf_gate` when it reads it. -/
-initialize ctrlLeafFailed : IO.Ref Bool ← IO.mkRef false
-
-/-- `t` unless the last `ved_ctrl_cases` ended on a failing leaf: the leafwise closers of such a goal do not end (`omega`'s elimination has no
-heartbeat check, so a local cap does not bound it: R034 goal 54 ran the rest of the 900 s), the refusal comes back at once -/
-elab "ved_leaf_gate " t:tactic : tactic => do
-  if ← ctrlLeafFailed.modifyGet fun b => (b, false) then
-    throwError "ved_leaf_gate: ved_ctrl_cases ended on a failing leaf, leafwise closers skipped"
-  evalTactic t
-
 /-- `ved_pack_simp` with `ved_omega_s` as side-condition prover (the plain one reads the 1.6e8-node signal hypotheses at every side condition) -/
 macro "ved_pack_simp_c" : tactic =>
   `(tactic| simp (disch := first | ved_omega_s | fail) only
@@ -701,7 +711,7 @@ def clearSigHyps : TacticM Unit := do
         g ← g.tryClear d.fvarId
   setGoals [g]
 
-/-- the closing stage on a goal of at least `omegaMaxTree` nodes: drop the hypotheses about signals (see `ved_omega_c`) -- plain `omega` of
+/-- the closing stage on a goal of at least `omegaMaxTree` nodes: drop the hypotheses about signals (see `ved_omega_mc`) -- plain `omega` of
 the closers reads them all -/
 elab "ved_clear_sig_big" : tactic => do
   let g ← getMainGoal
@@ -717,9 +727,9 @@ elab "ved_or_lit_post" : tactic => do
     evalTactic (← `(tactic| ved_clear_sig_big))
     evalTactic (← `(tactic| ved_or_lit_m))
 
-/-- `ved_bit_simp` with `ved_omega_c` as side-condition prover -/
+/-- `ved_bit_simp` with `ved_omega_mc` as side-condition prover -/
 macro "ved_bit_simp_c" : tactic =>
-  `(tactic| simp (disch := first | ved_omega_c | (split <;> ved_omega_c) | fail) only
+  `(tactic| simp (disch := first | ved_omega_mc | (split <;> ved_omega_mc) | fail) only
       [Tools.VedU1Loop.and_lt2_l, Tools.VedU1Loop.and_lt2_r, Tools.VedU1Loop.or_lt2, Tools.VedU1Loop.xor_lt2])
 
 /-- `ved_bit_simp` on a goal that went through `ved_pack_dag` (the 0/1 `&&&` / `|||` of the wires need the field variables) -/
@@ -825,7 +835,7 @@ def mkCtrlSimp : TacticM CtrlSimp := do
   let r ← mkSimpContext stx false
   return ⟨r.ctx, r.simprocs⟩
 
-partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lean.Expr)) (vars : List (Name × Name × Nat)) : TacticM Unit := do
+partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lean.Expr)) (failed : IO.Ref Bool) (vars : List (Name × Name × Nat)) : TacticM Unit := do
   match vars with
   | [] =>
     let g ← getMainGoal
@@ -861,16 +871,16 @@ partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lea
         for e in Tools.VedU1WireShare.collectDag (fun e => e.isAppOfArity ``HDiv.hDiv 6 && (e.getArg! 5).nat?.isSome
             && (e.getArg! 4).isAppOfArity ``HMod.hMod 6) ty do
           unless sums.contains (e.getArg! 4) do sums := sums.push (e.getArg! 4)
-        ctrlLeafFailed.set (bigHyp && sums.size ≥ 2)
+        failed.set (bigHyp && sums.size ≥ 2)
         throw e
       cache.modify fun m => m.insert ty (Lean.Expr.mvar g)
   | (vn, bn, n) :: rest =>
     let g ← getMainGoal
     let lctx ← g.withContext getLCtx
-    let (some ld, some hv) := (lctx.findFromUserName? vn, lctx.findFromUserName? bn) | ctrlCases sc cache rest
+    let (some ld, some hv) := (lctx.findFromUserName? vn, lctx.findFromUserName? bn) | ctrlCases sc cache failed rest
     let v := ld.fvarId
     let tgt ← instantiateMVars (← g.getType)
-    if !(tgt.containsFVar v) then ctrlCases sc cache rest
+    if !(tgt.containsFVar v) then ctrlCases sc cache failed rest
     else
       let abs := tgt.abstract #[mkFVar v]
       let motive := Lean.Expr.lam `v (mkConst ``Nat) abs .default
@@ -888,11 +898,11 @@ partial def ctrlCases (sc : CtrlSimp) (cache : IO.Ref (Std.HashMap Lean.Expr Lea
         match r with
         | none => setGoals []
         | some (_, g') => setGoals [g']
-        unless (← getGoals).isEmpty do ctrlCases sc cache rest
+        unless (← getGoals).isEmpty do ctrlCases sc cache failed rest
         done := done ++ (← getGoals)
       setGoals done
 
-def ctrlCasesCore : TacticM Unit := withMainContext do
+def ctrlCasesCore (failed : IO.Ref Bool) : TacticM Unit := withMainContext do
   let tgt ← instantiateMVars (← getMainTarget)
   let isAtom := fun (e : Lean.Expr) =>
     (e.isAppOfArity ``BitVec.toNat 2 && (e.getArg! 1).isFVar)
@@ -939,20 +949,41 @@ def ctrlCasesCore : TacticM Unit := withMainContext do
     k := k + 1
   let sc ← mkCtrlSimp
   let cache ← IO.mkRef {}
-  ctrlCases sc cache vars
+  ctrlCases sc cache failed vars
 
-elab "ved_ctrl_cases" : tactic => do
+/-- `ved_ctrl_cases` for one closing run: `failed` is set when the leaf of the case split fails (a data goal after the control cases that
+`omega` could not prove), the context has a hypothesis of `omegaHypMaxTree` nodes or more, and the residual has at least two DISTINCT
+subterms `(a % m) / k` with a literal `k`.  A heuristic refusal rule: it does not check the width (16 bit or other) nor that the `a % m` are
+spellings of the same sum.  `failed` belongs to the caller (one `IO.mkRef` per call, never shared between goals or declarations). -/
+def ctrlCasesRun (failed : IO.Ref Bool) : TacticM Unit := do
   let dump := (← IO.getEnv "VED_DUMP_DIR").isSome
-  -- the flag `ved_leaf_gate` reads describes THIS call only (a leaf failure that an earlier call caught must not gate a later goal)
-  ctrlLeafFailed.set false
-  try clearSigHyps; ctrlCasesCore; ranLog.modify (·.push "ctrl_cases"); ctrlLeafFailed.set false
+  failed.set false
+  try clearSigHyps; ctrlCasesCore failed; ranLog.modify (·.push "ctrl_cases"); failed.set false
   catch e =>
     if dump then Tools.VedMemLoop.dbgLog s!"ctrl_cases: {(← e.toMessageData.toString).take 300}"
     throw e
 
+elab "ved_ctrl_cases" : tactic => do ctrlCasesRun (← IO.mkRef false)
+
+/-- the refusal of `ved_ctrl_or_gate` -/
+def ctrlGateMsg : String := "ved_leaf_gate: ved_ctrl_cases ended on a failing leaf, leafwise closers skipped"
+
+/-- `first | ved_ctrl_cases | t`, except that `t` is skipped (the refusal comes back at once) when `ved_ctrl_cases` ended on a failing leaf
+(`ctrlCasesRun`'s flag): the leafwise closers of such a goal do not end (`omega`'s elimination has no heartbeat check, so a local cap does
+not bound it: R034 goal 54 ran the rest of the 900 s).  The flag is a per-call `IO.Ref`, so declarations elaborated in parallel
+(`Elab.async`) cannot clear or consume each other's. -/
+elab "ved_ctrl_or_gate " t:tactic : tactic => do
+  let failed ← IO.mkRef false
+  let saved ← saveState
+  try ctrlCasesRun failed
+  catch _ =>
+    if ← failed.get then throwError ctrlGateMsg
+    saved.restore
+    evalTactic t
+
 /-- the proof caches of the closing tactics are emptied (see `ved_hstep_fallback_reset`) -/
 def hstepResetCaches : MetaM Unit := do
-  Tools.VedMemLoop.hstepAttempted.set false
+  Tools.VedMemLoop.hstepAttempted.modify (·.erase (Tools.VedMemLoop.runKey (← getOptions)))
   proofCache.set {}
   Tools.VedU1ScriptSeq.vedOmegaOk.set {}
   Tools.VedU1ScriptSeq.vedUbFail.set {}
@@ -965,7 +996,7 @@ caches of the closing tactics are emptied if the new branch has started.  The ca
 nothing changes.  (Test seam `hstepOldFail`: the old script fails here.) -/
 elab "ved_hstep_fallback_reset" : tactic => do
   if (← Tools.VedMemLoop.hstepOldFail.get) then throwError "ved_hstep_fallback: the old script fails (test seam)"
-  if (← Tools.VedMemLoop.hstepAttempted.get) then hstepResetCaches
+  if (← Tools.VedMemLoop.hstepAttempted.get).contains (Tools.VedMemLoop.runKey (← getOptions)) then hstepResetCaches
 
 /-- `ved_hstep_guard [new] [old]`: the guard wraps the WHOLE step case.
 * Option `ved.mem.hstepNorm` off (default): `old` runs, `new` is not tried (no `saveState`, no `try`).

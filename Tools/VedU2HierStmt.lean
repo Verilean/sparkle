@@ -3,7 +3,7 @@ import Tools.VedU2HierOrder
 /-!
 # H2 unit 3: the statement `U2HStmt` and the composition theorems (H2a)
 
-Design: docs/VED-HIER-H2-DESIGN.md §2.2, §3, §11 (Q8).  Scope (H2a): a REGISTER-FREE parent with
+Design: notes/ved/VED-HIER-H2-DESIGN.md §2.2, §3, §11 (Q8).  Scope (H2a): a REGISTER-FREE parent with
 instances of leaf children; every connection of a child input port is a `ref` to a parent INPUT
 (a parent data input for a data port, the parent's clock / reset input for the child's clock /
 reset port).  Derived or internal wires as instance inputs are not in this unit.

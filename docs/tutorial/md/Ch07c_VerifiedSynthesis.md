@@ -333,7 +333,7 @@ come from:
   is "the register holds the declaration's output at the current
   cycle").
 - **`#ved_u1_deep`** reuses what `#verify_elab_deep` already proved about
-  the declaration (see `docs/VED-MAIN-INTRO.md`):
+  the declaration (see [`docs/VED.md`](../../VED.md#what-ved-is)):
 
   ```text
   #verify_elab_deep accK9
@@ -420,7 +420,7 @@ lake build Tests.Ved.U1DeepCheck       # #ved_u1_deep on accK9 / natInit5
 ```
 
 CI builds the same targets in `.github/workflows/ved.yml`.  The design
-notes are in [`docs/VED-U1-MAIN.md`](../../VED-U1-MAIN.md); the reproduction
+notes are in [`docs/VED.md`](../../VED.md#single-module); the reproduction
 steps of the whole release are in
 [Appendix C](../../research/appendix/C-Reproduction.md).
 

@@ -1,0 +1,32 @@
+name: Docs
+
+# Checks for pull requests that change documentation.  build.yml and
+# downstream-smoke.yml skip docs-only pull requests (except the tutorial
+# sources), so this job is what such a pull request runs.  Python only.
+
+on:
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'docs/**'
+      - '**/*.md'
+      - 'scripts/research/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Relative links and anchors in the research docs
+      run: python3 -I scripts/research/check_links.py
+
+    - name: Coverage tables match the ledger (no file written)
+      run: python3 -I scripts/research/coverage_table.py --check

@@ -54,9 +54,19 @@ what Chapters 12's machinery certifies.
 
 ### The RTL
 
-`IP/Net/HFTQuote.lean`, in full:
+`IP/Net/HFTQuote.lean` — the datapath (the parameter record, the pure-data
+reference `quoteStep` / `runQuote` and the `QuoteOut` record sit beside it in
+the same file; the cell re-declares the engine under the same name in the
+global namespace, so it runs against the real library):
 
 ```lean
+import IP.Net.HFTQuote
+
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
+open Sparkle.IP.Control.FixedPoint
+open Sparkle.IP.Net.HFTQuote
+
 def quoteEngine {dom : DomainConfig}
     (k1 halfSpread qMax : BitVec 32)
     (mid : Signal dom (BitVec 32))
@@ -68,7 +78,7 @@ def quoteEngine {dom : DomainConfig}
     let sellDec := Signal.mux sellFill (Signal.pure one) (Signal.pure (0#32))
     q <~ clampSymC qMax (qS + buyInc - sellDec)
     let r := mid - mulQSig (Signal.pure k1) qS
-    return { bid := r - halfSpread, ask := r + halfSpread, inv := qS }
+    return ({ bid := r - halfSpread, ask := r + halfSpread, inv := qS } : QuoteOut dom)
 ```
 
 One register (the inventory), one Q15.16 multiply, two adds. `clampSymC
@@ -99,32 +109,41 @@ Exactly Chapter 12's spine, with new file names:
 
 Layer 2 is generated, not written:
 
-```lean
+```text
 retype_def resPriceQ := resPrice using Real => FixQ
 retype_def bidPriceQ := bidPrice using Real => FixQ
 retype_def askPriceQ := askPrice using Real => FixQ
 ```
+
+(Shown, not executed here: this is a theorem or fixture of the `proofs/`
+sidecar package, which needs Mathlib and is outside the tutorial's lake graph.)
 
 and then closed against both neighbours. Upward, a theorem: the transported
 reservation price sits within **one LSB** of the exact value — the single
 `mulQ` floor is the only error source, and the subtraction flips its bias
 one-sided:
 
-```lean
+```text
 theorem resPriceQ_within_one_lsb (k1 s q : FixQ) :
     0 ≤ scale * (resPriceQ k1 s q).n - (scale * s.n - k1.n * q.n) ∧
         scale * (resPriceQ k1 s q).n - (scale * s.n - k1.n * q.n) < scale
 ```
+
+(Shown, not executed here: this is a theorem or fixture of the `proofs/`
+sidecar package, which needs Mathlib and is outside the tutorial's lake graph.)
 
 Downward, `#guard` fixtures chain the transported equation to the BitVec
 `quoteStep` the circuit is sim-tested against — including negative
 inventory, where a truncating multiply would silently disagree with the
 flooring `mulQ` (the §12.2.1 asymmetry, again):
 
-```lean
+```text
 #guard (fixtureBidAsk (-3)).1 ==
   (bidPriceQ ⟨32768⟩ ⟨81920⟩ ⟨100 * 65536⟩ ⟨-3 * 65536⟩).n
 ```
+
+(Shown, not executed here: this is a theorem or fixture of the `proofs/`
+sidecar package, which needs Mathlib and is outside the tutorial's lake graph.)
 
 So: ℝ equation ⋈ (retype) ⋈ FixQ ⋈ (`#guard`) ⋈ `quoteStep` ⋈ (14-cycle
 `Signal.val` sim) ⋈ RTL. One chain, no hand-copied formula anywhere in it.
@@ -148,10 +167,13 @@ carries over, which is exactly why the envelope below decays as (1−c)ⁿ and
 why a *larger* skew response (bigger c) shrinks the resting ball W/c.
 `SparkleProofs.Hft.MarketMaking` then proves:
 
-```lean
+```text
 theorem inventory_ultimate_bound (T : InvTraj) (n : Nat) :
     |T.q n| ≤ (1 - T.c) ^ n * |T.q0| + T.W / T.c
 ```
+
+(Shown, not executed here: this is a theorem or fixture of the `proofs/`
+sidecar package, which needs Mathlib and is outside the tutorial's lake graph.)
 
 Read as a trading statement: **whatever position you start from, the mean
 dynamics bring you within W/c of flat, geometrically fast, and keep you
@@ -159,11 +181,14 @@ there.** The noise ball W/c is *exact*, not an over-approximation — one
 line of algebra shows it reproduces itself: `(1−c)·(W/c) + W = W/c`. And
 the corollary is phrased the way the desk would ask the question:
 
-```lean
+```text
 theorem inventory_settles (T : InvTraj) (n : Nat) (ε : ℝ)
     (htrans : (1 - T.c) ^ n * |T.q0| ≤ ε) :
     |T.q n| ≤ T.W / T.c + ε
 ```
+
+(Shown, not executed here: this is a theorem or fixture of the `proofs/`
+sidecar package, which needs Mathlib and is outside the tutorial's lake graph.)
 
 With the worked numbers — say the skew produces c = 0.2 per window and you
 quote 1 lot per side (W = 1) — the resting position stays within 5 lots of

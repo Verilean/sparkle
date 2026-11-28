@@ -1,6 +1,6 @@
 # Sparkle Tutorial
 
-A 12-chapter beginner course on writing, synthesising, and proving
+A 20-file beginner course (chapters 0 to 14, with sub-chapters 1b, 7b, 7c, 8b and 8c) on writing, synthesising, and proving
 hardware in Sparkle.
 
 ## Layout
@@ -8,17 +8,16 @@ hardware in Sparkle.
 ```
 docs/tutorial/
 ├── md/                           ← MASTER (.md, edit here)
-│   └── Ch??_*.md                 ← 12 chapters
+│   └── Ch??_*.md                 ← 20 chapter files
 ├── Notebooks/                    ← lake_lib srcDir
 │   ├── Gen/                      ← gitignored, regenerated from md/
 │   │   ├── Ch??_*.lean           ← lake build target
 │   │   └── notebooks/ch*.ipynb   ← JupyterLab
 │   ├── Solutions/                ← hand-written reference proofs
 │   │   └── Ch*.lean
-│   └── DisplayShim.lean          ← portable Display.* fallback
+├── Display.lean                  ← portable Display.* fallback
 ├── Notebooks.lean                ← lib root (manual import list)
 ├── build-from-md.sh              ← `xlean-convert` driver
-├── images/
 └── README.md                     ← this file
 ```
 
@@ -49,6 +48,14 @@ automatically.
 | 10 | Sparkle Architecture | [`md/Ch10_Architecture.md`](md/Ch10_Architecture.md) |
 | 11 | Running the web3 Signing Device on Real Hardware | [`md/Ch11_Web3Signer.md`](md/Ch11_Web3Signer.md) |
 | 12 | Control, Estimation, and the Engineering of Precision | [`md/Ch12_ControlPrecision.md`](md/Ch12_ControlPrecision.md) |
+| 13 | GPU Simulation: Monte-Carlo Sweeps and Systolic Arrays | [`md/Ch13_GpuSimulation.md`](md/Ch13_GpuSimulation.md) |
+| 14 | Market Making on Silicon: a Quoting Engine with a Proved Position Bound | [`md/Ch14_HftMarketMaking.md`](md/Ch14_HftMarketMaking.md) |
+
+Chapters 13 and 14 are not part of the `TutorialNotebooks` library
+(`Notebooks.lean` imports chapters 0 to 12), so their code cells are
+not type-checked by any build or CI job. The tests they mention (for
+example `lake exe hft-quote-test` and `lake exe cuda-sim-test`) check
+the related implementation in the repository, not the chapter's cells.
 
 ## How to run
 
@@ -88,7 +95,8 @@ export PATH="/tmp/xeus-lean/.lake/build/bin:$PATH"
 # 2. Regenerate Notebooks/Gen/ from md/.
 bash docs/tutorial/build-from-md.sh
 
-# 3. Typecheck every code cell.
+# 3. Typecheck the code cells of chapters 0 to 12 (13 and 14 are not
+#    imported by Notebooks.lean, see above).
 lake build TutorialNotebooks
 
 # 4. (optional) launch JupyterLab to actually run the cells.
@@ -113,8 +121,9 @@ the synthesis-safety rules every ` ```lean ` cell must follow.
 
 `.github/workflows/build.yml` defines a `tutorial-notebooks` job
 that builds `xlean-convert` from upstream xeus-lean, runs
-`build-from-md.sh`, and then `lake build TutorialNotebooks`.  Any
-chapter whose code cells stop typechecking will fail CI.
+`build-from-md.sh`, and then `lake build TutorialNotebooks`.  A
+chapter from 0 to 12 whose code cells stop typechecking fails CI;
+chapters 13 and 14 are converted but not type-checked.
 
 ## Research release
 

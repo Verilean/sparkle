@@ -18,8 +18,9 @@ Small examples that pin what R034 needed (`Tools/VedMemLoop.lean`, `Tools/VedMem
   shape is refused.
 * `ved_omega_n` / `ved_mod_norm`: the leaves of R034 goal 54 (flags of a 16-bit sum in two spellings, nested `%` / `/`, the v2 = 4 case and the
   `65536 - (..) % 65536` case) close; a false one is refused.
-* `ved_ctrl_cases` + `ved_leaf_gate`: a control case split with such a leaf closes; with a false leaf `ved_ctrl_cases` fails, the flag is
-  set, the gate refuses (the leafwise closers are skipped) once and resets.
+* `ved_ctrl_cases` / `ved_ctrl_or_gate`: a control case split with such a leaf closes; with a false leaf `ved_ctrl_cases` fails and, with big
+  hypotheses, `ved_ctrl_or_gate` refuses (the leafwise closers are skipped); the flag is per call (`ved_interleave`: two goals run in a fixed
+  order do not see each other's flag).
 * `ved_goal_gate n`: at most `n` open goals pass, more are refused (the case-split gate of the memory loop; `n = 0` disables it).  The limit is the public option `ved.mem.goalGate` (default 512), read by `#ved_u1_mem` and put into its script.
 -/
 
@@ -31,8 +32,9 @@ open Sparkle.Core.Domain Sparkle.Core.Signal
 set_option linter.unusedSimpArgs false
 set_option linter.unusedVariables false
 set_option ved.mem.causalDagMaskCheck true
--- `Tools.VedMemPack.ctrlLeafFailed` and the other closing-stage caches are process-global refs that the controls below set, read and clear;
--- declarations elaborated in parallel (`Elab.async`) race on them (a concurrent `ved_ctrl_cases` clears the flag between a control's failing call and its check)
+-- The leaf-failure flag of `ved_ctrl_or_gate` is per call (the controls below no longer need `Elab.async false` for it), but other controls of
+-- this file still read process-global refs (`dgHits`, `hstepRan`, `hstepGuardLog`, `hstepGuardHb`, `hnormStats`, `declWidthHits`, `bindStrictHits`)
+-- that a parallel declaration's closing run also writes: they stay serialised here (see the classification in the P2-1 report)
 set_option Elab.async false
 
 /-! ## ved_mem_addr on a goal of 2.7e8 tree nodes -/
@@ -148,130 +150,88 @@ theorem ctrl54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 1
     else x4.toNat) := by
   ved_ctrl_cases
 
-elab "ved_assert_leaf_flag" : tactic => do
-  unless ← Tools.VedMemPack.ctrlLeafFailed.get do throwError "ctrlLeafFailed not set"
-
-/-- the leaf is false, the context has big hypotheses (the ones `omega` would read): `ved_ctrl_cases` fails and sets the flag, the gate refuses once and resets it -/
-theorem gate54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16)
-    (hbig : ((if c.toNat % 8 = 4 then
+set_option hygiene false in
+/-- the residual of `ctrl54` (true) and the same with `33` for `32` (false: the leaf of `ved_ctrl_cases` fails) -/
+local macro "TRUE54" : term => `((if c.toNat % 8 = 4 then
       ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
         (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
     else x4.toNat) =
     (if c.toNat % 8 = 4 then
       (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
-    else x4.toNat)) ∧ ((if c.toNat % 8 = 4 then
-      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
-        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
-    else x4.toNat) =
-    (if c.toNat % 8 = 4 then
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
-    else x4.toNat)) ∧ ((if c.toNat % 8 = 4 then
-      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
-        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
-    else x4.toNat) =
-    (if c.toNat % 8 = 4 then
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
-    else x4.toNat))) : True := by
-  fail_if_success (have _h := (show (if c.toNat % 8 = 4 then
+    else x4.toNat))
+set_option hygiene false in
+local macro "FALSE54" : term => `((if c.toNat % 8 = 4 then
       ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
         (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
     else x4.toNat) =
     (if c.toNat % 8 = 4 then
       (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 33) % 65536 / 32768 % 2
-    else x4.toNat) by ved_ctrl_cases); trivial)
-  ved_assert_leaf_flag
-  fail_if_success (ved_leaf_gate skip)
-  ved_leaf_gate skip
+    else x4.toNat))
+/-- hypotheses of `omegaHypMaxTree` nodes or more -/
+local macro "BIG54" : term => `(TRUE54 ∧ TRUE54 ∧ TRUE54)
+
+/-- test-only: run `t`, it must fail with a message containing `s` -/
+elab "expect_err " s:str t:tactic : tactic => do
+  let ok ← try withoutRecover (evalTactic t); pure true catch e =>
+    unless ((← e.toMessageData.toString).splitOn s.getString).length > 1 do
+      throwError "expect_err: other error: {← e.toMessageData.toString}"
+    pure false
+  if ok then throwError "expect_err: succeeded, expected an error containing '{s.getString}'"
+
+/-- the leaf is false, the context has big hypotheses (the ones `omega` would read): `ved_ctrl_or_gate` refuses at once, `t` (a marker that
+fails with its own message) does not run -/
+theorem gate54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) (hbig : BIG54) : True := by
+  expect_err "failing leaf" (have _h := (show FALSE54 by ved_ctrl_or_gate (fail "T-RAN")); trivial)
   trivial
 
-elab "ved_assert_no_leaf_flag" : tactic => do
-  if ← Tools.VedMemPack.ctrlLeafFailed.get then throwError "ctrlLeafFailed set without big hypotheses"
-
-/-- the same false leaf without big hypotheses: `ved_ctrl_cases` fails, the flag stays unset (the leafwise closers may still run) -/
+/-- the same false leaf without big hypotheses: no refusal, `t` runs (the leafwise closers may still rescue it) -/
 theorem gateSmall54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) : True := by
-  fail_if_success (have _h := (show (if c.toNat % 8 = 4 then
-      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
-        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
-    else x4.toNat) =
-    (if c.toNat % 8 = 4 then
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 33) % 65536 / 32768 % 2
-    else x4.toNat) by ved_ctrl_cases); trivial)
-  ved_assert_no_leaf_flag
+  expect_err "T-RAN" (have _h := (show FALSE54 by ved_ctrl_or_gate (fail "T-RAN")); trivial)
   trivial
 
-/-- the flag of a failing call does not survive the NEXT `ved_ctrl_cases`: after a failure that set it (and was not read by a
-gate), a succeeding call clears it and the gate runs its tactic -/
-theorem gateResetOk54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16)
-    (hbig : ((if c.toNat % 8 = 4 then
-      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
-        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
-    else x4.toNat) =
-    (if c.toNat % 8 = 4 then
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
-    else x4.toNat)) ∧ ((if c.toNat % 8 = 4 then
-      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
-        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
-    else x4.toNat) =
-    (if c.toNat % 8 = 4 then
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
-    else x4.toNat)) ∧ ((if c.toNat % 8 = 4 then
-      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
-        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
-    else x4.toNat) =
-    (if c.toNat % 8 = 4 then
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
-    else x4.toNat))) : True := by
-  fail_if_success (have _h := (show (if c.toNat % 8 = 4 then
-      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
-        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
-    else x4.toNat) =
-    (if c.toNat % 8 = 4 then
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 33) % 65536 / 32768 % 2
-    else x4.toNat) by ved_ctrl_cases); trivial)
-  ved_assert_leaf_flag
-  have _ok : (if c.toNat % 8 = 4 then
-      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
-        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
-    else x4.toNat) =
-    (if c.toNat % 8 = 4 then
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
-    else x4.toNat) := by ved_ctrl_cases
-  ved_assert_no_leaf_flag
-  ved_leaf_gate skip
+/-- a true goal: `ved_ctrl_or_gate` closes it with the case split, `t` does not run -/
+theorem gateOk54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) (hbig : BIG54) : True := by
+  have _ok : TRUE54 := by ved_ctrl_or_gate (fail "T-RAN")
   trivial
 
-/-- likewise after a failing next call whose residual does not have the gated shape (no `(a % m) / k`): the flag is cleared on entry -/
-theorem gateResetFail54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16)
-    (hbig : ((if c.toNat % 8 = 4 then
-      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
-        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
-    else x4.toNat) =
-    (if c.toNat % 8 = 4 then
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
-    else x4.toNat)) ∧ ((if c.toNat % 8 = 4 then
-      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
-        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
-    else x4.toNat) =
-    (if c.toNat % 8 = 4 then
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
-    else x4.toNat)) ∧ ((if c.toNat % 8 = 4 then
-      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
-        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
-    else x4.toNat) =
-    (if c.toNat % 8 = 4 then
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 32) % 65536 / 32768 % 2
-    else x4.toNat))) : True := by
-  fail_if_success (have _h := (show (if c.toNat % 8 = 4 then
-      ((x4.toNat % 65536 + x6.toNat % 65536) % 65536 +
-        (x5.toNat % 65536 + (32768 * (x7 % 65536 / 32768 % 2) + x7 % 65536 / 2 % 32768)) % 65536 + 32) % 65536 / 32768 % 2
-    else x4.toNat) =
-    (if c.toNat % 8 = 4 then
-      (x4.toNat + x6.toNat + (x5.toNat + (32768 * (x7 / 32768 % 2) + x7 / 2 % 32768)) + 33) % 65536 / 32768 % 2
-    else x4.toNat) by ved_ctrl_cases); trivial)
-  ved_assert_leaf_flag
-  fail_if_success (have _h := (show (if c.toNat % 8 = 4 then x4.toNat else x5.toNat) = x6.toNat by ved_ctrl_cases); trivial)
-  ved_assert_no_leaf_flag
-  ved_leaf_gate skip
+/-- a failing call with a refusal does not gate the NEXT call (the flag is per call): after it, a succeeding call and a failing call without
+the gated shape (no `(a % m) / k`) run as before, and a plain `ved_ctrl_or_gate skip` runs `skip` -/
+theorem gateSequence54 (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) (hbig : BIG54) : True := by
+  expect_err "failing leaf" (have _h := (show FALSE54 by ved_ctrl_or_gate (fail "T-RAN")); trivial)
+  have _ok : TRUE54 := by ved_ctrl_or_gate (fail "T-RAN")
+  expect_err "T-RAN" (have _h := (show (if c.toNat % 8 = 4 then x4.toNat else x5.toNat) = x6.toNat by ved_ctrl_or_gate (fail "T-RAN")); trivial)
+  ved_ctrl_or_gate skip
+  trivial
+
+/-- Deterministic interleave control (no timing): goals `A` (false leaf) and `B` are run in the order "A's `ctrlCasesRun`, B's `ctrlCasesRun`",
+each with its own flag as `ved_ctrl_or_gate` makes it, and the flags are read afterwards: `ea` / `eb` are the expected flags of A and B (1 = the refusal
+rule fired).  With the former process-global flag B's entry cleared A's (`ea = 1` read 0) and B's failure set one that A's gate consumed (`ea = 0` read 1). -/
+elab "ved_interleave " ea:num eb:num : tactic => do
+  let [gA, gB] ← getGoals | throwError "ved_interleave: expected two goals"
+  let fa ← IO.mkRef false
+  let fb ← IO.mkRef false
+  let sA ← saveState
+  setGoals [gA]
+  let okA ← try Tools.VedMemPack.ctrlCasesRun fa; pure true catch _ => pure false
+  sA.restore
+  if okA then throwError "ved_interleave: A closed"
+  let sB ← saveState
+  setGoals [gB]
+  let okB ← try Tools.VedMemPack.ctrlCasesRun fb; pure true catch _ => pure false
+  sB.restore
+  let (ra, rb) := (← fa.get, ← fb.get)
+  unless ra == (ea.getNat == 1) do throwError "ved_interleave: A's flag {ra}, expected {ea.getNat == 1} (B closed: {okB})"
+  unless rb == (eb.getNat == 1) do throwError "ved_interleave: B's flag {rb}, expected {eb.getNat == 1}"
+  throwError "ved_interleave: ok"
+
+/-- A (big hypotheses, false leaf) sets its flag; B (a true goal) runs between A's failure and A's gate decision: A's flag stays set -/
+theorem interleaveClear (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) (hbig : BIG54) : True := by
+  expect_err "ved_interleave: ok" (have _h : FALSE54 ∧ TRUE54 := by (refine ⟨?_, ?_⟩; ved_interleave 1 0); trivial)
+  trivial
+
+/-- A (no big hypotheses) fails without a flag; B (big hypotheses in its context, false leaf) sets its own: A's flag stays unset -/
+theorem interleaveConsume (c : BitVec 3) (x4 x5 x6 : BitVec 16) (x7 : Nat) (h7 : x7 < 2 ^ 16) : True := by
+  expect_err "ved_interleave: ok" (have _h : FALSE54 ∧ (BIG54 → FALSE54) := by (refine ⟨?_, fun _ => ?_⟩; ved_interleave 0 1); trivial)
   trivial
 
 /-! ## ved_mem_budget / withLocalHb: the local budget of `ved_pack_wire_m`'s fallback
@@ -790,9 +750,9 @@ elab "#ved_axioms " ids:ident* : command => do
     unless axs.all (std.contains ·) do throwError "{n}: axioms {axs}"
   logInfo m!"axioms within std3: {ids.size} declarations"
 
-/-- info: axioms within std3: 13 declarations -/
+/-- info: axioms within std3: 15 declarations -/
 #guard_msgs in
-#ved_axioms Tools.VedMemPack.ved_mod_sum sigHyps leaf44 refuse44 leaf54a leaf54b ctrl54 gate54 gateSmall54 gateResetOk54 gateResetFail54 goalGateOk goalGateRefuses
+#ved_axioms Tools.VedMemPack.ved_mod_sum sigHyps leaf44 refuse44 leaf54a leaf54b ctrl54 gate54 gateSmall54 gateOk54 gateSequence54 interleaveClear interleaveConsume goalGateOk goalGateRefuses
 
 
 /-! ## ved_causal_dag (sparkle-ved-mem-r033-proof)

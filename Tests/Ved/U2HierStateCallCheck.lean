@@ -13,7 +13,7 @@ where `cnt` is the emitter's counter register (`burstEmit`: the child is passed 
 the register inside `circuit do`).  `synth_httpGetByte` is PRIVATE to its module, so the entry cannot be run
 on it from another module; `getByteCopy` below is the same declaration, and a check compares the two
 definitions' VALUES as `Expr`s (`==`).  The run on the original declaration itself is the same command
-appended to that module (see `docs/VED-HIER-H2C-STATE.md`).
+appended to that module (see `notes/ved/VED-HIER-H2C-STATE.md`).
 
 After `#ved_u2_hier` the facts are checked independently of the entry: the stored type of the theorem is, as an
 `Expr` compared with `==`, `U2HRStmt <decl>.ved_contract <decl>.ved_mod <decl>.ved_design <decl>` (the H2b

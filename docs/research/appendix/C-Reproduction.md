@@ -23,11 +23,11 @@
 
 There are two kinds of commit; only the first is a place to work.
 
-* **The reader's checkout**: the branch `docs/research-release` (after the pull request is
-  merged: the merge commit on `main`, or the release tag if one is made). It has the code, these
+* **The reader's checkout**: the commit `3af3889f` on `main` (the merge of the release
+  pull request #165). It has the code, these
   pages, `scripts/research/` and `docs/research/examples/`. Every short procedure in this
   directory (CONTRIBUTING-research, OpenProblems, this appendix up to the TSV section) starts here.
-* **Provenance only**: the code SHA `2bcf256b` (branch `ved/consolidated-1`, the code the numbers
+* **Provenance only**: the code SHA `2bcf256b` (the head of the merged #163, branch `ved/consolidated-1`, the code the numbers
   describe; it has no `docs/research/`, no `scripts/research/`) and the measured SHA `fb7124fc`
   (code plus the harness). `git diff --stat 2bcf256b <reader's checkout>` shows only `docs/`,
   `scripts/research/`, `.github/workflows/research-ux.yml` (the build-time measurement, run only
@@ -35,7 +35,7 @@ There are two kinds of commit; only the first is a place to work.
 
 ```bash
 git clone https://github.com/Verilean/sparkle && cd sparkle
-git checkout docs/research-release
+git checkout 3af3889f
 ```
 
 ## Run the per-circuit checks

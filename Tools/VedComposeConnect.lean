@@ -9,7 +9,7 @@ import Tools.VedComposeOrder
 `Tools/VedComposeResearchCut.lean` (approved) proves `inl_sound`, `bn_sound` and `cone_connect_bn`: the value of an
 assignment's right-hand side at the abstract environment `E` of `step_local` equals the value of the NORMALISED INLINED cone at
 the leaf valuation `leafEnv` (cycle inputs, pre-state, oracle).  This file adds the three pieces the research note lists as
-missing (docs/VED-COMPOSE-RESEARCH.md §7):
+missing (notes/ved/VED-COMPOSE-RESEARCH.md §7):
 
 * **W (width transport)**: `ren_eval` evaluates a renamed cone under another width environment and another valuation; `tabW`
   is the closed Bool check that every leaf of the returned cone has, in the deep context, the width the returned module's

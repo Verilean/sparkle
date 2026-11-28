@@ -564,7 +564,7 @@ def memLoopScript (dbg gate loopGate h0Budget : Nat) (nm : Names) (F : Name) (nD
     pure a
   let h0Term : Term ← if h0Elems.size == 1 then pure h0Elems[0]! else `(⟨$[$h0Elems],*⟩)
   let closing ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega)))
-  let closing ← if pk then `(tactic| ved_all_goals_log ((ved_clear_sig_big; first | ved_decide_small2 | ved_ctrl_cases | ved_leaf_gate (first | (ved_leafwise <;> (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega))) | (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega)))))) else pure closing
+  let closing ← if pk then `(tactic| ved_all_goals_log ((ved_clear_sig_big; first | ved_decide_small2 | ved_ctrl_or_gate (first | (ved_leafwise <;> (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega))) | (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega)))))) else pure closing
   let closingDbg ← `(tactic| all_goals (first | ved_loop_close [BitVec.toNat_eq, Nat.and_one_is_mod, Tools.VedU1Loop.ved_mul_lit_nat, Tools.VedU1LemmasExt1.beq_eq_bne, Nat.add_zero, Nat.sub_zero, Nat.zero_add, Int.bmod_def, Int.natCast_zero, Int.add_zero, Int.sub_zero] | ved_bmod_close | ((try ved_bits_facts) <;> (repeat' split) <;> (try simp (disch := omega) only [Nat.mod_eq_of_lt]) <;> (try ved_bits_facts) <;> omega) | (have hb1 : Bool.toNat true = 1 := rfl; have hb0 : Bool.toNat false = 0 := rfl; omega) | ved_dbg_state))
   let closing := if dbg == 17 then closingDbg else closing
   let mkStages := fun (fz : Bool) => do
@@ -817,9 +817,11 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
     if Tools.VedMemLoop.ved.mem.hstepNorm.get (← getOptions) then
       let tab : Std.HashMap String Nat := m.wires.foldl (fun t p =>
         if t.contains p.name then t else t.insert p.name (Tools.VedU1Contract.declWidth m p.name)) {}
-      Tools.VedMemLoop.declWidthTab.set (some (nm.mod, tab))
+      if let some v := (← getEnv).find? nm.mod |>.bind (·.value?) then
+        Tools.VedMemLoop.declWidthTab.modify (·.insert nm.mod (v, tab))
+    let runId ← Tools.VedMemLoop.freshRunId
     let pf ← try (tryCatchRuntimeEx
-      (withProofBudget do
+      (withOptions (·.insert `ved.mem.runId (.ofNat runId)) <| withProofBudget do
         withoutErrToSorry do
           rssNote "before elab"
           let tGen0 ← IO.monoMsNow
@@ -838,7 +840,9 @@ def checkMemE (decl : Name) (base : Name) (stmt : Lean.Expr) (m : Sparkle.IR.AST
         if ved.mem.showScript.get (← getOptions) then
           for msg in (← Core.getMessageLog).toList do IO.eprintln s!"VED MEM MSG {← msg.data.toString}"
         refuse decl "proof" e.toMessageData)
-      finally Tools.VedMemLoop.declWidthTab.set none
+      finally
+        Tools.VedMemLoop.hnormLoops.modify (·.erase runId)
+        Tools.VedMemLoop.hstepAttempted.modify (·.erase runId)
     if ved.mem.showScript.get (← getOptions) then IO.eprintln s!"VED MEM elaborated, proof term size {pf.approxDepth}"
     let errs := (← Core.getMessageLog).toList.filter (·.severity == .error)
     if errs.length != errsBefore then

@@ -4,7 +4,7 @@ import Tests.Ved.U2HierCheck
 # Statement pinning for H2a (reviewer condition 3)
 
 The full types of `runHS_proj` / `ProjAt` and of the composed final statement `U2HStmt` are pinned
-INDEPENDENTLY of their definitions: each is restated here from the design (docs/VED-HIER-H2-DESIGN.md
+INDEPENDENTLY of their definitions: each is restated here from the design (notes/ved/VED-HIER-H2-DESIGN.md
 §2.4, §3) in primitive terms and proved by the lemma itself (so the lemma cannot be strengthened or
 weakened without this file failing), and the printed types are fixed by `#guard_msgs`.
 

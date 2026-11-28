@@ -167,7 +167,7 @@ def example_RIGHT (input : Signal Domain (BitVec 8 × BitVec 8)) : Signal Domain
 - For 4-tuples: `.proj4_1`, `.proj4_2`, `.proj4_3`, `.proj4_4`
 - For 5-8 tuples: `unbundle5` through `unbundle8` (but access via tuple projections, not pattern matching)
 
-See [Tests/TestUnbundle2.lean](../Tests/TestUnbundle2.lean) for detailed examples.
+See [Tests/TestUnbundle2.lean](../../Tests/TestUnbundle2.lean) for detailed examples.
 
 ---
 

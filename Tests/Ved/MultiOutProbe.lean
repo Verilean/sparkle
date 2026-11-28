@@ -72,7 +72,7 @@ def storedHasReg (n : Name) : CommandElabM Bool := liftTermElabM do
 
 The struct child of the parent route is proved by the same entry (`stmtOfStruct` + `checkU1E`); here the standard command is run on a
 2-output child with a register, and its result is read back: a `U1Stmt` theorem over a module that has a register, standard axioms.
-No acceptance of a PARENT over such a child is claimed (see docs/VED-COMPOSE-CONNECT.md, unit 17). -/
+No acceptance of a PARENT over such a child is claimed (see notes/ved/VED-COMPOSE-CONNECT.md, unit 17). -/
 
 @[hardware_module] def kidSeq {dom : DomainConfig} (x y : Signal dom (BitVec 4)) : Q2 dom :=
   circuit do

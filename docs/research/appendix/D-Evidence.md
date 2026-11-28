@@ -46,4 +46,4 @@ five routes each); these are never counted as strict.
 
 Single local runs (nested-hierarchy rows, P-256 point-operation traces) are not ledger rows and
 have no review record. They are described, with their labels, only in
-[PerCircuitVerification.md, section 6](../PerCircuitVerification.md#6-in-progress-not-in-this-release-not-reviewed).
+[PerCircuitVerification.md, section 6](../PerCircuitVerification.md#6-not-in-this-release-not-counted).

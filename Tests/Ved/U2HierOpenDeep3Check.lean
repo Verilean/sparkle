@@ -8,7 +8,7 @@ import IP.Net.ICMP
 /-!
 # Checks for H2e, part 2: the unfolded nested loop, and the budget of the register-parent route
 
-Issue sparkle-ved-hier2-h2e (`docs/VED-HIER-H2E.md`; part 1 is `U2HierOpenDeep2Check`).
+Issue sparkle-ved-hier2-h2e (`notes/ved/VED-HIER-H2E.md`; part 1 is `U2HierOpenDeep2Check`).
 
 * `reqW` is R228's shape at a small scale: the receive parser of the ICMP library (a nested stateful circuit of five
   registers) is applied outside the parent's `circuit do`; its `done` and `ident` are read by the next state of the parent's

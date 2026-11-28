@@ -3,7 +3,7 @@ import Tools.VedU2HierStmt
 /-!
 # H2b: the statement `U2HRStmt` and the composition theorem for a parent WITH REGISTERS
 
-Design: docs/VED-HIER-H2-DESIGN.md §1.2, §11, §12.  `Tools/VedU2HierStmt.lean` (`U2HStmt`,
+Design: notes/ved/VED-HIER-H2-DESIGN.md §1.2, §11, §12.  `Tools/VedU2HierStmt.lean` (`U2HStmt`,
 `outputsOnHS_of_oracle`) and everything H2a proved are unchanged; this is a separate definition and a
 separate theorem.
 

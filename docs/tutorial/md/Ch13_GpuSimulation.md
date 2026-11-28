@@ -22,6 +22,12 @@ different inputs. Here is a 32-bit linear congruential generator, seedable
 through an input port — one flat `circuit do`, nothing GPU-specific:
 
 ```lean
+import Sparkle
+import Sparkle.Compiler.Elab
+
+open Sparkle.Core.Domain
+open Sparkle.Core.Signal
+
 def lcg {dom : DomainConfig}
     (seedLoad : Signal dom Bool) (seed : Signal dom (BitVec 32)) :
     Signal dom (BitVec 32) :=
@@ -31,7 +37,7 @@ def lcg {dom : DomainConfig}
     x <~ Signal.mux seedLoad seed (xS * (1664525#32) + (1013904223#32))
     return xS
 
-#writeCudaDesign lcg "gen/lcg.cu"
+#writeCudaDesign lcg ".lake/build/gen/lcg.cu"
 ```
 
 `#writeCudaDesign` runs at build time and writes a self-contained `.cu`:
@@ -40,7 +46,7 @@ device code *is* the CPU reference), a `__global__` batch kernel, and an
 `extern "C"` host API. Compile it into a shared library:
 
 ```bash
-nvcc -O2 -std=c++17 -shared -Xcompiler -fPIC -o liblcg.so gen/lcg.cu
+nvcc -O2 -std=c++17 -shared -Xcompiler -fPIC -o liblcg.so .lake/build/gen/lcg.cu
 ```
 
 Drive N instances from any host program (dlopen or link directly):
@@ -84,13 +90,21 @@ Build the top as explicit IR instances. This is ~20 lines for an N×N
 generator (see `Tests/Drivers/CudaIntraCosimMain.lean` for the parametric
 version; `Tests/TestCudaSim.lean` has the literal 2×2):
 
-```lean
+```text
 -- PE: a_out = registered a_in;  p_out = registered (p_in + a_in·w)
 -- Mesh: activations stream right, partial sums flow down.
 #eval do
   let cu := Sparkle.Backend.CudaIntra.toCudaIntraDesign!
               Sparkle.Test.CudaSim.systolicDesign
   IO.FS.writeFile "gen/mesh.cu" cu
+```
+
+(Shown, not executed here: `systolicDesign` lives in the test-only module
+`Tests/TestCudaSim.lean`, which the tutorial library does not import. The
+entry point it calls is checked below.)
+
+```lean
+#check @Sparkle.Backend.CudaIntra.toCudaIntraDesign!
 ```
 
 ```bash
@@ -119,7 +133,7 @@ else a cooperative grid launch (any size — this is what scales to
 The DSL form — a small `@[hardware_module]` PE returning a named-output
 record, `let`-wired into a mesh — is how this chapter *wants* to read:
 
-```lean
+```text
 @[hardware_module] def pe {dom} (aIn pIn w : Signal dom (BitVec 32)) : PeOut dom := …
 def mesh2x2 … :=
   let pe00 := pe a0        zero      w00
