@@ -1344,6 +1344,15 @@ def lowerNonExactLam2 (e f : Lean.Expr) (wa wb hint : String) (isNamed : Bool) :
 def canonHardwareKey (value : Lean.Expr) : CompilerM String := do
   return toString (← canonHardwareExpr value).hash
 
+/-- The Sparkle `Signal` primitives the lowering recognises by name.  Matching
+    the exact constant (not a `.mux` / `.register` suffix) keeps a user def such
+    as `Mine.mux` compiled from its body instead of being taken for the primitive. -/
+def isSignalPrim (n : Lean.Name) (prim : String) : Bool :=
+  n == Lean.Name.str `Sparkle.Core.Signal.Signal prim
+
+/-- `Sparkle.IP.BitNet.SignalHelpers.lutMuxTree` (IP is not imported here). -/
+def lutMuxTreeName : Lean.Name := `Sparkle.IP.BitNet.SignalHelpers.lutMuxTree
+
 /-- Output-port wire named `port` of the sub-module instance that was emitted
     for the call `call`.  The instance is keyed by the call actually translated,
     which can sit behind transparent wrappers (`id (m x)`), so unfold the head
@@ -2949,7 +2958,7 @@ mutual
 
   /-- Handle Signal.register, Signal.registerWithEnable -/
   partial def handleRegister (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
-    if name.toString.endsWith ".register" && args.size >= 2 then
+    if isSignalPrim name "register" && args.size >= 2 then
       trace[sparkle.compiler] "→ register"
       let init := args[args.size-2]!
       let input := args[args.size-1]!
@@ -2963,7 +2972,7 @@ mutual
       return some w
 
     -- Signal.registerWithEnable: register with conditional update
-    if name.toString.endsWith ".registerWithEnable" && args.size >= 3 then
+    if isSignalPrim name "registerWithEnable" && args.size >= 3 then
       trace[sparkle.compiler] "→ registerWithEnable"
       let init := args[args.size-3]!
       let en := args[args.size-2]!
@@ -2985,7 +2994,7 @@ mutual
   /-- Handle Signal.mux, lutMuxTree -/
   partial def handleMux (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
     -- lutMuxTree: generate mux chain from concrete lookup table
-    if name.toString.endsWith ".lutMuxTree" && args.size >= 5 then
+    if name == lutMuxTreeName && args.size >= 5 then
       trace[sparkle.compiler] "→ lutMuxTree"
       let tableArg := args[args.size-2]!
       let indexArg := args[args.size-1]!
@@ -3010,7 +3019,7 @@ mutual
         return some resultWire
 
     -- Signal.mux
-    if name.toString.endsWith ".mux" && args.size >= 3 then
+    if isSignalPrim name "mux" && args.size >= 3 then
       trace[sparkle.compiler] "→ mux"
       let cond := args[args.size-3]!
       let thenSig := args[args.size-2]!
@@ -3029,7 +3038,7 @@ mutual
   /-- Handle Signal.memory, Signal.memoryComboRead -/
   partial def handleMemory (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
     -- Signal.memory: synchronous RAM/BRAM
-    if name.toString.endsWith ".memory" && !name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
+    if isSignalPrim name "memory" && args.size >= 4 then
       trace[sparkle.compiler] "→ memory (sync)"
       -- Memory dedupe: a `Signal.memory ...` expression should
       -- emit ONE BRAM per synth pass, not one per
@@ -3081,7 +3090,7 @@ mutual
         return some w
 
     -- Signal.memoryComboRead: memory with combinational (same-cycle) read
-    if name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
+    if isSignalPrim name "memoryComboRead" && args.size >= 4 then
       trace[sparkle.compiler] "→ memory (combo read)"
       let addrWidthArg := args[args.size-6]!
       let dataWidthArg := args[args.size-5]!
@@ -3135,7 +3144,7 @@ mutual
     -- (the Signal.loop handler that introduced the BVar will
     -- see the memoize chain after its own bind, where the BVar
     -- is replaced with a real wire).
-    if name.toString.endsWith ".memoize" && args.size >= 1 then
+    if isSignalPrim name "memoize" && args.size >= 1 then
       -- Peel ALL nested Signal.memoize wrappers iteratively.
       -- Each peel checks the head: if the application's head is
       -- ".memoize", pull the last arg as new "inner" and repeat.
@@ -3147,7 +3156,7 @@ mutual
         let exFn := ex.getAppFn
         match exFn with
         | .const constName _ =>
-          if constName.toString.endsWith ".memoize" then
+          if isSignalPrim constName "memoize" then
             let exArgs := ex.getAppArgs
             if exArgs.size >= 1 then
               peelMemoize exArgs[exArgs.size - 1]!
@@ -3170,7 +3179,7 @@ mutual
       return some (← translateExprToWire inner "memoize_passthrough")
 
     -- Signal.loop
-    if name.toString.endsWith ".loop" && args.size >= 1 then
+    if isSignalPrim name "loop" && args.size >= 1 then
       trace[sparkle.compiler] "→ loop"
       let f := args.back!
       let fReduced ← match f with
@@ -4131,7 +4140,7 @@ mutual
     let fn := e'.getAppFn
     match fn with
     | .const constName _ =>
-        if constName.toString.endsWith ".memoize" then
+        if isSignalPrim constName "memoize" then
           let cArgs := e'.getAppArgs
           if cArgs.size >= 1 then
             return cArgs[cArgs.size - 1]!

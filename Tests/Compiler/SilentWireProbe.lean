@@ -295,6 +295,6 @@ def Mine.register {dom : DomainConfig} (i : BitVec 8) (s : Signal dom (BitVec 8)
 
 def pn02 {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
   Mine.register 0#8 a
-#probe "pn02_user_register_adds_one" pn02 "out" "~add"
+#probe "pn02_user_register_adds_one" pn02 "reg" "~add"
 
 end Sparkle.Tests.Compiler.SilentWireProbe
