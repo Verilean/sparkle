@@ -187,8 +187,13 @@ def controls : IO Bool := do
       (!(run (good.modify 40 fun x => { x with cs := true }) false).isEmpty)) && ok
     ok := (← check (nm "an extra sclk pulse (18 toggles) rejected")
       (!(run (good.modify 12 fun x => { x with sclk := !x.sclk }) false).isEmpty)) && ok
-    ok := (← check (nm "sclk wrong idle level when cs is high rejected")
-      (!(run (good.modify 60 fun x => { x with sclk := !cpol }) false).isEmpty)) && ok
+    -- Idle SCLK level: change SCLK only on cycles where cs is high (before the first
+    -- start, between transfers, after the last done).  The only error must be the idle
+    -- diagnosis, so without the idle check this trace would be accepted.
+    for c in [5, 90, 190] do
+      let errs := run (good.modify c fun x => { x with sclk := !cpol }) false
+      ok := (← check (nm s!"sclk wrong idle level at cycle {c} (cs high) rejected by the idle check only")
+        (good[c]!.cs && errs.size == 1 && (errs[0]!.splitOn "while idle (cs high)").length > 1)) && ok
     ok := (← check (nm "wrong misoByte at done rejected")
       (!(run (good.modify d0 fun x => { x with miso := 0x5B }) false).isEmpty)) && ok
     ok := (← check (nm "misoByte changing after done rejected")
