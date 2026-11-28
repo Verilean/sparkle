@@ -1957,3 +1957,14 @@ lean_exe «uart-hw-jit-test» where
 lean_exe «uart-rx-framing-error-hw-jit-test» where
   root := `Tests.Drivers.UartRxFramingErrorHWJITTestMain
   supportInterpreter := true
+
+-- JIT co-sim of the SPI master `spiMasterHW`: cs / done per transfer, 16 SCLK
+-- toggles, misoByte vs a slave model, cpol 0/1, bitDiv 0/1/3; checker controls.
+lean_exe «spi-hw-jit-test» where
+  root := `Tests.Drivers.SpiHWJITTestMain
+  supportInterpreter := true
+
+-- NOT in CI: MOSI one bit early; start not on a divider tick hangs with cs low.
+lean_exe «spi-hw-jit-defects-test» where
+  root := `Tests.Drivers.SpiHWJITDefectsMain
+  supportInterpreter := true
