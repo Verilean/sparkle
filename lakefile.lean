@@ -106,7 +106,7 @@ def sparkleModuleDeps : Array String := #[
 -- Apple `ld64` rejects all of them (per-module dynlibs are `.dylib`, not `.so`;
 -- the rpath origin token is `@loader_path`), and the force-load ordering bug
 -- they work around is itself Linux/glibc/GNU-ld-only — see
--- docs/lean-lake-force-load-ordering-issue.md ("OS: Linux (x86_64, glibc), GNU
+-- notes/build/lean-lake-force-load-ordering-issue.md ("OS: Linux (x86_64, glibc), GNU
 -- ld"). So guard per-platform exactly like the `Sparkle` lib's `moreLinkArgs`
 -- below: on macOS/Windows fall back to Lake's default linking (empty extra
 -- args), which is also all the IP libs need there since the editor force-load
@@ -391,7 +391,7 @@ lean_lib «Tools.VedU2HierBudget» where
 lean_lib «Tools.DeepElab» where
   roots := #[`Tools.DeepElab]
 
--- strict audit of a declaration's reachable axiom closure (VED, see docs/VED-MAIN-INTRO.md)
+-- strict audit of a declaration's reachable axiom closure (VED, see notes/ved/VED-MAIN-INTRO.md)
 lean_lib «Tools.VedStrictAudit» where
   roots := #[`Tools.VedStrictAudit]
 
@@ -420,7 +420,7 @@ lean_lib «Tests.Ved.NestedCacheCheck» where
   roots := #[`Tests.Ved.NestedCacheCheck]
 
 -- U1 strict entry: the module `synthesizeCombinational` returned, returned
--- only with a strict (standard-axiom) step theorem (docs/VED-MAIN-INTRO.md)
+-- only with a strict (standard-axiom) step theorem (notes/ved/VED-MAIN-INTRO.md)
 lean_lib «Tools.VedIRDecEq» where
   roots := #[`Tools.VedIRDecEq]
 
@@ -716,7 +716,7 @@ lean_lib «Tests.Ved.DeepHygieneCheck» where
   roots := #[`Tests.Ved.DeepHygieneCheck]
 
 lean_lib «TutorialExtended» where
-  roots := #[`TutorialExtended]
+  globs := #[.submodules `TutorialExtended]
   srcDir := "tutorial-extended"
 
 -- Display: a shim for xeus-lean's `Display.*` library so that

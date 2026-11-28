@@ -293,7 +293,7 @@ is one `let` line; the benefit is name-based access throughout
 the verification stack.
 
 For a worked debugging example, see
-[`docs/ip-catalog/BitNet_LTL_Investigation.md`](BitNet_LTL_Investigation.md).
+[`docs/ip-catalog/BitNet_LTL_Investigation.md`](ip-catalog/BitNet_LTL_Investigation.md).
 The investigation took the wrong path for one round because
 `_gen_next` was inlined; once we exposed it via
 `SoCOutput.wireNames`, the LTL premises were directly observable

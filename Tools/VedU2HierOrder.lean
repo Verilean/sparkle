@@ -1,7 +1,7 @@
 import Tools.VedU2HierProj
 
 /-!
-# H2 unit 3: the acceptance shape/order check `OrderOkHS` (design docs/VED-HIER-H2-DESIGN.md §4)
+# H2 unit 3: the acceptance shape/order check `OrderOkHS` (design notes/ved/VED-HIER-H2-DESIGN.md §4)
 
 `HierShapeS` is NOT a soundness check (it does not exclude duplicate register outputs, a register
 against an assign / instance-output clash, a write to a top input, an undriven register input, a

@@ -26,7 +26,7 @@ import Tools.VedH3ChildChainLemmas
 /-!
 # Stateful hierarchical entry, H2b: a parent WITH REGISTERS (`#ved_u2_hier decl`)
 
-Design: docs/VED-HIER-H2-DESIGN.md §1.2, §12; record: docs/VED-HIER-H2B.md.  `Tools/VedU2HierEntry.lean`
+Design: notes/ved/VED-HIER-H2-DESIGN.md §1.2, §12; record: notes/ved/VED-HIER-H2B.md.  `Tools/VedU2HierEntry.lean`
 (`checkU2H`, `vedU2HierEntry`, the H2a statement `U2HStmt`) is NOT changed; its `[scope]` refusal of
 a parent with registers is still what `checkU2H` does.  This file adds `checkU2HR` /
 `vedU2HierEntryR` and moves the `#ved_u2_hier` command here: a register-free parent goes through
@@ -48,7 +48,7 @@ value at cycle `t` is `Cdo.irState`, its initial value is `st0Of m`, and one cyc
 arrangement (instances as free oracle values) evaluated by `simp` is compared with the compiled
 `next`.
 
-H2c-state (a child call whose argument is the parent's register state; docs/VED-HIER-H2C-STATE.md), the LIMITED
+H2c-state (a child call whose argument is the parent's register state; notes/ved/VED-HIER-H2C-STATE.md), the LIMITED
 method: the open parent is a PROOF AID only (it supplies the registers' state; no equation between it and the
 declaration is claimed).  The declaration is joined to its call by the kernel equation `decl xs = g a` (`_ceq`)
 and the call's argument to the registers by the argument-state equation, also in the kernel, from the exported

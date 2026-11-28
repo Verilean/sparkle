@@ -233,19 +233,19 @@ that lists the commits.
 
 | Item | Value |
 |---|---|
-| **The reader's checkout** (code + these pages + the example + the scripts; every short procedure in this directory starts here) | the branch `docs/research-release` of `https://github.com/Verilean/sparkle` (`git clone https://github.com/Verilean/sparkle && cd sparkle && git checkout docs/research-release`). Once the pull request is merged, the checkout is the merge commit on `main` (or the release tag, if one is made); until then it is this branch. Its code is exactly the code SHA below: `git diff --stat 2bcf256b HEAD` touches only `docs/`, `scripts/research/`, `.github/workflows/research-ux.yml` (a measurement workflow that runs only on request), `README.md` and `CONTRIBUTING.md` |
-| Code SHA (provenance: the code the release contains) | `2bcf256b`: head of pull request #163, branch `ved/consolidated-1`. It has the code but **not** these pages, the scripts or the example, so it is not a checkout to follow the procedures on |
+| **The reader's checkout** (code + these pages + the example + the scripts; every short procedure in this directory starts here) | the commit `3af3889f` on `main` of `https://github.com/Verilean/sparkle`, the merge of the release pull request #165 (`git clone https://github.com/Verilean/sparkle && cd sparkle && git checkout 3af3889f`). Later commits on `main` (for example the approved VED units of #167) have newer code and are not the release. Its code is exactly the code SHA below: `git diff --stat 2bcf256b HEAD` touches only `docs/`, `scripts/research/`, `.github/workflows/research-ux.yml` (a measurement workflow that runs only on request), `README.md` and `CONTRIBUTING.md` |
+| Code SHA (provenance: the code the release contains) | `2bcf256b`: head of pull request #163 (merged; its branch `ved/consolidated-1` is no longer the place to look). It has the code but **not** these pages, the scripts or the example, so it is not a checkout to follow the procedures on |
 | Measured SHA (what the harness ran on) | `fb7124fc`, branch `meas/ved-pr16-fb71`. Not the same commit: it is the code SHA plus the measurement harness, and `git diff --stat 2bcf256b fb7124fc` touches only `scripts/ved/` |
-| Strict command rows | **243 / 327** (real-IP rows 168 / 220, regression rows 75 / 107; 84 not strict), 7 proof routes; approved ledger `pr16-fb71` |
+| Strict command rows (historical measurement of code `2bcf256b`, measured at `fb7124fc`; not a measurement of current `main`) | **243 / 327** (real-IP rows 168 / 220, regression rows 75 / 107; 84 not strict), 7 proof routes; approved ledger `pr16-fb71` |
 | Earlier baseline | `d331ff24` (an earlier candidate, not `main`): 43 / 327 |
-| `main` | `6c29b9b8`: it has the deep route and the basic `#ved_u1` entry, but not the packed, hierarchy and `#ved_write_checked` entries described here |
-| Not in this snapshot, not counted | work in progress: [PerCircuitVerification.md, section 6](PerCircuitVerification.md#6-in-progress-not-in-this-release-not-reviewed), and the development snapshot of [appendix E](appendix/E-DevelopmentSnapshot.md) |
+| Current `main` | later than the release: it contains the release code (the packed, hierarchy and `#ved_write_checked` entries described here) plus newer VED units. The numbers on this page were not re-measured on it |
+| Not in this snapshot, not counted | work in progress: [PerCircuitVerification.md, section 6](PerCircuitVerification.md#6-not-in-this-release-not-counted), and the development snapshot of [appendix E](appendix/E-DevelopmentSnapshot.md) |
 | Page generation | `python3 -I scripts/research/coverage_table.py --check`, `python3 -I scripts/research/check_links.py` |
 
 The two SHAs `2bcf256b` and `fb7124fc` are provenance of the numbers, not something to check
 out for the short procedures; the retrospective and the measurement harness need their own
 worktrees ([appendix C](appendix/C-Reproduction.md)).
 
-The 327 are command rows, not IPs. If the head of the pull request moves, the snapshot and the
-generated tables must be regenerated; a change of meaning or of proof generation does not
+The 327 are command rows, not IPs. If the code changes, the snapshot and the
+generated tables must be regenerated and re-measured; a change of meaning or of proof generation does not
 inherit the coverage.

@@ -12,7 +12,7 @@ generated module).  Its child theorem (`stmtOfStruct` + `checkU1E`, as the multi
 `ved.sseq.fastOrder` and `ved.sseq.share` both on (the packing stage is `ved_ss_pack_share`: `ved_pack_wire` per goal with a
 heartbeat budget of its own, `ved_wire_bits` as the fallback), type `U1Stmt`, std3, no `sorryAx`, and the leaf fast order
 lemma is used.  Candidate option for R184 `wScalarMul` (class (b): the packing stage reads DAGs of at most 579 nodes as trees
-of up to 85.6k nodes); the real child is NOT accepted by it (docs/VED-COMPOSE-CONNECT.md, unit 21).
+of up to 85.6k nodes); the real child is NOT accepted by it (notes/ved/VED-COMPOSE-CONNECT.md, unit 21).
 -/
 
 namespace Tests.Ved.U1StructShareCheck

@@ -10,7 +10,7 @@ import Tools.VedU2HierNet
 of the whole arrangement gives some environment `E`, and `E` satisfies the output equations and the register invariant at the
 next cycle.  The generated proof of the H2c/H3 path discharged it by one `simp` that EVALUATES the whole arrangement
 (`evalAssignsI` over every statement, a nested `upd` environment); its cost grows faster than linearly in the number of
-statements (docs/VED-HIER-H3OPEN.md "Cost").
+statements (notes/ved/VED-HIER-H3OPEN.md "Cost").
 
 `step_local` takes the evaluation apart once, in the kernel, for any body: the fold exists (`evalAssignsI_succ_S`), and the
 environment `E` it gives satisfies, with no evaluation of the fold,

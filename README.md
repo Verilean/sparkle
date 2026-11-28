@@ -35,11 +35,25 @@ For the full Signal DSL syntax, see
 **Try it in the browser:** Sparkle plugs into
 [xeus-lean](https://github.com/Verilean/xeus-lean)'s WASM kernel
 via the [`EXTRA_WASM_DIRS`](https://github.com/Verilean/xeus-lean#extending-the-kernel-with-your-own-lean-lib)
-extension point.  See [`tools/wasm/`](tools/wasm/) for the
+extension point.  See [`scripts/wasm/`](scripts/wasm/) for the
 staging-builder script.  `#synthesizeVerilog`, `#showVerilog`, and
 pure `Signal.atTime` simulation all work under WASM; the native JIT
 path (`Sparkle.Core.JIT.compileAndLoad`) is stubbed and only
 available from a native `lake exe` build.
+
+## What to read
+
+| You want to | Read |
+|---|---|
+| Try Sparkle for the first time | the [tutorial](docs/tutorial/README.md): [setup](docs/tutorial/md/Ch00_Setup.md), then chapters 1–5 |
+| Look up DSL syntax or a synthesis error | [SignalDSL_Syntax.md](docs/reference/SignalDSL_Syntax.md), [Troubleshooting_Synthesis.md](docs/reference/Troubleshooting_Synthesis.md) |
+| Get a machine-checked proof that a synthesised circuit matches its Lean source, where supported (VED) | tutorial [chapter 7c](docs/tutorial/md/Ch07c_VerifiedSynthesis.md), then [docs/VED.md](docs/VED.md), then the [research release](docs/research/README.md) |
+| Use an IP block | the [IP catalog](docs/ip-catalog/README.md) |
+| Check known problems | [KnownIssues.md](docs/known-issues/KnownIssues.md) |
+| Contribute or change CI | [CONTRIBUTING.md](CONTRIBUTING.md), [BuildAndCI.md](docs/research/BuildAndCI.md) |
+
+Everything else is listed in [docs/README.md](docs/README.md). The `notes/` folder holds
+development work records; you do not need to read it.
 
 ## The Sparkle Way: Verification-Driven Design
 
@@ -160,16 +174,16 @@ candidates in milliseconds before any `nlinarith` time is spent.
 
 | IP | Description | Proofs | Synth | Details |
 |----|-------------|:------:|:-----:|---------|
-| [**AES / AES-GCM / GHASH**](IP/Crypto/AES.lean) | AES-128/192/256 + GCM AEAD + hardware GHASH.  Byte-exact against NIST test vectors | — | Full | `ghash-hw-test`, hardware GF(2¹²⁸) |
+| [**AES / AES-GCM / GHASH**](IP/Crypto/Codec/AES.lean) | AES-128/192/256 + GCM AEAD + hardware GHASH.  Byte-exact against NIST test vectors | — | Full | `ghash-hw-test`, hardware GF(2¹²⁸) |
 | [**SHA-256 / SHA-512 / Keccak-256**](IP/Crypto/SHA256.lean) | Byte-exact hash primitives + HW pipeline (SHA-256) | — | Sim + HW SHA-256 | NIST vectors |
-| [**Ed25519 / X25519**](IP/Crypto/Ed25519Sign.lean) | Ed25519 sign/verify + X25519 scalar mult (RFC 7748). Field theorems | 5+ theorems | Sim + **HW signer** | RFC 8032 vectors |
-| [**P-256 / secp256k1 ECDSA**](IP/Crypto/P256ECDSA.lean) | NIST P-256 + secp256k1 ECDSA (Bitcoin/Ethereum curve) | — | Sim + **HW signer** | wycheproof |
+| [**Ed25519 / X25519**](IP/Crypto/Proof/Ed25519Sign.lean) | Ed25519 sign/verify + X25519 scalar mult (RFC 7748). Field theorems | 5+ theorems | Sim + **HW signer** | RFC 8032 vectors |
+| [**P-256 / secp256k1 ECDSA**](IP/Crypto/Proof/P256ECDSA.lean) | NIST P-256 + secp256k1 ECDSA (Bitcoin/Ethereum curve) | — | Sim + **HW signer** | wycheproof |
 | [**HW signers (secp256k1 / BLS12-381 / Ed25519)**](IP/Crypto/Secp256k1ECDSAHW.lean) | Security-focused HW **signing** datapaths — key never leaves the chip.  Bit-serial field mul → projective/extended point-op → scalar-mul ladder → sign FSM; Fp381 Montgomery mul (blst `mul_mont_384` analogue).  Hash/nonce are host inputs | — | Full (sim + `#synthesizeVerilog`) | secp256k1 matches SEC1/RFC-6979 vector; BLS G2 sign; Ed25519 RFC 8032 |
 | [**ECDSA signing demo (Tang Nano 50K)**](docs/ip-catalog/EcdsaSignDemo.md) | Flashable top-level: send `d‖k‖z` (96 B) over UART, get `r‖s` (64 B) back.  Full closed-loop secp256k1 signer + UART.  ≈ 67 ms/sign @ 27 MHz | — | Full (`#synthesizeVerilog`) | Tang Nano 50K; dataflow matches SEC1/RFC-6979 |
 | [**Policy-enforcing signer (Tang Nano 50K)**](docs/ip-catalog/PolicySignDemo.md) | Security device: hashes the tx **on-chip** (Keccak-256 sponge), checks recipient/amount against an **on-chip policy** sliced from the same bytes, signs **only if policy passes** — else returns a reject byte.  Key never leaves the chip AND a compromised host can't sign attacker-chosen tx | — | Full (`#synthesizeVerilog` + iverilog) | Tang Nano 50K; dataflow matches Keccak-256 / SEC1 / policy |
-| [**RSA-PSS**](IP/Crypto/RSAPSS.lean) | RSA signature verify (PKCS #1 v2.2 PSS) | — | Sim | webPKI test set |
-| [**HKDF**](IP/Crypto/HKDF.lean) | RFC 5869 HKDF extract + expand (SHA-256 backend) | — | Sim | TLS 1.3 dep |
-| [**Ethereum wallet stack**](IP/Crypto/EthWallet.lean) | BIP-32 / BIP-39 seed + HD wallet, RLP encoder, EIP-1559 tx, ERC-20 ABI | — | Sim | Byte-exact vs reference clients |
+| [**RSA-PSS**](IP/Crypto/Codec/RSAPSS.lean) | RSA signature verify (PKCS #1 v2.2 PSS) | — | Sim | webPKI test set |
+| [**HKDF**](IP/Crypto/Codec/HKDF.lean) | RFC 5869 HKDF extract + expand (SHA-256 backend) | — | Sim | TLS 1.3 dep |
+| [**Ethereum wallet stack**](IP/Crypto/Codec/EthWallet.lean) | BIP-32 / BIP-39 seed + HD wallet, RLP encoder, EIP-1559 tx, ERC-20 ABI | — | Sim | Byte-exact vs reference clients |
 
 ### Security (TLS 1.3)
 
@@ -182,9 +196,9 @@ candidates in milliseconds before any `nlinarith` time is spent.
 
 | IP | Description | Proofs | Synth | Details |
 |----|-------------|:------:|:-----:|---------|
-| [**Merkle tree / polynomial commitment**](IP/Crypto/Merkle.lean) | Merkle-tree opening + polynomial evaluation with 8 honest openings round-trip | — | Sim | `polynomial-test`, `merkle-test` |
-| [**Mini-STARK verifier**](IP/Crypto/MiniSTARK.lean) | STARK proof verify (Goldilocks field, FRI, low-degree extension) | — | Sim | 8-opening verifier |
-| [**Goldilocks field**](IP/Crypto/Goldilocks.lean) | p = 2⁶⁴ − 2³² + 1 field arithmetic | — | Sim | STARK dep |
+| [**Merkle tree / polynomial commitment**](IP/Crypto/Proof/Merkle.lean) | Merkle-tree opening + polynomial evaluation with 8 honest openings round-trip | — | Sim | `polynomial-test`, `merkle-test` |
+| [**Mini-STARK verifier**](IP/Crypto/Proof/MiniSTARK.lean) | STARK proof verify (Goldilocks field, FRI, low-degree extension) | — | Sim | 8-opening verifier |
+| [**Goldilocks field**](IP/Crypto/Proof/Goldilocks.lean) | p = 2⁶⁴ − 2³² + 1 field arithmetic | — | Sim | STARK dep |
 
 ### Video
 
@@ -348,9 +362,8 @@ lake env lean --run Examples/Sparkle16/ISAProofTests.lean
 lake env lean --run Examples/CDC/MultiClockSim.lean
 
 # RV32IMA SoC, BitNet, YOLOv8, H.264 — run via the test suite.
-# The suite checks verilator/generated_soc.sv and generated_soc_cppsim.h,
-# which this build writes; run it first on a fresh clone (CI does the same).
-lake build IP.RV32.SoCVerilog
+# On a fresh clone the suite writes verilator/generated_soc.sv and
+# generated_soc_cppsim.h itself first (lake build IP.RV32.SoCVerilog).
 lake test
 
 # Verilator: build the SoC and boot firmware
@@ -451,12 +464,15 @@ and [docs/known-issues/KnownIssues.md](docs/known-issues/KnownIssues.md) for the
 ## Testing
 
 ```bash
-lake build IP.RV32.SoCVerilog   # writes verilator/generated_soc.sv and generated_soc_cppsim.h
 lake test
 ```
 
-On a fresh clone, run the first command before `lake test`. The suite's RV32 flow tests check the
-two generated files, and without them 24 of its checks fail. CI runs the same build first.
+The suite's RV32 flow tests check `verilator/generated_soc.sv` and `generated_soc_cppsim.h`. When
+they are missing (a fresh clone), the suite first runs `lake build IP.RV32.SoCVerilog` (then
+`lake env lean IP/RV32/SoCVerilog.lean` if the files are still missing) and fails with the
+command's output if that does not produce them. Older commits, including the research
+release snapshot `3af3889f`, do not do this: there, run `lake build IP.RV32.SoCVerilog` before
+`lake test`.
 
 Runs Signal simulation, Verilog generation, vector / memory ops, temporal
 logic, CPU ISA proofs, BitNet golden-value validation, RV32 firmware,

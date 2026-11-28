@@ -8,7 +8,7 @@ wired by `let` outside each other), are the two components of ONE loop over the 
 `(FA (fst p), FB (fst p) (snd p))`.  Both bodies must be causal (a register delays by one cycle): `hA`, `hB`, the same kind of fact
 as `hcF` of `genOpenMulti`.  The proof is `loop_unique` (a causal body has a unique fixed point) at the pair of the two loops.
 
-Not wired into the generator: the open parent of `genOpenMulti` is still one `runCircuitH`.  See docs/VED-COMPOSE-CONNECT.md, unit 9.
+Not wired into the generator: the open parent of `genOpenMulti` is still one `runCircuitH`.  See notes/ved/VED-COMPOSE-CONNECT.md, unit 9.
 -/
 
 open Sparkle.Core.Domain Sparkle.Core.Signal

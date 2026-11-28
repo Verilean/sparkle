@@ -22,7 +22,7 @@ literature has converged on, and writes a small concrete example
 in each.
 
 The same four-way taxonomy is used in
-[`docs/reference/Hesper_Equivalence.md`](../reference/Hesper_Equivalence.md)
+[`docs/reference/Hesper_Equivalence.md`](../../reference/Hesper_Equivalence.md)
 to label every Sparkle ↔ Hesper theorem in the test suite, and it
 matches what TorchLean (arXiv:2602.22631) does for FP32 networks.
 
@@ -267,7 +267,7 @@ kind of guarantee they're getting.
 
 - **The full table** with one row per Sparkle ↔ Hesper theorem
   lives in
-  [`docs/reference/Hesper_Equivalence.md`](../reference/Hesper_Equivalence.md).
+  [`docs/reference/Hesper_Equivalence.md`](../../reference/Hesper_Equivalence.md).
 - **TorchLean** (arXiv:2602.22631) is the closest published
   precedent for strategy (1) + (3) on whole NN graphs at FP32.
 - **Mathlib's `Float`** is currently axiomatic; the bound-error

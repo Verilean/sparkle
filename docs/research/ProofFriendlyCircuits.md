@@ -34,15 +34,15 @@ Background pages: the [overview](README.md) (what the system builds and what it 
 
 ## 1. What you need and how to run the examples
 
-Use the reader's checkout of the [snapshot box](README.md#snapshot-box) (the branch
-`docs/research-release`, later its merge commit). The examples are in
+Use the reader's checkout of the [snapshot box](README.md#snapshot-box) (the commit
+`3af3889f` on `main`). The examples are in
 `docs/research/examples/tutorial/`, one standalone Lean file each, run from the repository
 root like [`examples/Delay8.lean`](examples/Delay8.lean). The verified tools are library
 targets that are not in the default build, so build the target a file needs by name first:
 
 ```bash
 git clone https://github.com/Verilean/sparkle && cd sparkle
-git checkout docs/research-release
+git checkout 3af3889f
 lake build Tools.VedU1Entry          # examples 1, 2 and 6
 lake build Tools.VedU2HierRegEntry   # examples 3, 4 and 5
 lake build Tools.VedU1PackedEntry    # example 5 (the packed route)

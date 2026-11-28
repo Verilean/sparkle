@@ -61,7 +61,7 @@ k ≥ 1 registers, data inputs of Bool or bit-vector type, one output, no memory
 The builder refuses up front when `#verify_elab_deep` has not produced the
 constants above, when the module's register count differs from the Cdo's, or
 the shape is otherwise outside the slice.  Known limits (measured, see
-docs/VED-U1-MAIN.md): the proof is a single `simp`/`omega` script, so a
+notes/ved/VED-U1-MAIN.md): the proof is a single `simp`/`omega` script, so a
 circuit with many registers AND several inputs can exceed the default
 heartbeat budget of the checker (refused at `[checker]`, never accepted);
 the global limits are not raised.

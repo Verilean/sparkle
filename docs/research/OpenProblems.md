@@ -9,8 +9,8 @@ problem, open an issue and tell us which commit you ran and what you saw. How to
 how a contribution is checked: [CONTRIBUTING-research.md](CONTRIBUTING-research.md).
 
 Status of the code: the release snapshot named in the [README](README.md#snapshot-box). "The
-release" below means that snapshot. The commands need the reader's checkout (the branch
-`docs/research-release`, later its merge commit; see the [snapshot box](README.md#snapshot-box)
+release" below means that snapshot. The commands need the reader's checkout (the commit
+`3af3889f` on `main`; see the [snapshot box](README.md#snapshot-box)
 and [appendix C](appendix/C-Reproduction.md)); the commit `2bcf256b` has the same code but not
 these pages or scripts.
 
@@ -34,7 +34,7 @@ these pages or scripts.
 
 ```bash
 git clone https://github.com/Verilean/sparkle && cd sparkle
-git checkout docs/research-release   # the reader's checkout of the snapshot box (code + pages + scripts)
+git checkout 3af3889f                # the reader's checkout of the snapshot box (code + pages + scripts)
 lake build Tests.Ved.U1EntryCheck Tests.Ved.U2HierRegCheck Tests.Ved.WriteCheckedCheck
 python3 -I scripts/research/coverage_table.py --check     # exit 0: the tables match their data
 python3 -I scripts/research/check_links.py                # exit 0: no broken link
@@ -107,7 +107,7 @@ memories** is covered by neither, and such rows are refused.
 *Reproduce.* Write a small parent in the style of `Tests/Ved/U2HierRegCheck.lean` whose child
 uses `Signal.memory`, and run the hierarchy entry (`#ved_u2_hier name`) on it. The expected result
 is a refusal at the stage `hier-shape` or `shape` (not run for this page; the design records
-[VED-HIER-H2D](../VED-HIER-H2D.md) list the supported shapes).
+[VED.md](../VED.md#hierarchy-limits) list the supported shapes).
 
 *Minimal goal.* One parent with one child that owns a read/write memory, accepted.
 
@@ -174,7 +174,7 @@ a statement uniform in the number of instances.
 *Reproduce.* In the release, the refused nested-hierarchy rows show up in
 [appendix F](appendix/F-AllCommandRows.md) with blocker `hier-shape`. The work in progress on
 this problem is described, unreviewed, in
-[PerCircuitVerification.md](PerCircuitVerification.md#6-in-progress-not-in-this-release-not-reviewed)
+[PerCircuitVerification.md](PerCircuitVerification.md#6-not-in-this-release-not-counted)
 and the [development snapshot](appendix/E-DevelopmentSnapshot.md); do not rely on it.
 
 *Minimal goal.* The statement and proof of `parent_of_children` over the release's definitions
