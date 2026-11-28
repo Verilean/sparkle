@@ -1113,6 +1113,13 @@ lean_exe «issue107-letbound-instance-dup-test» where
   root := `Tests.Drivers.Issue107LetBoundInstanceDupMain
   supportInterpreter := true
 
+-- Regression guard: `r <~ m.done` on a multi-output @[hardware_module]
+-- must read the `done` port, not a slice of the first port.  The
+-- assert runs at elaboration time, so `lake build` of this target IS the test.
+lean_exe «proj-register-input-test» where
+  root := `Tests.Drivers.ProjRegisterInputTestMain
+  supportInterpreter := true
+
 lean_exe «x25519-test» where
   root := `Tests.Drivers.X25519TestMain
   supportInterpreter := true
