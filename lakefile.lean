@@ -1970,3 +1970,17 @@ lean_exe «spi-hw-jit-test» where
 lean_exe «slip-hw-jit-test» where
   root := `Tests.Drivers.SlipHWJITTestMain
   supportInterpreter := true
+
+-- JIT co-sim of the I2C master `i2cMasterHW`: busy exactly once per start (rise at
+-- start+1, width 20 slots), per-slot state / SCL / SDA against the documented FSM;
+-- extra start while busy ignored; checker + live negative controls.
+lean_exe «i2c-hw-jit-test» where
+  root := `Tests.Drivers.I2CHWJITTestMain
+  supportInterpreter := true
+
+-- NOT in CI: bus-protocol probe of `i2cMasterHW` (START / STOP conditions, one SCL
+-- pulse per bit).  The generated waveform is not I2C-compliant; see the header of
+-- Tests/IP/Bus/I2CHWJITTest.lean and the job report.
+lean_exe «i2c-bus-protocol-hw-jit-test» where
+  root := `Tests.Drivers.I2CBusProtocolHWJITTestMain
+  supportInterpreter := true

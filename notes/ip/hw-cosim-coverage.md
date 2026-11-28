@@ -18,7 +18,7 @@ Test classes:
 | IP/Net/UART.lean | `uartTxHW`, `uartRxHW` | `txReady`, `rxValid` | UARTTest (S, loopback happy path only); UsbWebServerJITTest (indirect); **uart-hw-jit-test (C)** | C | was **high** (every UART top is built on it; user-facing serial protocol) |
 | IP/Bus/SPIHW.lean | `spiMasterHW` | `done`, `cs` | SPIHWTest (S: "done seen"); **spi-hw-jit-test (C)** | C | was **high** (multi-cycle FSM, `done` exactly-once never checked) |
 | IP/Net/SLIP.lean | `slipFramerHW`, `slipDeframerHW` | `txValid`, `txReady`, `outValid`, `frameDone` | SLIPTest (P + S loopback); **slip-hw-jit-test (C)** | C | was **high** (framing/escape protocol) |
-| IP/Bus/I2CHW.lean | `i2cMasterHW` | `busy` | I2CHWTest (S state trajectory, eyeballed) | S | medium |
+| IP/Bus/I2CHW.lean | `i2cMasterHW` | `busy` | I2CHWTest (S state trajectory, eyeballed); **i2c-hw-jit-test (C)** | C | was medium |
 | IP/Bus/CANHW, CANopenHW, DroneCANHW, LINHW, MIL1553HW, SBUSHW, CRSFHW | per file | frame-done / error strobes | `*HWTest` (S) | S | medium |
 | IP/Net/MemcachedHW.lean | memcached HW | `replyValid`, `busy` | MemcachedHWTest (S), MultiOutputSubModuleHangRepro | S | medium |
 | IP/Net/MemcachedServer.lean | server top | `outValid` | MemcachedServerJITTest | J | medium |
@@ -56,3 +56,20 @@ The SLIP defect (deframer in idle took ESC as data, so a frame whose first
 payload byte is C0/DB decoded wrongly) is fixed in `slipDeframerHW`; its
 probe is folded into `slip-hw-jit-test` together with a framer→deframer
 loopback over every first byte.
+
+## Batch 2
+
+### I2C master (`i2cMasterHW`) — `i2c-hw-jit-test` (group bus-hw)
+Checks, per cycle on the JIT: `busy` rises once per start at start+1 and is
+20 slots wide (never before the first / after the last start), state, SCL and SDA
+per slot against the documented FSM, extra start while busy ignored, start held
+3 cycles, back-to-back transactions, bitDiv 0/1/2/3/5; synthetic + live controls.
+Not checked: slave ACK (internal only), read data (none).
+
+Defects found (design untouched; probes NOT in CI):
+- `i2c-bus-protocol-hw-jit-test`: the SDA/SCL waveform is not I2C. SCL toggles
+  once per slot and SDA changes on the same slot boundary, so 18 bits take 9 SCL
+  pulses (10 rises incl. start/stop slots); there is no START (SDA never falls while SCL
+  high) and no STOP (SDA never rises while SCL high).
+- (see report) with bitDiv > 0, a `start` pulse that is not on a divider tick
+  is dropped (state only leaves idle on a tick).
