@@ -1120,6 +1120,12 @@ lean_exe «proj-register-input-test» where
   root := `Tests.Drivers.ProjRegisterInputTestMain
   supportInterpreter := true
 
+-- Audit probes for silent mis-wiring in the elaborator (notes/compiler/silent-wire-audit.md).
+-- Deliberately NOT in .github/workflows: an (a) verdict is a finding, not a failure.
+lean_exe «silent-wire-probe» where
+  root := `Tests.Drivers.SilentWireProbeMain
+  supportInterpreter := true
+
 lean_exe «x25519-test» where
   root := `Tests.Drivers.X25519TestMain
   supportInterpreter := true
