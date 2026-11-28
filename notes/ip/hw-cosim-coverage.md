@@ -50,7 +50,7 @@ ethernet).  The three defects they found are fixed, and every probe is now in CI
   modes 0-3).
 - SLIP: see below.
 Before the fixes, each probe header described inputs, cycle, expected vs
-observed and the suspected source).
+observed and the suspected source.
 
 The SLIP defect (deframer in idle took ESC as data, so a frame whose first
 payload byte is C0/DB decoded wrongly) is fixed in `slipDeframerHW`; its
