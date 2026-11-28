@@ -383,6 +383,14 @@ def probeMain : IO Unit := do
     for x in errs do IO.println s!"  ✗ bitDiv={bd}: {x}"
     if errs.isEmpty then IO.println s!"  ✓ bitDiv={bd}: bus waveform is I2C-compliant"
     live := live && errs.isEmpty
+  -- a single-cycle start that is not on a divider tick must still start a transaction
+  for bd in [1, 3] do
+    let st := (alignedStarts bd #[0]).map (· + 1)
+    let tr ← runI2c h bd st #[txA]
+    let rises := (List.range tr.size).filter fun c => tr[c]!.busy
+    IO.println s!"  · bitDiv={bd}: start pulse at cycle {st[0]!} (one cycle after a divider tick): busy cycles {rises.length}"
+    if rises.isEmpty then IO.println s!"  ✗ bitDiv={bd}: start pulse off the divider tick is lost (no transaction)"
+    live := live && !rises.isEmpty
   JIT.destroy h
   if !live then
     IO.println "\nPROBE FAIL (design defect, see header of Tests/IP/Bus/I2CHWJITTest.lean notes)"

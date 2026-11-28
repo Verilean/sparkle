@@ -71,5 +71,6 @@ Defects found (design untouched; probes NOT in CI):
   once per slot and SDA changes on the same slot boundary, so 18 bits take 9 SCL
   pulses (10 rises incl. start/stop slots); there is no START (SDA never falls while SCL
   high) and no STOP (SDA never rises while SCL high).
-- (see report) with bitDiv > 0, a `start` pulse that is not on a divider tick
-  is dropped (state only leaves idle on a tick).
+- same probe: with bitDiv > 0 a one-cycle `start` that is not on a divider tick
+  is lost (bitDiv=1/3, start one cycle after a tick: busy never rises); source
+  `stNext := mux tick stNextOnTick stSig` in IP/Bus/I2CHW.lean (idle leaves only on a tick).
