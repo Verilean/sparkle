@@ -20,7 +20,7 @@ Test classes:
 | IP/Net/SLIP.lean | `slipFramerHW`, `slipDeframerHW` | `txValid`, `txReady`, `outValid`, `frameDone` | SLIPTest (P + S loopback); **slip-hw-jit-test (C)** | C | was **high** (framing/escape protocol) |
 | IP/Bus/I2CHW.lean | `i2cMasterHW` | `busy` | I2CHWTest (S state trajectory, eyeballed); **i2c-hw-jit-test (C)** | C | was medium |
 | IP/Bus/CANHW, CANopenHW, DroneCANHW, LINHW, MIL1553HW, SBUSHW, CRSFHW | per file | frame-done / error strobes | `*HWTest` (S) | S | medium |
-| IP/Net/MemcachedHW.lean | memcached HW | `replyValid`, `busy` | MemcachedHWTest (S), MultiOutputSubModuleHangRepro | S | medium |
+| IP/Net/MemcachedHW.lean | memcached HW | `replyValid`, `busy` | MemcachedHWTest (S), MultiOutputSubModuleHangRepro; **memcached-hw-jit-test (C)** | C | was medium |
 | IP/Net/MemcachedServer.lean | server top | `outValid` | MemcachedServerJITTest | J | medium |
 | IP/Net/UsbWebServer.lean | web server top | `valid` | UsbWebServerSimTest (S), UsbWebServerJITTest (J) | J | medium |
 | IP/Net/ARP, Ethernet, ICMP, IPv4, TCP, HTTP, HFTStrategy | parsers/builders | `done`, `valid`, `hdrDone`, `payloadValid`, `txValid`, `outValid` | per-file tests (S); IPv4JITTest (J) | S/J | medium |
@@ -74,3 +74,17 @@ Defects found (design untouched; probes NOT in CI):
 - same probe: with bitDiv > 0 a one-cycle `start` that is not on a divider tick
   is lost (bitDiv=1/3, start one cycle after a tick: busy never rises); source
   `stNext := mux tick stNextOnTick stSig` in IP/Bus/I2CHW.lean (idle leaves only on a tick).
+
+### Memcached KV engine (`kvHw`) — `memcached-hw-jit-test` (group memcached)
+63 commands (set/add/get/del, hits, misses, overwrite, FIFO wrap over 20 keys)
+vs `applyCommand`, four start schedules, op inputs garbage except on the start
+pulse.  Checks `replyValid` exactly once per command at start+4+slot (hit) /
+start+19 (miss), nothing before the first start / after the last reply, `busy`
+window per command, kind and VALUE key/flags/value; synthetic + live controls.
+Not checked: reply fields of non-VALUE replies (don't care), `memcachedServer`
+byte stream (MemcachedServerJITTest).
+Probe `memcached-hw-busy-start-probe` (NOT in CI): an `opStart` pulse while busy
+disturbs the in-flight command (op fields are latched and the scan reset on every
+`opStart`, not only in idle; source `opCodeNext/opKeyNext/scanNext` in
+IP/Net/MemcachedHW.lean).  Contract says the host waits for `busy` low, so this is
+a robustness finding, not a failure of the intended use.

@@ -113,7 +113,7 @@ jobs:
             # ("STORED\r\n", "VALUE…hello…END\r\n"), runs in
             # ~3 s instead of past the per-IP timeout.
             exes: >-
-              memcached-oracle-test memcached-hw-test memcached-server-jit-test
+              memcached-oracle-test memcached-hw-test memcached-hw-jit-test memcached-server-jit-test
 
           - group: crypto
             exes: >-

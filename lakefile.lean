@@ -1984,3 +1984,16 @@ lean_exe «i2c-hw-jit-test» where
 lean_exe «i2c-bus-protocol-hw-jit-test» where
   root := `Tests.Drivers.I2CBusProtocolHWJITTestMain
   supportInterpreter := true
+
+-- JIT co-sim of the memcached KV engine `kvHw`: replyValid exactly once per command
+-- at the slot-dependent cycle, busy window, reply kind / VALUE fields vs the pure
+-- oracle over a 63-command script (FIFO wrap); checker + live negative controls.
+lean_exe «memcached-hw-jit-test» where
+  root := `Tests.Drivers.MemcachedHWJITTestMain
+  supportInterpreter := true
+
+-- NOT in CI: `kvHw` latches opCode/key/value and resets the scan on every opStart,
+-- also while busy, so a start pulse during a command disturbs the in-flight reply.
+lean_exe «memcached-hw-busy-start-probe» where
+  root := `Tests.Drivers.MemcachedHWBusyStartProbeMain
+  supportInterpreter := true
