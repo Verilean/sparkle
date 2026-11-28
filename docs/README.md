@@ -11,7 +11,7 @@ directory holds the documentation, organised by audience.
 |---|---|
 | Try Sparkle for the first time | the [tutorial](tutorial/README.md): [setup](tutorial/md/Ch00_Setup.md), then chapters 1–5 |
 | Look up DSL syntax or a synthesis error | [SignalDSL_Syntax.md](reference/SignalDSL_Syntax.md), [Troubleshooting_Synthesis.md](reference/Troubleshooting_Synthesis.md) |
-| Get a proof with every synthesised circuit (VED) | tutorial [chapter 7c](tutorial/md/Ch07c_VerifiedSynthesis.md), then [VED.md](VED.md), then the [research release](research/README.md) |
+| Get a machine-checked proof that a synthesised circuit matches its Lean source, where supported (VED) | tutorial [chapter 7c](tutorial/md/Ch07c_VerifiedSynthesis.md), then [VED.md](VED.md), then the [research release](research/README.md) |
 | Use an IP block | the [IP catalog](ip-catalog/README.md) |
 | Check known problems | [KnownIssues.md](known-issues/KnownIssues.md) |
 | Contribute or change CI | [CONTRIBUTING.md](../CONTRIBUTING.md), [BuildAndCI.md](research/BuildAndCI.md) |
