@@ -72,8 +72,8 @@ def runProbe (tag : String) (declName : Name) (mode expected : String)
       return Except.error (← ex.toMessageData.toString)
   match r with
   | .error msg =>
-    let first := (msg.splitOn "\n").headD msg
-    record tag s!"(b) REFUSED with error: {first.take 160}"
+    let first := if (msg.splitOn "\n").length > 1 then " | ".intercalate ((msg.splitOn "\n").take 4) else msg
+    record tag s!"(b) REFUSED with error: {first.take 600}"
   | .ok (none, _) => record tag "(d) no register/output to inspect"
   | .ok (some got, stmts) =>
     let dump := "\n      " ++ "\n      ".intercalate (stmts.take 40)

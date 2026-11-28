@@ -1344,6 +1344,63 @@ def lowerNonExactLam2 (e f : Lean.Expr) (wa wb hint : String) (isNamed : Bool) :
 def canonHardwareKey (value : Lean.Expr) : CompilerM String := do
   return toString (← canonHardwareExpr value).hash
 
+/-- Output-port wire named `port` of the sub-module instance that was emitted
+    for the call `call`.  The instance is keyed by the call actually translated,
+    which can sit behind transparent wrappers (`id (m x)`), so unfold the head
+    step by step until a key hits the port map.  `none` when no emitted
+    instance has that port (the caller must refuse, never guess a slice). -/
+def instancePortOfCall (call : Lean.Expr) (port : String) : CompilerM (Option String) := do
+  let mut cur := call
+  for _ in [0:8] do
+    let portMap ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+    if let some w := portMap.get? (hash (← canonHardwareKey cur), port) then return some w
+    match ← CompilerM.liftMetaM (Lean.Meta.unfoldDefinition? cur) with
+    | some next => cur := next.headBeta
+    | none => break
+  return none
+
+/-- One structure-projection step: raw `.proj S i x`, or an application of a
+    projection function (`Wide.toTwoOut w`).  Returns `(S, i, x)`. -/
+def projStep? (env : Lean.Environment) : Lean.Expr → Option (Lean.Name × Nat × Lean.Expr)
+  | .proj s i x => some (s, i, x)
+  | e => match e.getAppFn.constName? with
+    | some c => match env.getProjectionFnInfo? c, env.getProjectionStructureName? c with
+      | some info, some s =>
+        if e.getAppNumArgs == info.numParams + 1 then some (s, info.i, e.appArg!) else none
+      | _, _ => none
+    | none => none
+
+/-- `(hi, lo)` of field `idx` in a genuine packed two-field product held in a
+    wire of width `wireW` (field 0 high, field 1 low).  Throws unless the
+    record has exactly two fields, both widths are known, and they add up to
+    `wireW`: a wider record or a port placeholder must not be sliced. -/
+def packedFieldSlice (sName : Lean.Name) (idx : Nat) (eStruct : Lean.Expr)
+    (wireW : Nat) : CompilerM (Nat × Nat) := do
+  let fail (why : String) : CompilerM (Nat × Nat) := CompilerM.liftMetaM $ throwError
+    s!"Cannot project field {idx} of `{sName}` by bit-slicing: {why}.  Call the \
+       `@[hardware_module]` def (or the plain def) directly, e.g. `let m := f …; m.field`, \
+       so the sub-module's named output port is used."
+  let env ← CompilerM.liftMetaM Lean.getEnv
+  let numFields := match env.find? sName with
+    | some (.inductInfo iv) => match iv.ctors with
+      | [c] => match env.find? c with
+        | some (.ctorInfo ci) => ci.numFields
+        | _ => 0
+      | _ => 0
+    | _ => 0
+  if numFields != 2 then
+    return ← fail s!"the packed-product slice only covers 2-field bundles, this record has {numFields} fields"
+  let mut ws : Array Nat := #[]
+  for i in [0:2] do
+    let ty ← CompilerM.liftMetaM (Lean.Meta.inferType (Lean.Expr.proj sName i eStruct))
+    match (← inferHWTypeFromSignal ty).bitWidth? with
+    | some w => ws := ws.push w
+    | none => return ← fail s!"the width of field {i} is not known"
+  if ws[0]! + ws[1]! != wireW then
+    return ← fail s!"the field widths {ws[0]!}+{ws[1]!} do not add up to the record's wire width {wireW}"
+  let lo := if idx == 0 then ws[1]! else 0
+  return (lo + ws[idx]! - 1, lo)
+
 mutual
   /-- Caching shim around `translateExprToWireImpl`.  All early-
       intercept handlers (Signal HAdd/HSub/etc., OfNat literals,
@@ -2311,51 +2368,46 @@ mutual
       --
       -- Refuse the guess instead: a >2-field record must be projected
       -- through the multi-output sub-module port map.
-      -- Only fields 0 and 1 can be correct under the 2-field slice, so
-      -- `idx ≤ 1` needs no check at all.  Guarding on that first keeps the
-      -- `inferType`+`whnf` off the hot path — running it on every `.proj`
-      -- blew the 200k-heartbeat budget on the BLS12-381 Fp12 records.
-      -- A non-attributed def that inlining cannot express as one wire is
-      -- synthesised as a sub-module instance by the call itself (translating it
-      -- fills the port map).  Take the field from that instance's port, as the
-      -- `@[hardware_module]` branch above does, instead of slicing.
+      -- A field of an `extends` record read through its parent chain
+      -- (`w.done` is `.proj TwoOut 1 (.proj Wide 0 w)`): the instance's ports
+      -- carry the flattened path (`toTwoOut_done`), so resolve by that name.
+      let env0 ← CompilerM.liftMetaM getEnv
+      if (projStep? env0 eStruct).isSome then
+        let env := env0
+        let mut cur := eStruct
+        let mut path : List String := [(Lean.getStructureFields env sName)[idx]!.toString]
+        while true do
+          let some (pS, pI, inner) := projStep? env cur | break
+          let pFields := Lean.getStructureFields env pS
+          unless pI < pFields.size ∧ (Lean.isSubobjectField? env pS pFields[pI]!).isSome do break
+          path := pFields[pI]!.toString :: path
+          cur := inner
+        if cur.isFVar then
+          let fvarMap ← CompilerM.liftMetaM (sparkleFvarValueMap.get : IO _)
+          if let some v := fvarMap.get? cur.fvarId!.name then cur := v
+          else if let some v ← CompilerM.liftMetaM (do
+              return (← getLCtx).find? cur.fvarId! >>= (·.value?)) then cur := v
+        if path.length > 1 ∧ cur.getAppFn.isConst then
+          let _ ← translateExprToWire cur "sub_call"
+          match ← instancePortOfCall cur ("_".intercalate path) with
+          | some w => return w
+          | none => CompilerM.liftMetaM $ throwError
+              s!"Cannot resolve field `{"_".intercalate path}` of an `extends` record: the \
+                 sub-module instance has no such output port.  Read the field from the \
+                 `@[hardware_module]` call result directly."
+      -- The packed slice below is only exact for a genuine two-field product
+      -- (`bundle2`/`Prod`) in one wire.  A call to a sub-module (even behind a
+      -- non-constant head such as `id`) is read through the port map of the
+      -- instance that was actually emitted.
       let wireS ← translateExprToWire eStruct "s"
-      if recArg.getAppFn.isConst then
-        let fields := Lean.getStructureFields (← CompilerM.liftMetaM getEnv) sName
-        if idx < fields.size then
-          let portMap ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
-          let callKey : UInt64 := hash (← canonHardwareKey recArg)
-          if let some w := portMap.get? (callKey, fields[idx]!.toString) then
-            return w
-      let numFields ← if idx <= 1 then pure 2 else CompilerM.liftMetaM do
-        let sTy ← Lean.Meta.inferType eStruct
-        let sTy ← Lean.Meta.whnf sTy
-        match sTy.getAppFn.constName? with
-        | some sName =>
-          match (← Lean.getEnv).find? sName with
-          | some (.inductInfo iv) =>
-            match iv.ctors with
-            | [c] =>
-              match (← Lean.getEnv).find? c with
-              | some (.ctorInfo ci) => pure (ci.numFields)
-              | _ => pure 2
-            | _ => pure 2
-          | _ => pure 2
-        | none => pure 2
-      if numFields > 2 then
-        CompilerM.liftMetaM $ throwError
-          s!"Cannot project field {idx} of a {numFields}-field record by bit-slicing: \
-             the packed-product slice only covers 2-field bundles.  Project through \
-             the sub-module's named output ports instead (call the \
-             `@[hardware_module]` def directly, e.g. `let kf := wKeccakF …; kf.done`, \
-             so the multi-output port map resolves the field by name)."
-      -- Infer result type from the expression type
+      let fields := Lean.getStructureFields (← CompilerM.liftMetaM getEnv) sName
+      if idx < fields.size then
+        if let some w ← instancePortOfCall recArg fields[idx]!.toString then
+          return w
+      let (hi, lo) ← packedFieldSlice sName idx eStruct (← CompilerM.getWireWidth wireS)
       let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-      let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-      let lo := (1 - idx) * width
-      let hi := lo + width - 1
       CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
       return resWire
 

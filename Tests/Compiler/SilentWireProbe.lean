@@ -268,7 +268,7 @@ def pe01 {dom : DomainConfig} (start : Signal dom Bool) : Signal dom Bool := cir
   let w := wide start
   r <~ w.done
   return (r : Signal dom Bool)
-#probe "pe01_extends_done" pe01 "reg" "wide.done"
+#probe "pe01_extends_done" pe01 "reg" "wide.toTwoOut_done"
 
 def pe02 {dom : DomainConfig} (start : Signal dom Bool) : Signal dom (BitVec 4) := circuit do
   let r ← Signal.reg (0#4)
