@@ -27,7 +27,14 @@
   What is NOT checked here: the slave ACK (`sdaFromBus` is only latched
   internally, there is no output), read-mode data capture (the master has none),
   SDA/SCL hold time at bitDiv = 0 (SDA changes on the cycle SCL falls), clock
-  stretching / arbitration (no SDA input).
+  stretching / arbitration (the master has no ACK-error output, so a NACK is
+  invisible, and no SCL input, so it cannot sense a held-low SCL).
+  Input latching: the runs with `inMode` 1 / 2 change addr / rw / dataByte right
+  after the start is accepted (every cycle, mode 1) or at a start pulse while
+  busy (mode 2, decoy values); the bus waveform and busy must be those of the
+  inputs at the accepted start.  Pure negative controls (reference-model
+  mutations: latch one cycle late, at the end of the START half, or read each bit
+  live) must be rejected by the same checker on those input schedules.
   Synthetic controls for every check run first (no JIT), plus live controls
   (wrong bytes / wrong divider told to the checker must be rejected).
 -/
@@ -282,14 +289,102 @@ def controls : IO Bool := do
       (ideal bd st #[{ txA with addr := txA.data % 128, data := txA.addr }, txB] n)) && ok
   pure ok
 
+/-- Start cycles aligned to the divider phase (ticks at multiples of bitDiv+1 in
+    idle, the divider free-runs from reset).  `gaps[i]` = extra slots idle
+    before transaction i beyond the earliest legal start. -/
+def alignedStarts (bd : Nat) (gaps : Array Nat) : Array Nat := Id.run do
+  let e := bd + 1
+  let mut s := #[]
+  let mut earliest := 4 * e + 8
+  for g in gaps do
+    let c := (earliest + e - 1) / e * e + g * e
+    s := s.push c
+    earliest := c + 40 * e
+  return s
+
+/-! ## Input schedules (inputs change after the start is accepted) -/
+
+/-- Inputs derived from `tx` that differ from it in addr, rw and data at every
+    cycle `t > s` (rw alternates with the cycle). -/
+def scrambled (tx : Tx) (s t : Nat) : Tx :=
+  { addr := tx.addr ^^^ (1 + t % 127), rw := if (t - s) % 2 == 1 then !tx.rw else tx.rw,
+    data := tx.data ^^^ (1 + t % 255) }
+
+/-- Decoy inputs, different from `tx` in every field. -/
+def decoy (tx : Tx) : Tx := { addr := tx.addr ^^^ 0x7F, rw := !tx.rw, data := tx.data ^^^ 0xFF }
+
+def sameTx (a b : Tx) : Bool := a.addr == b.addr && a.rw == b.rw && a.data == b.data
+
+/-- Input values at cycle `t`.  `inMode` 1: addr/rw/data change on every cycle after
+    the accepted start (also while idle between transactions); 2: held until the
+    start pulse that arrives while busy (cycle s + 9e + 1), decoy values from that
+    cycle on.  At a start cycle the inputs are always the transaction's own. -/
+def inputsAt (e : Nat) (starts : Array Nat) (txs : Array Tx) (inMode : Nat) (t : Nat) : Tx := Id.run do
+  let mut idx := 0
+  let mut found := false
+  for i in [0:starts.size] do
+    if starts[i]! ≤ t then idx := i; found := true
+  let tx := txs[idx]!
+  let s := starts[idx]!
+  if !found || t == s then return tx
+  if inMode == 1 then return scrambled tx s t
+  if inMode == 2 && t ≥ s + 9 * e + 1 then return decoy tx
+  return tx
+
+/-- Reference-model mutation: the inputs are latched `d` cycles after the start
+    pulse instead of at it. -/
+def lateIdeal (bd : Nat) (starts : Array Nat) (txs : Array Tx) (inMode d n : Nat) : Array Cyc :=
+  let e := bd + 1
+  ideal bd starts ((List.range starts.size).toArray.map fun i =>
+    inputsAt e starts txs inMode (starts[i]! + d)) n
+
+/-- Reference-model mutation: each bit is read from the live inputs of its cycle. -/
+def liveIdeal (bd : Nat) (starts : Array Nat) (txs : Array Tx) (inMode n : Nat) : Array Cyc := Id.run do
+  let e := bd + 1
+  let mut tr := Array.replicate n idleCyc
+  for i in [0:starts.size] do
+    for c in [starts[i]!+1:min n (starts[i]! + 39 * e + 1)] do
+      tr := tr.set! c (modelCyc e starts[i]! (inputsAt e starts txs inMode c) c)
+  return tr
+
+def latchControls : IO Bool := do
+  IO.println "-- negative controls: late-latching reference models must fail the input-change runs"
+  let mut ok := true
+  for bd in [0, 1, 3] do
+    let e := bd + 1
+    let st := alignedStarts bd #[0, 3]
+    let tx := #[txA, txB]
+    let n := st[1]! + 41 * e + 30
+    let nm := fun (x : String) => s!"bitDiv={bd}: {x}"
+    let run := fun (t : Array Cyc) => i2cErrors t bd st tx
+    let differs := (List.range 2).all fun i =>
+      !sameTx (inputsAt e st tx 1 (st[i]! + 1)) tx[i]! &&
+      (inputsAt e st tx 1 (st[i]! + 1)).addr != tx[i]!.addr &&
+      (inputsAt e st tx 1 (st[i]! + 1)).rw != tx[i]!.rw &&
+      (inputsAt e st tx 1 (st[i]! + 1)).data != tx[i]!.data
+    ok := (← check (nm "input schedule 1 changes addr, rw and data in the cycle after the start") differs) && ok
+    ok := (← check (nm "latch at the start cycle (the design) accepted")
+      (run (lateIdeal bd st tx 1 0 n)).isEmpty) && ok
+    for (what, t) in [("latched one cycle after the start", lateIdeal bd st tx 1 1 n),
+                      ("latched at the end of the START half", lateIdeal bd st tx 1 e n),
+                      ("each bit read live from the inputs", liveIdeal bd st tx 1 n)] do
+      let errs := run t
+      ok := (← check (nm s!"model {what} rejected") (!errs.isEmpty)) && ok
+      IO.println s!"      checker: {errs.toList.take 2}"
+    -- a start while busy that is NOT ignored (the decoy inputs get latched)
+    let errs := run (ideal bd st (tx.map decoy) n)
+    ok := (← check (nm "model that takes the decoy inputs of the busy-start rejected") (!errs.isEmpty)) && ok
+    IO.println s!"      checker: {errs.toList.take 2}"
+  pure ok
+
 /-! ## JIT runs -/
 
 /-- Run `txs` with starts at the given cycles.  Inputs addr/rw/data are set at the
     start cycle and held until the next start.  `extra` adds a 1-cycle start
     pulse in the middle of every transaction, `hold` keeps start high that
-    many cycles. -/
+    many cycles.  With `inMode` ≠ 0 the inputs follow `inputsAt` on every cycle. -/
 def runI2c (h : JITHandle) (bd : Nat) (starts : Array Nat) (txs : Array Tx)
-    (extra : Bool := false) (hold : Nat := 1) : IO (Array Cyc) := do
+    (extra : Bool := false) (hold : Nat := 1) (inMode : Nat := 0) : IO (Array Cyc) := do
   JIT.reset h
   JIT.setInput h 1 (UInt64.ofNat bd)
   JIT.setInput h 5 0
@@ -302,7 +397,12 @@ def runI2c (h : JITHandle) (bd : Nat) (starts : Array Nat) (txs : Array Tx)
     for i in [0:starts.size] do
       if t ≥ starts[i]! && t < starts[i]! + hold then sv := true
       if extra && t == starts[i]! + 9 * e + 1 then sv := true
-    if idx < starts.size && t == starts[idx]! then
+    if inMode != 0 then
+      let tx := inputsAt e starts txs inMode t
+      JIT.setInput h 2 (UInt64.ofNat tx.addr)
+      JIT.setInput h 3 (if tx.rw then 1 else 0)
+      JIT.setInput h 4 (UInt64.ofNat tx.data)
+    else if idx < starts.size && t == starts[idx]! then
       let tx := txs[idx]!
       JIT.setInput h 2 (UInt64.ofNat tx.addr)
       JIT.setInput h 3 (if tx.rw then 1 else 0)
@@ -318,33 +418,20 @@ def runI2c (h : JITHandle) (bd : Nat) (starts : Array Nat) (txs : Array Tx)
     JIT.tick h
   pure tr
 
-/-- Start cycles aligned to the divider phase (ticks at multiples of bitDiv+1 in
-    idle, the divider free-runs from reset).  `gaps[i]` = extra slots idle
-    before transaction i beyond the earliest legal start. -/
-def alignedStarts (bd : Nat) (gaps : Array Nat) : Array Nat := Id.run do
-  let e := bd + 1
-  let mut s := #[]
-  let mut earliest := 4 * e + 8
-  for g in gaps do
-    let c := (earliest + e - 1) / e * e + g * e
-    s := s.push c
-    earliest := c + 40 * e
-  return s
-
 /-- Bus waveform of the transaction started at cycle `s`, through the cycle
     after STOP. -/
 def busWave (tr : Array Cyc) (bd : Nat) (s : Nat) : Array (Bool × Bool) :=
   (tr.extract s (s + 39 * (bd + 1) + 2)).map fun c => (c.scl, c.sda)
 
 def runCase (h : JITHandle) (bd : Nat) (gaps : Array Nat) (txs : Array Tx)
-    (extra : Bool := false) (hold : Nat := 1) (off : Nat := 0) : IO Bool := do
+    (extra : Bool := false) (hold : Nat := 1) (off : Nat := 0) (inMode : Nat := 0) : IO Bool := do
   let starts := (alignedStarts bd gaps).map (· + off)
-  let tr ← runI2c h bd starts txs extra hold
+  let tr ← runI2c h bd starts txs extra hold inMode
   let mut errs := i2cErrors tr bd starts txs
   for i in [0:starts.size] do
     for x in protocolErrors (busWave tr bd starts[i]!) txs[i]! do
       errs := errs.push s!"bus view of transaction {i}: {x}"
-  let tag := s!"I2C bitDiv={bd} gaps={gaps.toList} extraStart={extra} hold={hold} startOffset={off}"
+  let tag := s!"I2C bitDiv={bd} gaps={gaps.toList} extraStart={extra} hold={hold} startOffset={off} inMode={inMode}"
   let busyN := (List.range tr.size).filter (fun c => tr[c]!.busy && (c == 0 || !tr[c-1]!.busy))
   IO.println s!"  · {tag}: {tr.size} cycles, starts {starts.toList}, busy rises at {busyN}"
   if errs.isEmpty then
@@ -423,6 +510,18 @@ def main : IO Unit := do
       ok := (← runCase h bd #[0] #[txA] (off := off)) && ok
   for bd in [2, 3] do
     ok := (← runCase h bd #[0, 1] #[txA, txB] (off := 1)) && ok
+  IO.println "-- addr/rw/data change right after the accepted start (latched at the start pulse)"
+  for bd in [0, 1, 3, 5] do
+    ok := (← runCase h bd #[0] #[txA] (inMode := 1)) && ok
+    ok := (← runCase h bd #[0, 0, 4] #[txA, txB, { addr := 0x7F, rw := false, data := 0x00 }] (inMode := 1)) && ok
+  for bd in [1, 3] do
+    for off in List.range (bd + 1) do
+      ok := (← runCase h bd #[0, 1] #[txA, txB] (off := off) (inMode := 1)) && ok
+  IO.println "-- start pulse while busy with different addr/rw/data is ignored; the next start uses its own inputs"
+  for bd in [0, 1, 3] do
+    ok := (← runCase h bd #[0, 2] #[txA, txB] (extra := true) (inMode := 2)) && ok
+    ok := (← runCase h bd #[1, 0, 2] #[txB, txA, txB] (extra := true) (inMode := 2)) && ok
+  ok := (← latchControls) && ok
   IO.println "-- negative controls on the live design"
   for bd in [0, 1, 3] do
     ok := (← runMismatch h bd) && ok
