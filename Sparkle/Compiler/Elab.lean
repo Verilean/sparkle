@@ -254,7 +254,8 @@ def getWireWidth (wireName : String) : CompilerM Nat := do
             s!"Wire '{wireName}' has a symbolic width; this operation requires a concrete width"
       liftMetaM (sparkleWireWidthCache.modify (·.insert wireName w))
       return w
-    | none => return 8
+    | none => liftMetaM $ throwError
+        s!"getWireWidth: wire '{wireName}' is not declared as a wire, input or output of the module being built"
 
 def emitRegister (hint : String) (clk : String) (rst : String)
     (input : Sparkle.IR.AST.Expr) (initVal : Nat) (ty : HWType)
@@ -507,8 +508,18 @@ where
         else if fnConst.isConstOf ``HMul.hMul then return a * b
         else return a ^ b
       else
-        return 8
-    | _ => return 8
+        widthStuck e
+    | _ => widthStuck e
+  /-- The width did not reduce at default transparency: retry once at `.all`
+      (so an `@[irreducible]` constant still resolves), otherwise refuse.  A
+      guessed 8 would silently build a wrong-width port. -/
+  widthStuck (e : Lean.Expr) : MetaM Nat := do
+    let e' ← withTransparency TransparencyMode.all $ whnf e
+    if e' != e then extractWidth e'
+    else throwError
+      "cannot determine the width of `{e}`: it is neither a literal nor closed Nat \
+       arithmetic.  Write the width as a numeric literal, use a reducible constant, or \
+       synthesise through the parameterized API so the binder is retained."
 
 /-- Preserve a retained top-level Nat binder as a closed symbolic dimension. -/
 partial def extractDimExpr (expr : Lean.Expr) : CompilerM DimExpr := do
@@ -1344,6 +1355,80 @@ def lowerNonExactLam2 (e f : Lean.Expr) (wa wb hint : String) (isNamed : Bool) :
 def canonHardwareKey (value : Lean.Expr) : CompilerM String := do
   return toString (← canonHardwareExpr value).hash
 
+/-- The Sparkle `Signal` primitives the lowering recognises by name.  Matching
+    the exact constant (not a `.mux` / `.register` suffix) keeps a user def such
+    as `Mine.mux` compiled from its body instead of being taken for the primitive. -/
+def isSignalPrim (n : Lean.Name) (prim : String) : Bool :=
+  n == Lean.Name.str `Sparkle.Core.Signal.Signal prim
+
+/-- `Sparkle.IP.BitNet.SignalHelpers.lutMuxTree` (IP is not imported here). -/
+def lutMuxTreeName : Lean.Name := `Sparkle.IP.BitNet.SignalHelpers.lutMuxTree
+
+/-- Output-port wire named `port` of the sub-module instance that was emitted
+    for the call `call`.  The instance is keyed by the call actually translated,
+    which can sit behind transparent wrappers (`id (m x)`), so unfold the head
+    step by step until a key hits the port map.  `none` when no emitted
+    instance has that port (the caller must refuse, never guess a slice). -/
+def instancePortOfCall (call : Lean.Expr) (port : String) : CompilerM (Option String) := do
+  let mut cur := call
+  for _ in [0:8] do
+    let portMap ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+    if let some w := portMap.get? (hash (← canonHardwareKey cur), port) then return some w
+    match ← CompilerM.liftMetaM (Lean.Meta.unfoldDefinition? cur) with
+    | some next => cur := next.headBeta
+    | none => break
+  return none
+
+/-- One structure-projection step: raw `.proj S i x`, or an application of a
+    projection function (`Wide.toTwoOut w`).  Returns `(S, i, x)`. -/
+def projStep? (env : Lean.Environment) : Lean.Expr → Option (Lean.Name × Nat × Lean.Expr)
+  | .proj s i x => some (s, i, x)
+  | e => match e.getAppFn.constName? with
+    | some c => match env.getProjectionFnInfo? c, env.getProjectionStructureName? c with
+      | some info, some s =>
+        if e.getAppNumArgs == info.numParams + 1 then some (s, info.i, e.appArg!) else none
+      | _, _ => none
+    | none => none
+
+/-- Slice guard for `Prod.fst/snd` and `Signal.fst/snd`: the emitted wire's width must equal
+    the width derived from the Prod type.  A mismatch means an upstream wire has the wrong
+    width, so refuse instead of clamping the slice onto it. -/
+def checkProjWireWidth (what wireName : String) (wireWidth typeTotal : Nat) : CompilerM Unit := do
+  if wireWidth != typeTotal then
+    CompilerM.liftMetaM $ throwError
+      s!"{what}: wire '{wireName}' is {wireWidth} bits wide but its Prod type is {typeTotal} bits; refusing to clamp the slice"
+
+/-- `(hi, lo)` of field `idx` in a genuine packed two-field product held in a
+    wire of width `wireW` (field 0 high, field 1 low).  Throws unless the
+    record has exactly two fields, both widths are known, and they add up to
+    `wireW`: a wider record or a port placeholder must not be sliced. -/
+def packedFieldSlice (sName : Lean.Name) (idx : Nat) (eStruct : Lean.Expr)
+    (wireW : Nat) : CompilerM (Nat × Nat) := do
+  let fail (why : String) : CompilerM (Nat × Nat) := CompilerM.liftMetaM $ throwError
+    s!"Cannot project field {idx} of `{sName}` by bit-slicing: {why}.  Call the \
+       `@[hardware_module]` def (or the plain def) directly, e.g. `let m := f …; m.field`, \
+       so the sub-module's named output port is used."
+  let env ← CompilerM.liftMetaM Lean.getEnv
+  let numFields ← match env.find? sName with
+    | some (.inductInfo iv) => match iv.ctors with
+      | [c] => match env.find? c with
+        | some (.ctorInfo ci) => pure ci.numFields
+        | _ => CompilerM.liftMetaM $ throwError s!"packedFieldSlice: constructor `{c}` of `{sName}` is not in the environment"
+      | _ => CompilerM.liftMetaM $ throwError s!"packedFieldSlice: `{sName}` does not have exactly one constructor"
+    | _ => CompilerM.liftMetaM $ throwError s!"packedFieldSlice: `{sName}` is not an inductive type in the environment"
+  if numFields != 2 then
+    return ← fail s!"the packed-product slice only covers 2-field bundles, this record has {numFields} fields"
+  let mut ws : Array Nat := #[]
+  for i in [0:2] do
+    let ty ← CompilerM.liftMetaM (Lean.Meta.inferType (Lean.Expr.proj sName i eStruct))
+    match (← inferHWTypeFromSignal ty).bitWidth? with
+    | some w => ws := ws.push w
+    | none => return ← fail s!"the width of field {i} is not known"
+  if ws[0]! + ws[1]! != wireW then
+    return ← fail s!"the field widths {ws[0]!}+{ws[1]!} do not add up to the record's wire width {wireW}"
+  let lo := if idx == 0 then ws[1]! else 0
+  return (lo + ws[idx]! - 1, lo)
+
 mutual
   /-- Caching shim around `translateExprToWireImpl`.  All early-
       intercept handlers (Signal HAdd/HSub/etc., OfNat literals,
@@ -1690,7 +1775,8 @@ mutual
                -- Issue #67 step 2: clamp slice to wire's
                -- declared width (see the matching comment in
                -- `handleTupleProjections`).
-               let totalWidth := min wireWidth typeTotal
+               checkProjWireWidth "Signal.map Prod.fst" wireS wireWidth typeTotal
+               let totalWidth := wireWidth
                let lo : Nat := if totalWidth ≥ width then totalWidth - width else 0
                let hi : Nat := if totalWidth ≥ 1 then totalWidth - 1 else 0
                CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
@@ -1702,7 +1788,11 @@ mutual
                let hwType ← inferHWTypeFromSignal exprType
                let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-               let actualWidth := min width wireWidth
+               let sTypeSnd ← cachedInferType s
+               let sHWTypeSnd ← inferHWTypeFromSignal sTypeSnd
+               let typeTotalSnd := match sHWTypeSnd with | .bitVector w => w | .bit => 1 | _ => 8
+               checkProjWireWidth "Signal.map Prod.snd" wireS wireWidth typeTotalSnd
+               let actualWidth := width
                let hi : Nat := if actualWidth ≥ 1 then actualWidth - 1 else 0
                CompilerM.emitAssign resWire (.slice (.ref wireS) hi 0)
                return resWire
@@ -1922,9 +2012,9 @@ mutual
               -- Infer component types from the continuation lambda types
               let (ty1, ty2) ← match cont with
                 | .lam _ t1 (.lam _ t2 _ _) _ => pure (t1, t2)
-                | .lam _ t1 _ _ =>
-                  -- Single lambda, need to infer second type from first lambda body
-                  pure (t1, t1) -- Fallback: assume same types
+                | .lam _ _ _ _ =>
+                  CompilerM.liftMetaM $ throwError
+                    "Expected a two-binder continuation in Prod.rec, found a single lambda: the type of the second component is not known"
                 | _ => CompilerM.liftMetaM $ throwError "Expected lambda in Prod.rec continuation"
 
               let hwType1 ← inferHWTypeFromSignal ty1
@@ -2311,51 +2401,46 @@ mutual
       --
       -- Refuse the guess instead: a >2-field record must be projected
       -- through the multi-output sub-module port map.
-      -- Only fields 0 and 1 can be correct under the 2-field slice, so
-      -- `idx ≤ 1` needs no check at all.  Guarding on that first keeps the
-      -- `inferType`+`whnf` off the hot path — running it on every `.proj`
-      -- blew the 200k-heartbeat budget on the BLS12-381 Fp12 records.
-      -- A non-attributed def that inlining cannot express as one wire is
-      -- synthesised as a sub-module instance by the call itself (translating it
-      -- fills the port map).  Take the field from that instance's port, as the
-      -- `@[hardware_module]` branch above does, instead of slicing.
+      -- A field of an `extends` record read through its parent chain
+      -- (`w.done` is `.proj TwoOut 1 (.proj Wide 0 w)`): the instance's ports
+      -- carry the flattened path (`toTwoOut_done`), so resolve by that name.
+      let env0 ← CompilerM.liftMetaM getEnv
+      if (projStep? env0 eStruct).isSome then
+        let env := env0
+        let mut cur := eStruct
+        let mut path : List String := [(Lean.getStructureFields env sName)[idx]!.toString]
+        while true do
+          let some (pS, pI, inner) := projStep? env cur | break
+          let pFields := Lean.getStructureFields env pS
+          unless pI < pFields.size ∧ (Lean.isSubobjectField? env pS pFields[pI]!).isSome do break
+          path := pFields[pI]!.toString :: path
+          cur := inner
+        if cur.isFVar then
+          let fvarMap ← CompilerM.liftMetaM (sparkleFvarValueMap.get : IO _)
+          if let some v := fvarMap.get? cur.fvarId!.name then cur := v
+          else if let some v ← CompilerM.liftMetaM (do
+              return (← getLCtx).find? cur.fvarId! >>= (·.value?)) then cur := v
+        if path.length > 1 ∧ cur.getAppFn.isConst then
+          let _ ← translateExprToWire cur "sub_call"
+          match ← instancePortOfCall cur ("_".intercalate path) with
+          | some w => return w
+          | none => CompilerM.liftMetaM $ throwError
+              s!"Cannot resolve field `{"_".intercalate path}` of an `extends` record: the \
+                 sub-module instance has no such output port.  Read the field from the \
+                 `@[hardware_module]` call result directly."
+      -- The packed slice below is only exact for a genuine two-field product
+      -- (`bundle2`/`Prod`) in one wire.  A call to a sub-module (even behind a
+      -- non-constant head such as `id`) is read through the port map of the
+      -- instance that was actually emitted.
       let wireS ← translateExprToWire eStruct "s"
-      if recArg.getAppFn.isConst then
-        let fields := Lean.getStructureFields (← CompilerM.liftMetaM getEnv) sName
-        if idx < fields.size then
-          let portMap ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
-          let callKey : UInt64 := hash (← canonHardwareKey recArg)
-          if let some w := portMap.get? (callKey, fields[idx]!.toString) then
-            return w
-      let numFields ← if idx <= 1 then pure 2 else CompilerM.liftMetaM do
-        let sTy ← Lean.Meta.inferType eStruct
-        let sTy ← Lean.Meta.whnf sTy
-        match sTy.getAppFn.constName? with
-        | some sName =>
-          match (← Lean.getEnv).find? sName with
-          | some (.inductInfo iv) =>
-            match iv.ctors with
-            | [c] =>
-              match (← Lean.getEnv).find? c with
-              | some (.ctorInfo ci) => pure (ci.numFields)
-              | _ => pure 2
-            | _ => pure 2
-          | _ => pure 2
-        | none => pure 2
-      if numFields > 2 then
-        CompilerM.liftMetaM $ throwError
-          s!"Cannot project field {idx} of a {numFields}-field record by bit-slicing: \
-             the packed-product slice only covers 2-field bundles.  Project through \
-             the sub-module's named output ports instead (call the \
-             `@[hardware_module]` def directly, e.g. `let kf := wKeccakF …; kf.done`, \
-             so the multi-output port map resolves the field by name)."
-      -- Infer result type from the expression type
+      let fields := Lean.getStructureFields (← CompilerM.liftMetaM getEnv) sName
+      if idx < fields.size then
+        if let some w ← instancePortOfCall recArg fields[idx]!.toString then
+          return w
+      let (hi, lo) ← packedFieldSlice sName idx eStruct (← CompilerM.getWireWidth wireS)
       let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
-      let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-      let lo := (1 - idx) * width
-      let hi := lo + width - 1
       CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
       return resWire
 
@@ -2589,7 +2674,8 @@ mutual
       let sType ← cachedInferType s
       let sHWType ← inferHWTypeFromSignal sType
       let typeTotal := match sHWType with | .bitVector w => w | .bit => 1 | _ => 8
-      let totalWidth := min wireWidth typeTotal
+      checkProjWireWidth "Signal.fst" wireS wireWidth typeTotal
+      let totalWidth := wireWidth
       let lo : Nat := if totalWidth ≥ width then totalWidth - width else 0
       let hi : Nat := if totalWidth ≥ 1 then totalWidth - 1 else 0
       CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
@@ -2606,7 +2692,11 @@ mutual
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
       -- snd takes lower `width` bits, clamped to wire's declared width.
-      let actualWidth := min width wireWidth
+      let sTypeSnd ← cachedInferType s
+      let sHWTypeSnd ← inferHWTypeFromSignal sTypeSnd
+      let typeTotalSnd := match sHWTypeSnd with | .bitVector w => w | .bit => 1 | _ => 8
+      checkProjWireWidth "Signal.snd" wireS wireWidth typeTotalSnd
+      let actualWidth := width
       let hi : Nat := if actualWidth ≥ 1 then actualWidth - 1 else 0
       CompilerM.emitAssign resWire (.slice (.ref wireS) hi 0)
       return some resWire
@@ -2648,7 +2738,8 @@ mutual
         -- below the Prod-type-implied total — slicing
         -- `[typeTotal-1:typeTotal-width]` then points past
         -- the wire's last bit.
-        let totalWidth := min wireWidth typeTotal
+        checkProjWireWidth "Signal.map Prod.fst" wireS wireWidth typeTotal
+        let totalWidth := wireWidth
         let lo : Nat := if totalWidth ≥ width then totalWidth - width else 0
         let hi : Nat := if totalWidth ≥ 1 then totalWidth - 1 else 0
         CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
@@ -2661,7 +2752,11 @@ mutual
         let hwType ← inferHWTypeFromSignal exprType
         let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-        let actualWidth := min width wireWidth
+        let sTypeSnd ← cachedInferType s
+        let sHWTypeSnd ← inferHWTypeFromSignal sTypeSnd
+        let typeTotalSnd := match sHWTypeSnd with | .bitVector w => w | .bit => 1 | _ => 8
+        checkProjWireWidth "Signal.map Prod.snd" wireS wireWidth typeTotalSnd
+        let actualWidth := width
         let hi : Nat := if actualWidth ≥ 1 then actualWidth - 1 else 0
         CompilerM.emitAssign resWire (.slice (.ref wireS) hi 0)
         return some resWire
@@ -2897,7 +2992,7 @@ mutual
 
   /-- Handle Signal.register, Signal.registerWithEnable -/
   partial def handleRegister (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
-    if name.toString.endsWith ".register" && args.size >= 2 then
+    if isSignalPrim name "register" && args.size >= 2 then
       trace[sparkle.compiler] "→ register"
       let init := args[args.size-2]!
       let input := args[args.size-1]!
@@ -2911,7 +3006,7 @@ mutual
       return some w
 
     -- Signal.registerWithEnable: register with conditional update
-    if name.toString.endsWith ".registerWithEnable" && args.size >= 3 then
+    if isSignalPrim name "registerWithEnable" && args.size >= 3 then
       trace[sparkle.compiler] "→ registerWithEnable"
       let init := args[args.size-3]!
       let en := args[args.size-2]!
@@ -2933,7 +3028,7 @@ mutual
   /-- Handle Signal.mux, lutMuxTree -/
   partial def handleMux (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
     -- lutMuxTree: generate mux chain from concrete lookup table
-    if name.toString.endsWith ".lutMuxTree" && args.size >= 5 then
+    if name == lutMuxTreeName && args.size >= 5 then
       trace[sparkle.compiler] "→ lutMuxTree"
       let tableArg := args[args.size-2]!
       let indexArg := args[args.size-1]!
@@ -2958,7 +3053,7 @@ mutual
         return some resultWire
 
     -- Signal.mux
-    if name.toString.endsWith ".mux" && args.size >= 3 then
+    if isSignalPrim name "mux" && args.size >= 3 then
       trace[sparkle.compiler] "→ mux"
       let cond := args[args.size-3]!
       let thenSig := args[args.size-2]!
@@ -2977,7 +3072,7 @@ mutual
   /-- Handle Signal.memory, Signal.memoryComboRead -/
   partial def handleMemory (e : Lean.Expr) (name : Name) (args : Array Lean.Expr) (hint : String) (isNamed : Bool) : CompilerM (Option String) := do
     -- Signal.memory: synchronous RAM/BRAM
-    if name.toString.endsWith ".memory" && !name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
+    if isSignalPrim name "memory" && args.size >= 4 then
       trace[sparkle.compiler] "→ memory (sync)"
       -- Memory dedupe: a `Signal.memory ...` expression should
       -- emit ONE BRAM per synth pass, not one per
@@ -3029,7 +3124,7 @@ mutual
         return some w
 
     -- Signal.memoryComboRead: memory with combinational (same-cycle) read
-    if name.toString.endsWith ".memoryComboRead" && args.size >= 4 then
+    if isSignalPrim name "memoryComboRead" && args.size >= 4 then
       trace[sparkle.compiler] "→ memory (combo read)"
       let addrWidthArg := args[args.size-6]!
       let dataWidthArg := args[args.size-5]!
@@ -3083,7 +3178,7 @@ mutual
     -- (the Signal.loop handler that introduced the BVar will
     -- see the memoize chain after its own bind, where the BVar
     -- is replaced with a real wire).
-    if name.toString.endsWith ".memoize" && args.size >= 1 then
+    if isSignalPrim name "memoize" && args.size >= 1 then
       -- Peel ALL nested Signal.memoize wrappers iteratively.
       -- Each peel checks the head: if the application's head is
       -- ".memoize", pull the last arg as new "inner" and repeat.
@@ -3095,7 +3190,7 @@ mutual
         let exFn := ex.getAppFn
         match exFn with
         | .const constName _ =>
-          if constName.toString.endsWith ".memoize" then
+          if isSignalPrim constName "memoize" then
             let exArgs := ex.getAppArgs
             if exArgs.size >= 1 then
               peelMemoize exArgs[exArgs.size - 1]!
@@ -3118,7 +3213,7 @@ mutual
       return some (← translateExprToWire inner "memoize_passthrough")
 
     -- Signal.loop
-    if name.toString.endsWith ".loop" && args.size >= 1 then
+    if isSignalPrim name "loop" && args.size >= 1 then
       trace[sparkle.compiler] "→ loop"
       let f := args.back!
       let fReduced ← match f with
@@ -4079,7 +4174,7 @@ mutual
     let fn := e'.getAppFn
     match fn with
     | .const constName _ =>
-        if constName.toString.endsWith ".memoize" then
+        if isSignalPrim constName "memoize" then
           let cArgs := e'.getAppArgs
           if cArgs.size >= 1 then
             return cArgs[cArgs.size - 1]!
@@ -4329,12 +4424,13 @@ mutual
                 CompilerM.liftMetaM (cacheRef.modify (·.insert ⟨leafExpr⟩ leafWire))
               let cs ← get
               let wireDecl := cs.module.wires.find? (fun (p : Port) => p.name == leafWire)
-              let outputType := match wireDecl with
-                | some decl => decl.ty
+              let outputType ← match wireDecl with
+                | some decl => pure decl.ty
                 | none =>
                   match cs.module.inputs.find? (fun p => p.name == leafWire) with
-                  | some inputPort => inputPort.ty
-                  | none => .bitVector 8
+                  | some inputPort => pure inputPort.ty
+                  | none => CompilerM.liftMetaM $ throwError
+                      s!"output port '{portName}': leaf wire '{leafWire}' is not declared as a wire or input, so its type is unknown"
               CompilerM.addOutput portName outputType
               CompilerM.emitAssign portName (.ref leafWire)
             return firstWire.getD "out"

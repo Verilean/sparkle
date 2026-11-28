@@ -1120,6 +1120,12 @@ lean_exe «proj-register-input-test» where
   root := `Tests.Drivers.ProjRegisterInputTestMain
   supportInterpreter := true
 
+-- CI gate for the silent-wire fixes (notes/compiler/silent-wire-audit.md): runs the audit
+-- probes and exits non-zero when a probe verdict differs from its expected class.
+lean_exe «silent-wire-regression-test» where
+  root := `Tests.Drivers.SilentWireRegressionTestMain
+  supportInterpreter := true
+
 lean_exe «x25519-test» where
   root := `Tests.Drivers.X25519TestMain
   supportInterpreter := true
