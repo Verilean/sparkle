@@ -1260,6 +1260,13 @@ lean_exe «policy-sign-demo-hw-jit-test» where
   root := `Tests.Drivers.PolicySignDemoHWJITTestMain
   supportInterpreter := true
 
+-- JIT co-sim of the UART top `policySignDemoM2` (real EIP-1559 preimage): same
+-- checks as above.  FAILS today for the same extra-0x00-frame defect —
+-- deliberately NOT in ip-tests.yml.
+lean_exe «policy-sign-demo-m2-hw-jit-test» where
+  root := `Tests.Drivers.PolicySignDemoM2HWJITTestMain
+  supportInterpreter := true
+
 lean_exe «tx-policy-test» where
   root := `Tests.Drivers.TxPolicyTestMain
   supportInterpreter := true
