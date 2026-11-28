@@ -1980,12 +1980,6 @@ lean_exe «i2c-hw-jit-test» where
   root := `Tests.Drivers.I2CHWJITTestMain
   supportInterpreter := true
 
--- Alias of i2c-hw-jit-test (the former NOT-in-CI bus-protocol probe is folded into
--- it and runs in CI group bus-hw); kept so the old name still works.
-lean_exe «i2c-bus-protocol-hw-jit-test» where
-  root := `Tests.Drivers.I2CBusProtocolHWJITTestMain
-  supportInterpreter := true
-
 -- JIT co-sim of the memcached KV engine `kvHw`: replyValid exactly once per command
 -- at the slot-dependent cycle, busy window, reply kind / VALUE fields vs the pure
 -- oracle over a 63-command script (FIFO wrap); checker + live negative controls.

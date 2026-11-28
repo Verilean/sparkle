@@ -76,7 +76,7 @@ one-sample SCL-high half cannot show a change inside it).
 Not checked: slave ACK (internal only, no SDA input), read data (none), hold time
 between SCL fall and SDA change (same cycle), clock stretching / arbitration.
 
-Fixed (was: probe `i2c-bus-protocol-hw-jit-test`, rc=1; now an alias of
+Fixed (was: probe `i2c-bus-protocol-hw-jit-test`, rc=1; its cases are now in
 `i2c-hw-jit-test`, rc=0): SCL toggled at every slot boundary together with SDA
 (no START / STOP, 9 SCL pulses for 18 bits) → each bit slot is now an SCL-low and
 an SCL-high half, START/STOP slots added; and a one-cycle `start` off a divider
