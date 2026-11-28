@@ -254,7 +254,8 @@ def getWireWidth (wireName : String) : CompilerM Nat := do
             s!"Wire '{wireName}' has a symbolic width; this operation requires a concrete width"
       liftMetaM (sparkleWireWidthCache.modify (·.insert wireName w))
       return w
-    | none => return 8
+    | none => liftMetaM $ throwError
+        s!"getWireWidth: wire '{wireName}' is not declared as a wire, input or output of the module being built"
 
 def emitRegister (hint : String) (clk : String) (rst : String)
     (input : Sparkle.IR.AST.Expr) (initVal : Nat) (ty : HWType)
@@ -1400,13 +1401,13 @@ def packedFieldSlice (sName : Lean.Name) (idx : Nat) (eStruct : Lean.Expr)
        `@[hardware_module]` def (or the plain def) directly, e.g. `let m := f …; m.field`, \
        so the sub-module's named output port is used."
   let env ← CompilerM.liftMetaM Lean.getEnv
-  let numFields := match env.find? sName with
+  let numFields ← match env.find? sName with
     | some (.inductInfo iv) => match iv.ctors with
       | [c] => match env.find? c with
-        | some (.ctorInfo ci) => ci.numFields
-        | _ => 0
-      | _ => 0
-    | _ => 0
+        | some (.ctorInfo ci) => pure ci.numFields
+        | _ => CompilerM.liftMetaM $ throwError s!"packedFieldSlice: constructor `{c}` of `{sName}` is not in the environment"
+      | _ => CompilerM.liftMetaM $ throwError s!"packedFieldSlice: `{sName}` does not have exactly one constructor"
+    | _ => CompilerM.liftMetaM $ throwError s!"packedFieldSlice: `{sName}` is not an inductive type in the environment"
   if numFields != 2 then
     return ← fail s!"the packed-product slice only covers 2-field bundles, this record has {numFields} fields"
   let mut ws : Array Nat := #[]
@@ -1998,9 +1999,9 @@ mutual
               -- Infer component types from the continuation lambda types
               let (ty1, ty2) ← match cont with
                 | .lam _ t1 (.lam _ t2 _ _) _ => pure (t1, t2)
-                | .lam _ t1 _ _ =>
-                  -- Single lambda, need to infer second type from first lambda body
-                  pure (t1, t1) -- Fallback: assume same types
+                | .lam _ _ _ _ =>
+                  CompilerM.liftMetaM $ throwError
+                    "Expected a two-binder continuation in Prod.rec, found a single lambda: the type of the second component is not known"
                 | _ => CompilerM.liftMetaM $ throwError "Expected lambda in Prod.rec continuation"
 
               let hwType1 ← inferHWTypeFromSignal ty1
@@ -4400,12 +4401,13 @@ mutual
                 CompilerM.liftMetaM (cacheRef.modify (·.insert ⟨leafExpr⟩ leafWire))
               let cs ← get
               let wireDecl := cs.module.wires.find? (fun (p : Port) => p.name == leafWire)
-              let outputType := match wireDecl with
-                | some decl => decl.ty
+              let outputType ← match wireDecl with
+                | some decl => pure decl.ty
                 | none =>
                   match cs.module.inputs.find? (fun p => p.name == leafWire) with
-                  | some inputPort => inputPort.ty
-                  | none => .bitVector 8
+                  | some inputPort => pure inputPort.ty
+                  | none => CompilerM.liftMetaM $ throwError
+                      s!"output port '{portName}': leaf wire '{leafWire}' is not declared as a wire or input, so its type is unknown"
               CompilerM.addOutput portName outputType
               CompilerM.emitAssign portName (.ref leafWire)
             return firstWire.getD "out"
