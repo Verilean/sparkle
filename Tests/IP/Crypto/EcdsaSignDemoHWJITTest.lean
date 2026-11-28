@@ -2,9 +2,9 @@
   JIT co-sim of the generated hardware for the UART top
   `EcdsaSignDemo.ecdsaSignDemo`: send d ‖ k ‖ z (96 bytes, big-endian)
   over `uartRx`, record the whole `uartTx` line, decode it like a receiver
-  (`UartHWJITHarness.runSteps`: start/stop bits of every frame, glitches,
+  (`UartHWJITHarness.runSteps`: every cycle of every bit slot, glitches,
   exactly 64 reply bytes and no extra frame for 10000 idle cycles after the
-  reply, `signDone` fires once) and compare r ‖ s with the pure-data
+  reply, `signDone` exactly once per request window) and compare r ‖ s with the pure-data
   `Secp256k1ECDSA.sign d k z`.  Two requests back to back.
 
   Ports after `#sim` lowering: inputs uartRx = 0, bitDiv = 1;

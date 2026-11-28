@@ -10,12 +10,13 @@
   Accept path: reply is r ‖ s (64 bytes).  Refusal path: reply is the single
   byte 0xEE and `rejected` pulses (no signature, `signDone` stays low).
 
-  KNOWN FAILURE — NOT IN CI.  The reply values are correct, but the design's TX
-  streamer sends ONE EXTRA 0x00 frame after every reply and then a 1-cycle low
-  glitch on `uartTx` (`txMore` in IP/Crypto/PolicySignDemoM2.lean tests the
-  count before it is decremented, so `txBusy` stays up for one more byte).
-  This test fails on that until the design is fixed; the design was
-  deliberately not touched here.
+  Checked by `UartHWJITHarness.runSteps` (in CI, group crypto-hw): every bit
+  slot of every frame held for all its cycles, the exact reply per request with
+  no extra frame and no frame in the idle tail, and per request window the
+  named strobe exactly once and every other watched strobe not at all.  This
+  test found the extra 0x00 frame after every reply (`txMore` in
+  IP/Crypto/PolicySignDemoM2.lean tested the count before the decrement) and the 1-cycle low glitch after
+  each stop bit (`uartTxHW` shifted in 0); both are fixed in the design.
 
   Ports after `#sim` lowering: inputs uartRx = 0, bitDiv = 1;
   outputs uartTx = 0, signDone = 1, rejected = 2.

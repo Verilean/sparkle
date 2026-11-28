@@ -1252,6 +1252,12 @@ lean_exe «ecdsa-sign-demo-hw-jit-test» where
   root := `Tests.Drivers.EcdsaSignDemoHWJITTestMain
   supportInterpreter := true
 
+-- Controls for the UART checker used by the UART-top JIT co-sims (synthetic
+-- traces, no JIT): each framing / reply / strobe check rejects its defect.
+lean_exe «uart-hw-jit-harness-test» where
+  root := `Tests.Drivers.UartHWJITHarnessTestMain
+  supportInterpreter := true
+
 -- JIT co-sim of the UART top `policySignDemo` (M1): accept path and policy
 -- refusals (0xEE reply + `rejected` strobe); checks start/stop bits and that
 -- no extra reply bytes appear.
