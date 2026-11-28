@@ -233,14 +233,23 @@ elab "#probeInputWidth " tag:str id:ident port:str n:num : command => do
   | .error msg => record tag.getString s!"(b) REFUSED with error: {((msg.splitOn "\n").headD msg).take 160}"
   | .ok none => record tag.getString "(d) port not found"
   | .ok (some ty) =>
-    if ty.bitWidth == n.getNat then record tag.getString s!"(c) correct: input {port.getString} is {repr ty}"
+    if n.getNat == 0 then
+      -- 0 = the width cannot be determined from the declaration: the only right outcome is a refusal.
+      record tag.getString s!"(a) SILENT WRONG: unresolved width became {ty.bitWidth} bits ({repr ty}), expected a refusal"
+    else if ty.bitWidth == n.getNat then record tag.getString s!"(c) correct: input {port.getString} is {repr ty}"
     else record tag.getString s!"(a) SILENT WRONG: input {port.getString} is {repr ty}, expected {n.getNat} bits"
 
 #probeInputWidth "pw01_irreducible_width_input" pw01 "_gen_x" 12
 
 def pw02 {dom : DomainConfig} {n : Nat} (x : Signal dom (BitVec n)) : Signal dom (BitVec n) :=
   x + x
-#probeInputWidth "pw02_fvar_width_input" pw02 "_gen_x" 16
+-- `n` is never instantiated: no width can be read off the declaration, so it must be refused.
+#probeInputWidth "pw02_fvar_width_unresolved" pw02 "_gen_x" 0
+
+/-- Control: the same body at a concrete width. -/
+def pw03 {dom : DomainConfig} (x : Signal dom (BitVec 16)) : Signal dom (BitVec 16) :=
+  x + x
+#probeInputWidth "pw03_concrete_width_control" pw03 "_gen_x" 16
 
 -- ---------------------------------------------------------------------------
 -- Instance bookkeeping: two calls with DIFFERENT arguments must stay two instances.
@@ -268,7 +277,9 @@ def pe01 {dom : DomainConfig} (start : Signal dom Bool) : Signal dom Bool := cir
   let w := wide start
   r <~ w.done
   return (r : Signal dom Bool)
-#probe "pe01_extends_done" pe01 "reg" "wide.done"
+-- Correct wiring is either the flattened port of `wide` or the counter's own `done`
+-- port it forwards; the observed `counter.val[0:0]` is neither.
+#probe "pe01_extends_done" pe01 "reg" "wide.toTwoOut_done|counter.done"
 
 def pe02 {dom : DomainConfig} (start : Signal dom Bool) : Signal dom (BitVec 4) := circuit do
   let r ← Signal.reg (0#4)
@@ -295,6 +306,12 @@ def Mine.register {dom : DomainConfig} (i : BitVec 8) (s : Signal dom (BitVec 8)
 
 def pn02 {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
   Mine.register 0#8 a
-#probe "pn02_user_register_adds_one" pn02 "out" "~add"
+-- Inspect the REGISTER INPUT (the output stops at the register): it must contain the `+ 1`.
+#probe "pn02_user_register_adds_one" pn02 "reg" "~add"
+
+/-- Control for pn02: the same circuit written with `Signal.register` directly. -/
+def pn03 {dom : DomainConfig} (a : Signal dom (BitVec 8)) : Signal dom (BitVec 8) :=
+  Signal.register 0#8 (a + (Signal.pure 1#8 : Signal dom (BitVec 8)))
+#probe "pn03_signal_register_adds_one_control" pn03 "reg" "~add"
 
 end Sparkle.Tests.Compiler.SilentWireProbe
