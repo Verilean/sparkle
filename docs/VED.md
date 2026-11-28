@@ -31,7 +31,11 @@ embedding (`Cdo`) and proves `f_deep_trace` and the related facts from the gener
 import Tools.VedU1Entry
 #ved_u1 delay8                  -- synthesise, prove, kernel-check, strict audit
 #print axioms delay8.ved_u1
+#check delay8.ved_u1            -- delay8.ved_u1 : U1Stmt delay8.ved_contract delay8.ved_mod delay8
 ```
+
+[ReadingTheTheorem.md](research/ReadingTheTheorem.md) reads this one statement part by part for
+`delay8`: what each conjunct says about that circuit, and what the theorem does not cover.
 
 | Command | Use it for | Statement | File |
 |---|---|---|---|

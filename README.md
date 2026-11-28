@@ -85,7 +85,16 @@ def delay8 (x : Signal defaultDomain (BitVec 8)) : Signal defaultDomain (BitVec 
 
 #ved_u1 delay8                 -- the module and the theorem delay8.ved_u1
 #print axioms delay8.ved_u1    -- [propext, Classical.choice, Quot.sound]
+#check delay8.ved_u1
+-- delay8.ved_u1 : U1Stmt delay8.ved_contract delay8.ved_mod delay8
 ```
+
+`#check` shows what was proved. `delay8.ved_mod` is the module synthesis returned, and
+`delay8.ved_contract` says which of its ports is `x` and which is the result. `U1Stmt` says that
+the module has the expected ports and widths. It also says that, run from its initial state with
+reset low, on any 8-bit input stream, the module's output at every cycle equals what `delay8`
+computes (0 at cycle 0, then the input of the previous cycle). [What `#ved_u1 delay8` proves, and
+what it does not](docs/research/ReadingTheTheorem.md) reads it part by part.
 
 - **What the theorem covers:** the returned module (Sparkle's IR), run from its
   declared initial state, under any admissible evaluation order of its netlist
