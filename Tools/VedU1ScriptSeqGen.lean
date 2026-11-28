@@ -280,11 +280,42 @@ def vedSplitBool (g : MVarId) (e : Expr) : MetaM (List MVarId) := g.withContext 
   g.assign (mkApp6 (mkConst ``Or.elim) eT eF tgt (← mkAppM ``Bool.eq_false_or_eq_true #[e] ) pt pf)
   pure [gt, gf]
 
+open Lean in
+/-- what a stored proof needs of a non-imported constant it mentions: its type and, for a definition, its value -/
+abbrev ConstSig := Name × Expr × Option Expr
+
+open Lean in
+def constSig? (env : Environment) (c : Name) : Option ConstSig := do
+  let ci ← env.find? c
+  some (c, ci.type, match ci with | .defnInfo d => some d.value | _ => none)
+
+open Lean in
+/-- the signatures of the non-imported constants `e` mentions (the auxiliary `_proof_N` / `_auxLemma` of the declarations of this file) -/
+def constSigs (e : Expr) : CoreM (Array ConstSig) := do
+  let env ← getEnv
+  return e.getUsedConstants.filterMap fun c => if (env.getModuleIdxFor? c).isSome then none else constSig? env c
+
+open Lean in
+/-- a stored proof may be used here: every constant it mentions exists, and each non-imported one has the signature it had when the proof was stored
+(`sigs`).  A name alone is not enough: after a backtracked branch or in another declaration an auxiliary constant can have the same name and another type.
+Imported constants are checked by name only: the imports of a process are fixed, so a name of an imported module is the same constant everywhere. -/
+def constsMatch (e : Expr) (sigs : Array ConstSig) : CoreM Bool := do
+  let env ← getEnv
+  return e.getUsedConstants.all fun c =>
+    env.contains c && ((env.getModuleIdxFor? c).isSome || sigs.any fun s => s.1 == c && constSig? env c == some s)
+
+/-- a cached proof of `ved_omega_c` (see `vedOmegaOk`) -/
+structure OmegaOkEntry where
+  proof : Lean.Expr
+  used : Array (Lean.FVarId × Lean.Expr)
+  sigs : Array ConstSig
+
 /-- the caches of `ved_omega_c` (the same side condition is asked again in every goal of a block).
 Invariant: each cache is reused only when the inputs of the computation that filled it are equal.
-* `vedOmegaOk`: target ↦ (proof, `(FVarId, type)` of the free variables the proof uses).  The proof is
+* `vedOmegaOk`: target ↦ `OmegaOkEntry`: the proof, `(FVarId, type)` of the free variables it uses and the signatures of its non-imported constants.  The proof is
   closed over those variables (no metavariables), so in a context that has all of them with equal
-  types it proves the target; the kernel checks it anyway.
+  types it proves the target; the kernel checks it anyway.  The three parts are ONE entry (one insert, one read per hit): the ref is shared by
+  concurrent elaboration tasks, and a proof read from one task's entry with the signatures of another's would pass `constsMatch` for a proof that does not check here.
 * `vedUbFail`: target ↦ the ordered `(x, u)` of `vedBoundFacts` of the run that found the bound too
   large.  `vedUb` is a deterministic function of the target and exactly this array (it takes the
   first fact with `x == e`; proofs do not affect success), so an equal array gives the same refusal.
@@ -292,7 +323,7 @@ Invariant: each cache is reused only when the inputs of the computation that fil
   equation) of the failed `omega` run; reused only for an equal array (no subset rule, no `FVarId`
   keys: `FVarId`s are reused across backtracking).
 Lifetime: one script run; `ved_omega_c_reset` (first of the closing tactics) empties all three. -/
-initialize vedOmegaOk : IO.Ref (Std.HashMap Lean.Expr (Lean.Expr × Array (Lean.FVarId × Lean.Expr))) ← IO.mkRef {}
+initialize vedOmegaOk : IO.Ref (Std.HashMap Lean.Expr OmegaOkEntry) ← IO.mkRef {}
 initialize vedUbFail : IO.Ref (Std.HashMap Lean.Expr (Array (Lean.Expr × Nat))) ← IO.mkRef {}
 initialize vedOmegaFail : IO.Ref (Std.HashMap Lean.Expr (Array Lean.Expr)) ← IO.mkRef {}
 
@@ -387,6 +418,18 @@ def vedBoundFacts : MetaM (Array (Expr × Nat × Expr × Expr)) := do
         out := out.push (t.getArg! 2, n, t.getArg! 3, d.toExpr)
   return out
 
+open Lean Meta in
+/-- the hit of `ved_omega_c`: the stored proof when the context has its free variables with equal types and the constants it mentions have their signatures.
+`readEntry` is the ONE read of the cache; only the entry it returns is used (proof and signatures of the same store) -/
+def omegaOkHit (lctx : LocalContext) (readEntry : IO (Option OmegaOkEntry)) : MetaM (Option Expr) := do
+  let some e ← readEntry | return none
+  for (fv, ty) in e.used do
+    match lctx.find? fv with
+    | some d => unless (← instantiateMVars d.type) == ty do return none
+    | none => return none
+  if (← constsMatch e.proof e.sigs) then return some e.proof
+  return none
+
 open Lean Meta Elab Tactic in
 /-- `ved_omega` with a cache (see `vedOmegaOk` for what is cached and when it is reused): the register
 goals of a loop (`ved_pack_simp_c`) read the same packed words, so the range side conditions
@@ -406,17 +449,11 @@ elab "ved_omega_c" : tactic => withMainContext do
       let fvs := (CollectFVars.main pf {}).fvarIds
       let mut used : Array (FVarId × Expr) := #[]
       for fv in fvs do used := used.push (fv, ← instantiateMVars (← fv.getType))
-      vedOmegaOk.modify (·.insert tgt (pf, used))
-  if let some (pf, used) := (← vedOmegaOk.get)[tgt]? then
-    let mut ok := true
-    for (fv, ty) in used do
-      match lctx.find? fv with
-      | some d => unless (← instantiateMVars d.type) == ty do ok := false
-      | none => ok := false
-    if ok then
-      g.assign pf
-      replaceMainGoal []
-      return
+      vedOmegaOk.modify (·.insert tgt { proof := pf, used, sigs := ← constSigs pf })
+  if let some pf ← omegaOkHit lctx (do return (← vedOmegaOk.get)[tgt]?) then
+    g.assign pf
+    replaceMainGoal []
+    return
   -- interval bound first: sums of bounded atoms (no `omega` run, which timed out on the failing ones)
   if tgt.isAppOfArity ``LT.lt 4 && (tgt.getArg! 0).isConstOf ``Nat then
     if let some nv := vedLitVal (tgt.getArg! 3) then
@@ -449,7 +486,10 @@ elab "ved_omega_c" : tactic => withMainContext do
     evalTactic (← `(tactic| ved_omega))
     store (← instantiateMVars (mkMVar g))
   catch e =>
-    vedOmegaFail.modify (·.insert tgt rel)
+    -- only "omega could not prove it" is a property of the target and the hypotheses; a heartbeat / recursion-depth / interrupt failure depends on the
+    -- limits of this declaration (`ved_omega` reports them with `vedOmegaLimitMsg`) and must not refuse another one
+    unless e.isRuntime || e.isInterrupt || (← e.toMessageData.toString) == Tools.VedU1Loop.vedOmegaLimitMsg do
+      vedOmegaFail.modify (·.insert tgt rel)
     throw e
 
 /-- the packed word `m + b` (a field that is the constant 1 of a register above the others, `2 ^ 4353 + ...`)

@@ -291,7 +291,7 @@ Two consequences follow:
 
 ## 5. Proposal: how to split CI
 
-This is a proposal. No workflow is changed by this page.
+This was written as a proposal; the matrix and the docs-only split below have since been tried.
 
 | Tier | Contents | When |
 |---|---|---|
@@ -304,19 +304,58 @@ Rules that keep the split honest:
 
 - **No silent skip.** Every check that a path filter removes from a pull request still runs in
   the weekly and release tiers. A skipped job is reported as skipped, never as a success.
-- **Same coverage, shorter wall time (to be tried, not yet shown).** The `ved-pr` and `ved-full`
-  steps are independent `lake build` targets, so they could run as a matrix with the same set of
-  checks. The resulting wall time is not known yet:
-  - Each matrix runner may rebuild the shared dependencies (the Sparkle library and the tool
-    libraries), so today's sequential step times are not a bound for it.
-  - The longest single step of `ved-pr` (the strict entry checks, 1408 s, 23.5 minutes) is
-    already longer than the target below.
+- **Same coverage, shorter wall time (tried 2026-11-27, pull request #177).** `ved.yml` now runs
+  `ved-pr` (9 parts) and `ved-full` (12 parts) as matrices. Every original `lake build` target is
+  in exactly one part (68 for `ved-pr`, 78 for `ved-full`, compared against the sequential
+  workflow), and each original step is one `lake build` line of a part, except that the strict
+  entry step is split over three parts. A `ved-deps` job builds the core library and the 28
+  Tools modules the checks import once; every part restores that `.lake` (Lake still checks
+  every trace: the restored core library is re-checked in 10 to 17 s). A job named `ved-pr` /
+  `ved-full` needs every part and fails unless all succeeded.
 
-  Open work: split that step's targets; design how the runners share the built dependencies (a
-  dependency job whose `.lake` the matrix jobs restore, or a cache keyed on the commit); then run
-  one matrix trial with the same set of checks and compare.
-- **Docs PRs.** Add a `paths-ignore` for `docs/**` and `**/*.md` to `build.yml` and
-  `downstream-smoke.yml`, and give the docs checks above their own small job.
+  | Job | Run | Wall | Runner time (sum of jobs) | Longest part |
+  |---|---|---|---|---|
+  | `ved-pr`, sequential | 45963356228 | 6063 s | 6063 s | — |
+  | `ved-pr`, matrix, each part builds its own dependencies | 45977532293 / 45983154376 | 2241 / 2415 s | 13808 / 13462 s | 2232 / 2408 s |
+  | `ved-pr`, matrix with `ved-deps` | 45994126752 | 2398 s | 8027 s | 1510 s |
+  | `ved-full`, sequential (sum of steps) | 45945481960 | 8453 s | 8453 s | — |
+  | `ved-full`, matrix, each part builds its own dependencies | 45983157333 | 2747 s | 17483 s | 2609 s |
+  | `ved-full`, matrix with `ved-deps` | 45989034347 | 2137 s | 10178 s | `ved-deps` 864 s, then 1263 s |
+  | `ved-pr`, 11 parts grouped by line time, no cache (dispatch `set=pr`) | 46034780218 | 1920 s | 7016 s | `ved-deps` 1160 s, then 752 s |
+  | `ved-pr`, same commit, `.lake` cache hit | 46039457475 | 990 s | 6472 s | `ved-deps` 32 s, then 950 s |
+  | `ved-full`, `mem-close-h2` split, `.lake` cache hit | 46041928192 | 1487 s | 9663 s | `ved-deps` 37 s, then 1441 s |
+  | `ved-pr`, same parts, on pull request #182 (no `main` cache yet) | 46045411693 | 2070 s | 8432 s | `ved-deps` 1042 s |
+
+  Without shared dependencies the parts spend most of their time rebuilding the Tools modules
+  (one hierarchy line took 1108 s in its part against 201 s as a sequential step), which doubles
+  the runner time. With `ved-deps`, `ved-full` takes about a quarter of the sequential wall
+  time with 1.2 times its runner time, and `ved-pr` takes about 40 minutes (0.4 of the sequential
+  wall time) with 1.34 times its runner time. Both are still above the 20-minute target below. The parts are not
+  balanced yet (89 to 1263 s); moving targets between parts changes only the wall time, not the
+  check set.
+
+  **Balanced parts and a cached `ved-deps` (tried 2026-11-27, branch `ci/ved-balance`).** The
+  `ved-pr` lines are grouped into 11 parts by their measured times so that no part is much
+  longer than the longest single line (the 66 check targets are the same), and `ved-full`
+  splits its longest part. `ved-deps` restores the `.lake` of an earlier `ved-deps` run from the
+  Actions cache (key: runner OS, a hash of `lean-toolchain`, `lake-manifest.json` and
+  `lakefile.lean`, and a hash of the sources of `Sparkle`, `Tools` and `IP`; when the sources
+  changed, an older entry is restored only if the OS and the first hash are equal, and Lake
+  rebuilds only what changed). One dispatch with a full cache hit took 990 s for `ved-pr`, inside
+  the 20-minute goal; this is a single observation, not a guarantee that every run with a `main`
+  cache stays under 20 minutes. Without a cache it took 1920 s (dispatch) and 2070 s (on pull
+  request #182), of which `ved-deps` is 1042 to 1160 s; a partial hit lies in between. `ved-full`
+  with a cache hit took 1487 s (2137 s before), still above 20 minutes. The same part varies
+  between runs (`mem-close` 673 s and 950 s; `ved-full` `compose` 1034 s and 1441 s), so the longest `ved-pr` part is about 10 to 16 minutes.
+  A pull request can read only the caches of its own branch and of `main`, so a cache hit on a
+  pull request needs an earlier `ved-deps` run on `main` (the weekly schedule, or a dispatch);
+  a pull request that changes `Sparkle/` or `Tools/` gets a partial hit.
+- **Docs PRs (done in the same pull request).** `build.yml` and `downstream-smoke.yml` skip a pull
+  request that changes only `docs/**` or `*.md` files, except the tutorial sources
+  (`docs/tutorial/**`, `docs/Tutorial.md`), which `build.yml` builds and type-checks. A new
+  `docs.yml` runs the link check and the coverage table check on such pull requests. Build and
+  Downstream Smoke keep their push trigger unchanged, so they still run on every push to `main`
+  (VED and Docs have no push trigger).
 
 ## 6. Targets, from the measurements
 

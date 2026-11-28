@@ -34,13 +34,30 @@ on:
   schedule:
     - cron: '17 3 * * 1'
   workflow_dispatch:
+    inputs:
+      set:
+        description: 'which check set to run: full (ved-full) or pr (the ved-pr parts)'
+        type: choice
+        options: [ full, pr ]
+        default: full
 
 permissions:
   contents: read
 
 jobs:
-  ved-pr:
-    if: github.event_name == 'pull_request'
+  # `ved-pr` and `ved-full` run as matrices of independent parts; every
+  # original check target is in exactly one part, one `lake build` line per
+  # original step.  `ved-pr` / `ved-full` (below) fail unless every part
+  # succeeded.
+  # Shared dependencies (`ved-deps`): the core library and the Tools modules
+  # the checks import, built once and uploaded as an artifact of this run;
+  # every part restores this .lake and builds only its check files (Lake
+  # still checks every trace, so nothing stale is used).  ved-deps also
+  # restores the .lake of an earlier ved-deps run from the Actions cache.
+  # The parts are grouped by the measured time of each line (BuildAndCI.md
+  # §5), so that no part is much longer than the longest single check.
+  # `workflow_dispatch` with set=pr runs the ved-pr parts instead of ved-full.
+  ved-deps:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -55,128 +72,107 @@ jobs:
     - name: Install Lean toolchain
       run: elan default $(cat lean-toolchain)
 
-    - name: Strict axiom audit (accept / reject controls)
-      run: lake build Tests.Ved.StrictAuditCheck
+    # Lake checks every trace after the restore, so a restored older .lake
+    # only saves the modules whose inputs did not change.
+    - name: Cache .lake (previous ved-deps builds)
+      uses: actions/cache@v4
+      with:
+        path: .lake
+        key: ved-deps-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-${{ hashFiles('Sparkle.lean', 'Sparkle/**', 'Tools/**', 'IP/**') }}
+        restore-keys: |
+          ved-deps-${{ runner.os }}-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-
 
-    - name: "Kernel defeq regression (Option.getD (some X) 0 =?= X via vedGetD_some: positive at k = 4359, old-route control at k = 18, fixed budget)"
-      run: lake build Tests.Ved.VedGetDKernelCheck
+    - name: Core library
+      run: lake build Sparkle
 
-    - name: "Register-block side conditions (ved_omega_c interval prover + cache, ved_pack_simp_c, ved_div_self_add)"
-      run: lake build Tests.Ved.VedOmegaCCheck
+    - name: Tools modules imported by the checks
+      run: lake build Tools.VedU1Entry Tools.VedU2HierRegEntry Tools.VedMemEntry Tools.VedU1Deep Tools.DeepElab Tools.VedU1ScriptSeqGen Tools.VedStrictAudit Tools.VedU1PackedEntry Tools.DeepFinArms Tools.VedMemPack Tools.VedWriteChecked Tools.VedU1HierEntry Tools.VedU2HierBudget Tools.VedComposeConnectGen Tools.VedU1StructOut Tools.VedInvocation Tools.VedMemLoop Tools.VedComposeStep Tools.VedU2HierMultiOut Tools.VedH3ChildTblEntry Tools.VedH3ChildEntry Tools.VedU2HierEntry Tools.VedMemWidth Tools.VedWriteForms Tools.VedU2HierProj Tools.VedMemOrder Tools.VedU1Contract Tools.VedSupplement
 
-    - name: "ved_omega_c caches (reuse only on equal inputs, reset) and the ved_seq_bools Bool split"
-      run: lake build Tests.Ved.VedOmegaCacheCheck Tests.Ved.VedSeqBoolsCheck
+    - name: Pack .lake
+      run: tar -cf - .lake | zstd -T0 -3 > "$RUNNER_TEMP/lake.tar.zst" && ls -l "$RUNNER_TEMP/lake.tar.zst"
 
-    - name: Synthesis-path regressions (width-aware merging, per-module caches)
-      run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
+    - name: Upload .lake
+      uses: actions/upload-artifact@v4
+      with:
+        name: ved-deps-lake
+        path: ${{ runner.temp }}/lake.tar.zst
+        retention-days: 1
+        compression-level: 0
 
-    - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
-      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1StructOutCheck Tests.Ved.U1StructSeqCheck Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck Tests.Ved.VedMemCheck Tests.Ved.VedMemWriteCheck Tests.Ved.VedMemShapeCheck Tests.Ved.VedMemOrderCheck Tests.Ved.VedMemWidthCheck
-
-    - name: U1 Circuit-monad register loop (positives, xor chain; must-stay-refused controls)
-      run: lake build Tests.Ved.U1CircuitLoopCheck
-
-    - name: U1 small regression causes (neg, fst/snd, wide concat, registerWithEnable, anonymous binder; must-stay-refused controls)
-      run: lake build Tests.Ved.U1SmallRegCheck
-
-    - name: ved_budget direct check (enough budget, unlimited ambient, outer budget respected, abort after partial change)
-      run: lake build Tests.Ved.VedBudgetCheck
-
-    - name: U1 wide signed product of a sign-extended value (ved_iir_norm; must-stay-refused control)
-      run: lake build Tests.Ved.U1IirCheck
-
-    - name: U1 loop-free register chains (3-register delay line, non-zero init; must-stay-refused controls)
-      run: lake build Tests.Ved.U1RegChainCheck
-
-    - name: U1 packed result with registers, per-statement script (positives; must-stay-refused controls)
-      run: lake build Tests.Ved.U1PackedSeq2Check
-
-    - name: U1 packed result with registers, size gate of the per-statement first attempt (bounded early skip; positives unchanged)
-      run: lake build Tests.Ved.U1PackedSeq3Check
-
-    - name: "U1 packed loop word read through chained truncations (nested % 2^k collapse in the per-statement script): ECDSA sign FSM shape, refusal control"
-      run: lake build Tests.Ved.U1SeqModCheck
-
-    - name: U1 stage 3 on the packed state wire (ved_bit_simp_pk; shrunk R165 Merkle shape accepted under a lowered proof budget, altered-output control refused)
-      run: lake build Tests.Ved.U1MerkleWhnfCheck
-
-    - name: Memory stage tactics (ved_pack_dag, ved_decide_small2, ved_ctrl_cases; ran / refused controls)
-      run: lake build Tests.Ved.VedMemPackCheck
-
-    - name: Memory closing stage (ved_mem_addr Expr.replace path, clearSigHyps, ved_omega_t, ved_omega_n, ved_leaf_gate; refusal controls)
-      run: lake build Tests.Ved.VedMemCloseCheck
-
-    - name: User lemma for one memory-loop causal side condition (ved.mem.userLemma; isDefEq on the full goal type, strict audit; refusal controls)
-      run: lake build Tests.Ved.VedSupplementCheck
-
-    - name: U1 on a real IP leaf (rconHW, representative, heavier)
-      run: lake build Tests.Ved.U1RconCheck
-
-    - name: H2 stateful hierarchy (semantics, open parent, H2a entry, H2b parent registers; accept and refuse controls)
-      run: lake build Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierRegCheck Tests.Ved.U2HierWireCheck Tests.Ved.U2HierPin
-
-    - name: "H2c-state (a child call on the parent's register state): copies, controls"
-      run: lake build Tests.Ved.U2HierStateCallCheck
-
-    - name: "H3-open (several child instances on the parent's register state, the child output feeding the loop): loop knot, bundle reads; controls"
-      run: lake build Tests.Ved.U2HierMultiCheck
-
-    - name: "Composed step (ved.compose.step, shared bundle-slice walk): accepted, independent type == U2HRStmt, std3; new-path controls"
-      run: lake build Tests.Ved.ComposeStepCheck
-
-    - name: "Composed connection (ved.compose.connect, approved cone_connect_bn via reg_connect/out_connect): multiTwo/multiShared accepted, type == U2HRStmt, same artifact, std3; refused controls"
-      run: lake build Tests.Ved.ComposeConnectCheck
-
-    - name: "Multi-output statement candidate (U2HRStmtK, coincidence with U2HRStmt for single-output designs; ved.compose.multiOut shape stage and controls)"
-      run: lake build Tests.Ved.MultiOutCheck
-
-    - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
-      run: lake build Tests.Ved.U2HierPartialDeepCheck
-
-    - name: "H2d: open-parent deep run (Fin tail arm, nested loop state, child call over nested + parent registers); altered-piece refusals"
-      run: lake build Tests.Ved.U2HierOpenDeepCheck
-
-    - name: "H2e: derived child arguments over register state (complement, one's-complement sum); refusal controls"
-      run: lake build Tests.Ved.U2HierOpenDeep2Check
-
-    - name: "H2e: unfolded nested loop and the configurable hierarchy/nested-export budget; controls"
-      run: lake build Tests.Ved.U2HierOpenDeep3Check
-
-    - name: "#writeDesign argument forms of the packed / hierarchical entries (entry body on a separate synthesis run; accept and refuse controls)"
-      run: lake build Tests.Ved.WriteFormsCheck
-
-    - name: "#ved_write_checked (one synthesis, checked, the same design written; byte-equal to #writeDesign; swapped / tampered design refused)"
-      run: lake build Tests.Ved.WriteCheckedCheck
-
-    - name: "H2c-state: the ORIGINAL private declaration synth_httpGetByte (R223), the entry appended to its module"
-      run: |
-        lake build Tools.VedU2HierRegEntry IP.Net.HTTP
-        sed -e 's/^import Sparkle$/import Sparkle\nimport Tools.VedU2HierRegEntry/' -e 's/^#synthesizeVerilog synth_httpGetByte$/#synthesizeVerilog synth_httpGetByte\nset_option maxRecDepth 100000\n#ved_u2_hier synth_httpGetByte/' Tests/IP/Net/HTTPTest.lean > "$RUNNER_TEMP/HTTPTestReal.lean"
-        lake env lean "$RUNNER_TEMP/HTTPTestReal.lean" 2>&1 | tee "$RUNNER_TEMP/real.out"
-        grep -q "VED U2 HIER OK" "$RUNNER_TEMP/real.out"
-
-    - name: U1 on a real IP leaf (keccakRcHW, 32 x 64-bit constants)
-      run: lake build Tests.Ved.U1KeccakRcCheck
-
-    - name: U1 on real IP with == and wide inputs (aluSignal, hazardSignal, lqrCtrlTop, canopenIsNmt, droneCanNodeFilter)
-      run: lake build Tests.Ved.U1EqWideCheck
-
-    - name: "U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)"
-      run: lake build Tests.Ved.U1KTabCheck
-
-    - name: "Named constant-table leaves (hand-written mux chains, shared constants), hierarchical child; refusal controls"
-      run: lake build Tests.Ved.H3ChildCheck
-
-    - name: "U1 on real IP with several Signal.loop registers: 3 representative rows and refusal controls"
-      run: lake build Tests.Ved.U1MultiLoopCheck
-
-    - name: Deep route, representative regression
-      run: lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
-
-  ved-full:
-    if: github.event_name != 'pull_request'
+  ved-pr-part:
+    name: ved-pr (${{ matrix.part }})
+    if: github.event_name == 'pull_request' || inputs.set == 'pr'
+    needs: ved-deps
     runs-on: ubuntu-latest
-    timeout-minutes: 300
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: open-deep3
+            builds: |
+              Tests.Ved.U2HierOpenDeep3Check
+          - part: compose
+            builds: |
+              Tests.Ved.ComposeStepCheck
+              Tests.Ved.ComposeConnectCheck
+          - part: multiloop-entry-a
+            builds: |
+              Tests.Ved.U1MultiLoopCheck
+              Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1StructOutCheck Tests.Ved.U1StructSeqCheck
+          - part: mem-close
+            builds: |
+              Tests.Ved.VedMemCloseCheck
+              Tests.Ved.VedCtrlAsyncCheck
+              Tests.Ved.VedSharedRefsCheck Tests.Ved.VedSharedRefsEnvCheck
+              Tests.Ved.U2HierStateCallCheck
+          - part: open-deep2-h3
+            builds: |
+              Tests.Ved.U2HierOpenDeep2Check
+              Tests.Ved.H3ChildCheck
+          - part: multiout-partial
+            builds: |
+              Tests.Ved.MultiOutCheck
+              Tests.Ved.U2HierPartialDeepCheck
+          - part: entry-mem-small
+            builds: |
+              Tests.Ved.VedMemCheck Tests.Ved.VedMemWriteCheck Tests.Ved.VedMemShapeCheck Tests.Ved.VedMemOrderCheck Tests.Ved.VedMemWidthCheck
+              Tests.Ved.StrictAuditCheck
+              Tests.Ved.VedGetDKernelCheck
+              Tests.Ved.VedOmegaCCheck
+              Tests.Ved.VedOmegaCacheCheck Tests.Ved.VedSeqBoolsCheck
+              Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
+              Tests.Ved.U1CircuitLoopCheck
+              Tests.Ved.U1SmallRegCheck
+              Tests.Ved.VedBudgetCheck
+              Tests.Ved.U1IirCheck
+              Tests.Ved.U1RegChainCheck
+              Tests.Ved.U1PackedSeq2Check
+              Tests.Ved.U1PackedSeq3Check
+          - part: seqmod-merkle
+            builds: |
+              Tests.Ved.U1SeqModCheck
+              Tests.Ved.U1MerkleWhnfCheck
+          - part: open-deep-pack
+            builds: |
+              Tests.Ved.U2HierOpenDeepCheck
+              Tests.Ved.WriteFormsCheck
+              Tests.Ved.WriteCheckedCheck
+              Tests.Ved.VedMemPackCheck
+              Tests.Ved.VedSupplementCheck
+            http: true
+          - part: entry-b-h2
+            builds: |
+              Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck
+              Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierRegCheck Tests.Ved.U2HierWireCheck Tests.Ved.U2HierPin
+              Tests.Ved.U2HierMultiCheck
+          - part: real-ip-deep
+            builds: |
+              Tests.Ved.U1KeccakRcCheck
+              Tests.Ved.U1EqWideCheck
+              Tests.Ved.U1KTabCheck
+              Tests.Ved.U1RconCheck
+              Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -189,147 +185,195 @@ jobs:
     - name: Install Lean toolchain
       run: elan default $(cat lean-toolchain)
 
-    - name: Strict axiom audit (accept / reject controls)
-      run: lake build Tests.Ved.StrictAuditCheck
+    - name: Download shared .lake
+      uses: actions/download-artifact@v4
+      with:
+        name: ved-deps-lake
+        path: ${{ runner.temp }}
 
-    - name: "Kernel defeq regression (Option.getD (some X) 0 =?= X via vedGetD_some: positive at k = 4359, old-route control at k = 18, fixed budget)"
-      run: lake build Tests.Ved.VedGetDKernelCheck
+    - name: Restore shared .lake
+      run: zstd -dc "$RUNNER_TEMP/lake.tar.zst" | tar -xf -
 
-    - name: "Register-block side conditions (ved_omega_c interval prover + cache, ved_pack_simp_c, ved_div_self_add)"
-      run: lake build Tests.Ved.VedOmegaCCheck
+    - name: Core library (restored; Lake re-checks it)
+      run: lake build Sparkle
 
-    - name: "ved_omega_c caches (reuse only on equal inputs, reset) and the ved_seq_bools Bool split"
-      run: lake build Tests.Ved.VedOmegaCacheCheck Tests.Ved.VedSeqBoolsCheck
-
-    - name: Synthesis-path regressions (width-aware merging, per-module caches)
-      run: lake build Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
-
-    - name: U1 strict entry (contract, entry, deep route; accept and refuse controls)
-      run: lake build Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1StructOutCheck Tests.Ved.U1StructSeqCheck Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck Tests.Ved.VedMemCheck Tests.Ved.VedMemWriteCheck Tests.Ved.VedMemShapeCheck Tests.Ved.VedMemOrderCheck Tests.Ved.VedMemWidthCheck
-
-    - name: U1 Circuit-monad register loop (positives, xor chain; must-stay-refused controls)
-      run: lake build Tests.Ved.U1CircuitLoopCheck
-
-    - name: U1 small regression causes (neg, fst/snd, wide concat, registerWithEnable, anonymous binder; must-stay-refused controls)
-      run: lake build Tests.Ved.U1SmallRegCheck
-
-    - name: ved_budget direct check (enough budget, unlimited ambient, outer budget respected, abort after partial change)
-      run: lake build Tests.Ved.VedBudgetCheck
-
-    - name: U1 wide signed product of a sign-extended value (ved_iir_norm; must-stay-refused control)
-      run: lake build Tests.Ved.U1IirCheck
-
-    - name: U1 loop-free register chains (3-register delay line, non-zero init; must-stay-refused controls)
-      run: lake build Tests.Ved.U1RegChainCheck
-
-    - name: U1 packed result with registers (positives and must-stay-refused controls)
-      run: lake build Tests.Ved.U1MultiSeqCheck
-
-    - name: U1 packed result with registers, per-statement script (positives; must-stay-refused controls)
-      run: lake build Tests.Ved.U1PackedSeq2Check
-
-    - name: U1 packed result with registers, size gate of the per-statement first attempt (bounded early skip; positives unchanged)
-      run: lake build Tests.Ved.U1PackedSeq3Check
-
-    - name: U1 stage 3 on the packed state wire (ved_bit_simp_pk; shrunk R165 Merkle shape accepted under a lowered proof budget, altered-output control refused)
-      run: lake build Tests.Ved.U1MerkleWhnfCheck
-
-    - name: "#writeDesign argument form and the chunked input domain (accept and refuse controls)"
-      run: lake build Tests.Ved.InvocationCheck
-
-    - name: "#writeDesign argument forms of the packed / hierarchical entries (entry body on a separate synthesis run; accept and refuse controls)"
-      run: lake build Tests.Ved.WriteFormsCheck
-
-    - name: "#ved_write_checked (one synthesis, checked, the same design written; byte-equal to #writeDesign; swapped / tampered design refused)"
-      run: lake build Tests.Ved.WriteCheckedCheck
-
-    - name: "U1 packed loop word read through chained truncations (nested % 2^k collapse in the per-statement script): ECDSA sign FSM shape, refusal control"
-      run: lake build Tests.Ved.U1SeqModCheck
-
-    - name: Memory stage tactics (ved_pack_dag, ved_decide_small2, ved_ctrl_cases; ran / refused controls)
-      run: lake build Tests.Ved.VedMemPackCheck
-
-    - name: Memory closing stage (ved_mem_addr Expr.replace path, clearSigHyps, ved_omega_t, ved_omega_n, ved_leaf_gate; refusal controls)
-      run: lake build Tests.Ved.VedMemCloseCheck
-
-    - name: User lemma for one memory-loop causal side condition (ved.mem.userLemma; isDefEq on the full goal type, strict audit; refusal controls)
-      run: lake build Tests.Ved.VedSupplementCheck
-
-    - name: U1 on a real IP leaf (rconHW, representative, heavier)
-      run: lake build Tests.Ved.U1RconCheck
-
-    - name: H2 stateful hierarchy (semantics, open parent, H2a entry, H2b parent registers; accept and refuse controls)
-      run: lake build Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierRegCheck Tests.Ved.U2HierWireCheck Tests.Ved.U2HierPin
-
-    - name: "H2c-state (a child call on the parent's register state): copies, controls"
-      run: lake build Tests.Ved.U2HierStateCallCheck
-
-    - name: "H3-open (several child instances on the parent's register state, the child output feeding the loop): loop knot, bundle reads; controls"
-      run: lake build Tests.Ved.U2HierMultiCheck
-
-    - name: "Composed step (ved.compose.step, shared bundle-slice walk): accepted, independent type == U2HRStmt, std3; new-path controls"
-      run: lake build Tests.Ved.ComposeStepCheck
-
-    - name: "Composed connection (ved.compose.connect, approved cone_connect_bn via reg_connect/out_connect): multiTwo/multiShared accepted, type == U2HRStmt, same artifact, std3; refused controls"
-      run: lake build Tests.Ved.ComposeConnectCheck
-
-    - name: "Dead trailing register slot through #ved_u2_hier (ved.compose.multiCircuit): toy accepted, type == U2HRStmt, std3; live-slot and option-off refusals pinned"
-      run: lake build Tests.Ved.ComposeDeadSlotCheck
-
-    - name: "Multi-output statement candidate (U2HRStmtK, coincidence with U2HRStmt for single-output designs; ved.compose.multiOut shape stage and controls)"
-      run: lake build Tests.Ved.MultiOutCheck
-
-    - name: "H2c-state: partial generation of the open parent's deep facts (recorded, or refused); controls"
-      run: lake build Tests.Ved.U2HierPartialDeepCheck
-
-    - name: "Nested inline stateful calls through the deep route (nest, 2-deep, parentMix); altered-slot refusals"
-      run: lake build Tests.Ved.U2HierNestedInlineCheck
-
-    - name: "H2d: open-parent deep run (Fin tail arm, nested loop state, child call over nested + parent registers); altered-piece refusals"
-      run: lake build Tests.Ved.U2HierOpenDeepCheck
-
-    - name: "H2e: derived child arguments over register state (complement, one's-complement sum); refusal controls"
-      run: lake build Tests.Ved.U2HierOpenDeep2Check
-
-    - name: "H2e: unfolded nested loop and the configurable hierarchy/nested-export budget; controls"
-      run: lake build Tests.Ved.U2HierOpenDeep3Check
+    - name: Checks of this part (one lake build per line)
+      env:
+        BUILDS: ${{ matrix.builds }}
+      run: |
+        set -euo pipefail
+        while read -r line; do
+          [ -n "$line" ] || continue
+          echo "::group::lake build $line"
+          start=$(date +%s)
+          lake build $line
+          echo "::endgroup::"
+          echo "$(( $(date +%s) - start )) s  $line" | tee -a "$RUNNER_TEMP/times.txt"
+        done <<< "$BUILDS"
 
     - name: "H2c-state: the ORIGINAL private declaration synth_httpGetByte (R223), the entry appended to its module"
+      if: matrix.http
       run: |
         lake build Tools.VedU2HierRegEntry IP.Net.HTTP
         sed -e 's/^import Sparkle$/import Sparkle\nimport Tools.VedU2HierRegEntry/' -e 's/^#synthesizeVerilog synth_httpGetByte$/#synthesizeVerilog synth_httpGetByte\nset_option maxRecDepth 100000\n#ved_u2_hier synth_httpGetByte/' Tests/IP/Net/HTTPTest.lean > "$RUNNER_TEMP/HTTPTestReal.lean"
         lake env lean "$RUNNER_TEMP/HTTPTestReal.lean" 2>&1 | tee "$RUNNER_TEMP/real.out"
         grep -q "VED U2 HIER OK" "$RUNNER_TEMP/real.out"
 
-    - name: U1 on a real IP leaf (keccakRcHW, 32 x 64-bit constants)
-      run: lake build Tests.Ved.U1KeccakRcCheck
-
-    - name: U1 on real IP with == and wide inputs (aluSignal, hazardSignal, lqrCtrlTop, canopenIsNmt, droneCanNodeFilter)
-      run: lake build Tests.Ved.U1EqWideCheck
-
-    - name: "U1 on the real constant tables (SHA-256 / SHA-512 K, AES S-box: 64 / 80 / 256 entries)"
-      run: lake build Tests.Ved.U1KTabCheck
-
-    - name: "Named constant-table leaves (hand-written mux chains, shared constants), hierarchical child; refusal controls"
-      run: lake build Tests.Ved.H3ChildCheck
-
-    - name: "U1 on real IP with several Signal.loop registers: all 30 rows (6 parts + PR check) and refusal controls"
-      run: lake build Tests.Ved.U1MultiLoopAll
-
-    - name: "U1 loop script for one-register circuit do, bare loops, closers, register matching by input support; refusal controls"
-      run: lake build Tests.Ved.U1UnsolvedCheck
-
-    - name: "U1 multi-register per-statement script: 11-register BIP-32 row and refusal controls"
-      run: lake build Tests.Ved.U1SeqCheck
-
-    - name: "U1 chained bit-serial CRC bodies (sharing-preserving loop script, bit-operation wires); refusal controls"
-      run: lake build Tests.Ved.U1WireShareCheck
-
-    - name: "U1 signed select trees and signed product + shift + clamp (maxPool2x2, requantize): positives and refusal controls"
-      run: lake build Tests.Ved.U1HeavyCheck
-
-    - name: Deep route, every regression file
+    - name: Times
+      if: always()
       run: |
-        lake build Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen \
-          Tests.Verification.DeepElabReifyDemo Tests.Verification.ConeSharingCrc16 \
-          Tests.Verification.DeepElabRealIP
+        { echo "### ved-pr (${{ matrix.part }})"; echo '```'; cat "$RUNNER_TEMP/times.txt" 2>/dev/null || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  ved-pr:
+    if: always() && (github.event_name == 'pull_request' || inputs.set == 'pr')
+    needs: ved-pr-part
+    runs-on: ubuntu-latest
+    steps:
+    - name: Every ved-pr part succeeded
+      run: test "${{ needs.ved-pr-part.result }}" = success
+
+  # `ved-full` runs as a matrix of independent parts, like `ved-pr`; every
+  # original check target is in exactly one part.  `ved-full` (below) fails
+  # unless every part succeeded.
+  ved-full-part:
+    name: ved-full (${{ matrix.part }})
+    if: github.event_name != 'pull_request' && inputs.set != 'pr'
+    needs: ved-deps
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: entry-a-h2
+            builds: |
+              Tests.Ved.U1ContractCheck Tests.Ved.U1EntryCheck Tests.Ved.U1DeepCheck Tests.Ved.U1DomainCheck Tests.Ved.U1MultiOutCheck Tests.Ved.U1StructOutCheck Tests.Ved.U1StructSeqCheck
+              Tests.Ved.U2HierSemCheck Tests.Ved.H2OpenParentProbe Tests.Ved.U2HierCheck Tests.Ved.U2HierRegCheck Tests.Ved.U2HierWireCheck Tests.Ved.U2HierPin
+              Tests.Ved.U2HierMultiCheck
+          - part: entry-b
+            builds: |
+              Tests.Ved.U1PackedCheck Tests.Ved.U1EqLutCheck Tests.Ved.U1StageCheck Tests.Ved.U1HierCheck Tests.Ved.U1MultiRegCheck Tests.Ved.DeepNameCheck Tests.Ved.DeepInitCheck Tests.Ved.DeepHygieneCheck Tests.Ved.U1LeafCheck
+          - part: entry-mem-small
+            builds: |
+              Tests.Ved.VedMemCheck Tests.Ved.VedMemWriteCheck Tests.Ved.VedMemShapeCheck Tests.Ved.VedMemOrderCheck Tests.Ved.VedMemWidthCheck
+              Tests.Ved.StrictAuditCheck
+              Tests.Ved.VedGetDKernelCheck
+              Tests.Ved.VedOmegaCCheck
+              Tests.Ved.VedOmegaCacheCheck Tests.Ved.VedSeqBoolsCheck
+              Tests.Ved.RegDedupWidthCheck Tests.Ved.NestedCacheCheck
+              Tests.Ved.U1CircuitLoopCheck
+              Tests.Ved.U1SmallRegCheck
+              Tests.Ved.VedBudgetCheck
+              Tests.Ved.U1IirCheck
+              Tests.Ved.U1RegChainCheck
+              Tests.Ved.U1MultiSeqCheck
+              Tests.Ved.U1PackedSeq2Check
+              Tests.Ved.U1PackedSeq3Check
+              Tests.Ved.InvocationCheck
+          - part: packed-mem
+            builds: |
+              Tests.Ved.U1MerkleWhnfCheck
+              Tests.Ved.U1SeqModCheck
+              Tests.Ved.VedMemPackCheck
+              Tests.Ved.VedSupplementCheck
+              Tests.Ved.U1RconCheck
+          - part: mem-close
+            builds: |
+              Tests.Ved.VedMemCloseCheck
+              Tests.Ved.VedCtrlAsyncCheck
+              Tests.Ved.VedSharedRefsCheck Tests.Ved.VedSharedRefsEnvCheck
+              Tests.Ved.U2HierStateCallCheck
+          - part: compose
+            builds: |
+              Tests.Ved.ComposeStepCheck
+              Tests.Ved.ComposeConnectCheck
+              Tests.Ved.ComposeDeadSlotCheck
+              Tests.Ved.MultiOutCheck
+              Tests.Ved.U2HierPartialDeepCheck
+          - part: open-deep
+            builds: |
+              Tests.Ved.U2HierNestedInlineCheck
+              Tests.Ved.U2HierOpenDeepCheck
+              Tests.Ved.U2HierOpenDeep2Check
+              Tests.Ved.WriteFormsCheck
+              Tests.Ved.WriteCheckedCheck
+            http: true
+          - part: open-deep3-tables
+            builds: |
+              Tests.Ved.U2HierOpenDeep3Check
+              Tests.Ved.U1KeccakRcCheck
+              Tests.Ved.U1EqWideCheck
+              Tests.Ved.U1KTabCheck
+              Tests.Ved.H3ChildCheck
+              Tests.Ved.U1UnsolvedCheck
+              Tests.Ved.U1HeavyCheck
+          - part: multiloop-all
+            builds: |
+              Tests.Ved.U1MultiLoopAll
+          - part: seq-bip32
+            builds: |
+              Tests.Ved.U1SeqCheck
+          - part: crc
+            builds: |
+              Tests.Ved.U1WireShareCheck
+          - part: deep-all
+            builds: |
+              Tests.Verification.ValueParamInitRepro Tests.Verification.ConeSharingGen Tests.Verification.DeepElabReifyDemo Tests.Verification.ConeSharingCrc16 Tests.Verification.DeepElabRealIP
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Elan
+      run: |
+        curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf | sh -s -- -y
+        echo "$HOME/.elan/bin" >> $GITHUB_PATH
+
+    - name: Install Lean toolchain
+      run: elan default $(cat lean-toolchain)
+
+    - name: Download shared .lake
+      uses: actions/download-artifact@v4
+      with:
+        name: ved-deps-lake
+        path: ${{ runner.temp }}
+
+    - name: Restore shared .lake
+      run: zstd -dc "$RUNNER_TEMP/lake.tar.zst" | tar -xf -
+
+    - name: Core library (restored; Lake re-checks it)
+      run: lake build Sparkle
+
+    - name: Checks of this part (one lake build per line)
+      env:
+        BUILDS: ${{ matrix.builds }}
+      run: |
+        set -euo pipefail
+        while read -r line; do
+          [ -n "$line" ] || continue
+          echo "::group::lake build $line"
+          start=$(date +%s)
+          lake build $line
+          echo "::endgroup::"
+          echo "$(( $(date +%s) - start )) s  $line" | tee -a "$RUNNER_TEMP/times.txt"
+        done <<< "$BUILDS"
+
+    - name: "H2c-state: the ORIGINAL private declaration synth_httpGetByte (R223), the entry appended to its module"
+      if: matrix.http
+      run: |
+        lake build Tools.VedU2HierRegEntry IP.Net.HTTP
+        sed -e 's/^import Sparkle$/import Sparkle\nimport Tools.VedU2HierRegEntry/' -e 's/^#synthesizeVerilog synth_httpGetByte$/#synthesizeVerilog synth_httpGetByte\nset_option maxRecDepth 100000\n#ved_u2_hier synth_httpGetByte/' Tests/IP/Net/HTTPTest.lean > "$RUNNER_TEMP/HTTPTestReal.lean"
+        lake env lean "$RUNNER_TEMP/HTTPTestReal.lean" 2>&1 | tee "$RUNNER_TEMP/real.out"
+        grep -q "VED U2 HIER OK" "$RUNNER_TEMP/real.out"
+
+    - name: Times
+      if: always()
+      run: |
+        { echo "### ved-full (${{ matrix.part }})"; echo '```'; cat "$RUNNER_TEMP/times.txt" 2>/dev/null || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+  ved-full:
+    if: always() && github.event_name != 'pull_request' && inputs.set != 'pr'
+    needs: ved-full-part
+    runs-on: ubuntu-latest
+    steps:
+    - name: Every ved-full part succeeded
+      run: test "${{ needs.ved-full-part.result }}" = success
