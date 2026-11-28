@@ -2,7 +2,7 @@
   Silent-wire audit probes (see notes/compiler/silent-wire-audit.md).
   Each probe is a tiny module whose correct wiring is unambiguous; the verdict
   per probe is computed at elaboration time and printed by
-  `silent-wire-probe` (Tests/Drivers/SilentWireProbeMain.lean).  Nothing here
+  `silent-wire-regression-test` (Tests/Drivers/SilentWireRegressionTestMain.lean).  Nothing here
   aborts the build.
 -/
 import Sparkle
