@@ -208,12 +208,13 @@ def getWords (h : JITHandle) (base nWords : Nat) : IO Nat := do
   pure acc
 
 /-- Garbage value of `bits` bits from a seed. -/
-def garbage (seed salt bits : Nat) : Nat :=
-  let a := lcg (seed + salt * 7919)
-  let b := lcg a
-  let c := lcg b
-  let d := lcg c
-  ((a <<< 192) ||| (b <<< 128) ||| (c <<< 64) ||| d) % 2 ^ bits
+def garbage (seed salt bits : Nat) : Nat := Id.run do
+  let mut x := lcg (seed + salt * 7919)
+  let mut acc := 0
+  for _ in [0:(bits + 63) / 64] do
+    x := lcg x
+    acc := (acc <<< 64) ||| x
+  return acc % (1 <<< bits)
 
 /-- SHA-256 padding of `msg` as if `extra` bytes preceded it, in 512-bit blocks
     (as Nat, byte 0 = most significant). -/

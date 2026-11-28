@@ -2010,3 +2010,24 @@ lean_exe «can-family-hw-jit-test» where
 lean_exe «done-hw-jit-harness-test» where
   root := `Tests.Drivers.DoneHWJITHarnessTestMain
   supportInterpreter := true
+
+-- Done-once-per-request JIT co-sim of `sha256Block` (generic DoneHWJITHarness).
+lean_exe «sha256-block-done-hw-jit-test» where
+  root := `Tests.Drivers.Sha256BlockDoneHWJITTestMain
+  supportInterpreter := true
+
+lean_exe «sha256-stream-done-hw-jit-test» where
+  root := `Tests.Drivers.Sha256StreamDoneHWJITTestMain
+  supportInterpreter := true
+
+lean_exe «hmac-sha256-done-hw-jit-test» where
+  root := `Tests.Drivers.HmacSha256DoneHWJITTestMain
+  supportInterpreter := true
+
+lean_exe «keccak256-sponge-done-hw-jit-test» where
+  root := `Tests.Drivers.Keccak256SpongeDoneHWJITTestMain
+  supportInterpreter := true
+
+lean_exe «rfc6979-done-hw-jit-test» where
+  root := `Tests.Drivers.Rfc6979DoneHWJITTestMain
+  supportInterpreter := true

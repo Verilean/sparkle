@@ -30,7 +30,7 @@ Test classes:
 | IP/Crypto/PolicySignDemo, PolicySignDemoM2 | UART tops | `signDone`, `rejected` | `*HWJITTest` | **C** | done |
 | IP/Crypto/EcdsaSignDemo, P256SignDemo, EcdsaSign cores | sign cores / UART top | `done`, `signDone` | `*HWJITTest` | **C** | done |
 | IP/Crypto/EcdsaSignSmall(+Demo) | small sign core | `done`, `busy` | Drivers/EcdsaSignSmallSim (S/driver) | S | low (driver-only, not in CI) |
-| IP/Crypto/SHA256, SHA256Stream, Keccak256Sponge, HMACSHA256HW, Rfc6979HW | | `done` | `*JITTest` | J | medium (value + done wait; no exact-once check) |
+| IP/Crypto/SHA256, SHA256Stream, Keccak256Sponge, HMACSHA256HW, Rfc6979HW | | `done` | `*JITTest`; **`*-done-hw-jit-test` (C)** | C | was medium |
 | IP/Crypto/{AES,AESGCM,GHASH,Keccak256,SHA512Block,HMACSHA512,HKDF,Merkle,RLP,Eip1559Envelope,BIP32CKD,ModInv,Goldilocks}HW | | `done`, `ready`, `headerValid` | `*HWTest` (S) | S | low-medium (data-heavy; `done` waited, values compared) |
 | IP/Crypto/{Secp256k1,P256,Ed25519,BLS12-381,G2}* HW (Field/Order/PointOp/ScalarMul/ECDSA/Sign, Fp2/6/12) | | `done` | `*HWTest` (S) | S | low (reusable `SignHWJITHarness` covers sign cores already) |
 | IP/Control, IP/Drone, IP/Humanoid, IP/YOLOv8, IP/BitNet, IP/RV32 | datapaths / SoCs | internal `done`/`valid` of sub-blocks; no top-level protocol | pure-data / SoC tests | P/S | out of scope (SoC-level tests) |
@@ -100,3 +100,16 @@ after the first bad mid frame incl. lost frame, cleared by the next SOT, ignores
 garbage while `valid` is low; plus 3x3000 random cycles vs the documented model).
 Synthetic + live controls for each.  Not checked: CAN-FD CRCs (no HW), frame
 parsing (no HW).  No defect found.
+
+### Generic done-once-per-request harness (crypto cores) — group crypto-hw
+`Tests/IP/Crypto/DoneHWJITHarness.lean`: a `Dut` (apply request + start, junk
+inputs, sample) and a pure checker `doneErrors` (exactly one `done` run per
+request in [minLat, maxLat], width, value at `done` = reference, outputs stable
+until the next start, optional fixed latency, no `done` before the first start /
+after the last request).  Controls: `done-hw-jit-harness-test` (synthetic) plus
+live controls in every instance.  Instances (all pass, ~35 s each incl. build):
+`sha256-block-done-hw-jit-test` (latency 66, block held or garbage after start),
+`sha256-stream-done-hw-jit-test` (68 / 135), `hmac-sha256-done-hw-jit-test`
+(269 / 336), `keccak256-sponge-done-hw-jit-test` (27 / 54; done 1 cycle wide,
+digest held), `rfc6979-done-hw-jit-test` (1486, d = 1).  Not covered: the
+Secp256k1/P256/Ed25519/BLS cores (`*HWTest`, S) — same harness applies.
