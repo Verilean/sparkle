@@ -1,7 +1,8 @@
 # Silent-wire audit of the elaborator (work notes)
 
-Base: branch `audit/silent-wire` at 16858ddd. No change to `Sparkle/Compiler/*`: probes only.
-Line numbers refer to `Sparkle/Compiler/Elab.lean` at that SHA.
+Audit base: 16858ddd (the audit itself changed no `Sparkle/Compiler/*` file: probes only). The fixes are on
+branch `fix/silent-wire` (PR #187); the "Fixed" column gives the commit for each. Line numbers refer to
+`Sparkle/Compiler/Elab.lean` at the audit base.
 
 Run: `kjob lake exe silent-wire-regression-test` (CI, core-dsl; it replaced the `silent-wire-probe` exe, prints the same
 verdict lines and exits 1 when a verdict differs from its expected class). Sources:
@@ -42,9 +43,17 @@ At the branch head (regression test run): (a) 0, (b) 6 (pw02, pr01, sy01-sy04), 
 
 ## Not probed / open
 
-- #7, #9, #13, #15: not confirmed; no probe in this audit reached them. They silently pick a default and should
-  become throws whether or not a source form reaches them.
-- `.array` width default (#8): not probed (an HWVector-typed Signal.map or instance port would be the next probe); whether existing IP reaches it was not checked.
+At the audit base (16858ddd):
+- #7, #9, #13, #15: not confirmed; no probe in this audit reached them. #7, #9 and #13 silently picked a default
+  (8 bits, 2 fields, 8 bits); #15 types a literal from `hwType`.
+- `.array` width default (#8): not probed (an HWVector-typed Signal.map or instance port would be the next probe);
+  whether existing IP reaches it was not checked.
+
+At the branch head (PR #187):
+- #7, #9, #13 no longer default: they throw (5630f3d1). Still no probe reaches them, so only "existing IP builds
+  are not refused" is verified for these guards.
+- Still open, unchanged from the base: #8 (the `_ => 8` arms for `.array`; `.bitVectorDim` is refused upstream,
+  sy01-sy04), #12 (first-port placeholder, consumers guarded by #1-#4 and #11), #15 (not confirmed).
 - #10 beyond pr01: not probed further.
 - Value-level (JIT `#sim`) comparison was not done. The (a) findings are visible in the printed IR as: a slice of the
   wrong port or outside the wire (#1-#4), swapped mux operands or a missing `add` in the register input (#5), and an
