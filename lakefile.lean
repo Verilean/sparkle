@@ -1945,3 +1945,15 @@ lean_lib «Tests.Ved.VedSharedRefsCheck» where
 
 lean_lib «Tests.Ved.VedSharedRefsEnvCheck» where
   roots := #[`Tests.Ved.VedSharedRefsEnvCheck]
+
+-- JIT co-sim of the plain UART blocks `uartTxHW` / `uartRxHW`: frame
+-- bit slots, txReady busy window per frame, one 1-cycle rxValid per frame in
+-- its stop window with the right byte; synthetic controls for both checkers.
+lean_exe «uart-hw-jit-test» where
+  root := `Tests.Drivers.UartHWJITTestMain
+  supportInterpreter := true
+
+-- NOT in CI: `uartRxHW` reports a phantom byte after a frame with a low stop bit.
+lean_exe «uart-rx-framing-error-hw-jit-test» where
+  root := `Tests.Drivers.UartRxFramingErrorHWJITTestMain
+  supportInterpreter := true
