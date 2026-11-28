@@ -1987,8 +1987,7 @@ lean_exe «memcached-hw-jit-test» where
   root := `Tests.Drivers.MemcachedHWJITTestMain
   supportInterpreter := true
 
--- NOT in CI: `kvHw` latches opCode/key/value and resets the scan on every opStart,
--- also while busy, so a start pulse during a command disturbs the in-flight reply.
+-- A start pulse while busy must be ignored: the in-flight get still replies VALUE.
 lean_exe «memcached-hw-busy-start-probe» where
   root := `Tests.Drivers.MemcachedHWBusyStartProbeMain
   supportInterpreter := true
