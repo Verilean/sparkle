@@ -24,6 +24,10 @@
   idle) with `outByte`, `frameDone` one cycle after each closing END, nothing
   else; the decoded stream is also cross-checked against `decodeStream`.
 
+  Also: frames whose first payload byte is END/ESC (wire starts ESC in idle),
+  and framer → deframer loopback over every first byte 0x00-0xFF plus random
+  frames.
+
   NOT checked: behaviour after an ESC followed by a byte other than DC/DD,
   rxValid held high more than one cycle, `frameEnd` pulsed while `txReady` is
   low (the framer drops it; upstream must wait).
@@ -161,7 +165,7 @@ def controls : IO Bool := do
 
 /-! ## JIT runs -/
 
-def framerCase (h : JITHandle) (label : String) (frames : List (List Nat)) (gap : Nat) : IO Bool := do
+def framerCase (h : JITHandle) (label : String) (frames : List (List Nat)) (gap : Nat) : IO (Bool × List Nat) := do
   JIT.reset h
   let mut o : Obs := {}
   let mut reqs : Array (Nat × Req) := #[]
@@ -211,7 +215,7 @@ def framerCase (h : JITHandle) (label : String) (frames : List (List Nat)) (gap 
   IO.println s!"  · framer {label}: {o.valid.size} cycles, {wire.length} wire bytes, requests {reqs.size}"
   if errs.isEmpty then IO.println s!"  ✓ framer {label}: txValid/txByte/txReady = expected at every cycle, wire = pure encoder"
   else for e in errs do IO.println s!"  ✗ framer {label}: {e}"
-  pure errs.isEmpty
+  pure (errs.isEmpty, wire)
 
 def deframerCase (h : JITHandle) (label : String) (wireBytes : List Nat) (spacing : Nat)
     (frames : List (List Nat)) : IO Bool := do
@@ -259,8 +263,7 @@ def main : IO Unit := do
   let fr ← framerTop.Sim.load
   let frames : List (List Nat) := [[0x10, 0xC0, 0x20, 0xDB, 0x30], [0xC0], [0xDB, 0xDB, 0x01], [1, 2, 3, 4]]
   for gap in [0, 3] do
-    ok := (← framerCase fr.handle s!"gap={gap}" frames gap) && ok
-  JIT.destroy fr.handle
+    ok := (← framerCase fr.handle s!"gap={gap}" frames gap).1 && ok
   let de ← deframerTop.Sim.load
   let enc := fun (fr : List Nat) => (encodeFrame (fr.map UInt8.ofNat)).map UInt8.toNat
   let f1 : List Nat := [0x10, 0xC0, 0x20, 0xDB, 0x30]
@@ -272,24 +275,29 @@ def main : IO Unit := do
     ok := (← deframerCase de.handle s!"double-END stream spacing={sp}" stream sp [f1, f2, f3]) && ok
     ok := (← deframerCase de.handle s!"no-leading-END stream spacing={sp}" noLead sp [f1, f2, f3]) && ok
   ok := (← deframerCase de.handle "only END bytes (line noise)" [0xC0, 0xC0, 0xC0] 1 []) && ok
-  JIT.destroy de.handle
-  if !ok then
-    IO.println "\nFAIL"
-    IO.Process.exit 1
-  IO.println "\nALL PASS"
-
-/-- NOT in CI: a frame whose FIRST payload byte is END or ESC.  The framer emits
-    ESC + replacement correctly, but the deframer in state idle treats the ESC
-    as a plain data byte (see Tests/Drivers/SlipHWJITDefectsMain.lean). -/
-def mainDefects : IO Unit := do
-  IO.println "=== slipDeframerHW — escaped first payload byte — NOT in CI, known defect ==="
-  (← IO.getStdout).flush
-  let de ← deframerTop.Sim.load
-  let enc := fun (fr : List Nat) => (encodeFrame (fr.map UInt8.ofNat)).map UInt8.toNat
-  let mut ok := true
+  -- frames whose first payload byte is END / ESC (ESC in state idle starts an escape)
   for (label, fr) in [("first byte END", [0xC0, 0x01]), ("first byte ESC", [0xDB, 0x02])] do
     ok := (← deframerCase de.handle s!"{label}, leading END" (enc fr) 1 [fr]) && ok
-    ok := (← deframerCase de.handle s!"{label}, no leading END (as the HW framer emits)" ((enc fr).drop 1) 1 [fr]) && ok
+    ok := (← deframerCase de.handle s!"{label}, no leading END" ((enc fr).drop 1) 1 [fr]) && ok
+  -- framer → deframer loopback: HW framer wire output fed to the HW deframer
+  let allFirst : List (List Nat) := (List.range 256).map fun b => [b, 0x55]
+  let mut seed := 12345
+  let mut rnd : List (List Nat) := []
+  for _ in [0:12] do
+    let mut len := 0
+    seed := (seed * 1103515245 + 12345) % 2147483648
+    len := 1 + (seed / 65536) % 12
+    let mut fr : List Nat := []
+    for _ in [0:len] do
+      seed := (seed * 1103515245 + 12345) % 2147483648
+      let r := (seed / 65536) % 8
+      fr := fr ++ [if r == 0 then 0xC0 else if r == 1 then 0xDB else (seed / 524288) % 256]
+    rnd := rnd ++ [fr]
+  for (label, fs) in [("all first bytes 0x00-0xFF", allFirst), ("random frames", rnd)] do
+    let (fok, wire) ← framerCase fr.handle s!"loopback source ({label})" fs 0
+    ok := fok && ok
+    ok := (← deframerCase de.handle s!"loopback ({label})" wire 1 fs) && ok
+  JIT.destroy fr.handle
   JIT.destroy de.handle
   if !ok then
     IO.println "\nFAIL"

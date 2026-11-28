@@ -43,6 +43,11 @@ Test classes:
 Added (all in CI, with synthetic negative controls): `uart-hw-jit-test`
 (group ethernet), `spi-hw-jit-test` (group bus-hw), `slip-hw-jit-test` (group
 ethernet).  Defects they found are kept in separate exes that are NOT in CI:
-`uart-rx-framing-error-hw-jit-test`, `spi-hw-jit-defects-test`,
-`slip-hw-jit-defects-test` (each header describes inputs, cycle, expected vs
+`uart-rx-framing-error-hw-jit-test`, `spi-hw-jit-defects-test`
+(each header describes inputs, cycle, expected vs
 observed and the suspected source).
+
+The SLIP defect (deframer in idle took ESC as data, so a frame whose first
+payload byte is C0/DB decoded wrongly) is fixed in `slipDeframerHW`; its
+probe is folded into `slip-hw-jit-test` together with a framer→deframer
+loopback over every first byte.
