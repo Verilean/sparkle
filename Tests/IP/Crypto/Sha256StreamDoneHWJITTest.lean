@@ -8,8 +8,9 @@
   garbage drives every input during idle cycles and between requests.  Checked
   per request: `done` exactly once (1 cycle wide), hash at `done` = reference and
   unchanged until the next start, no `done` in the prologue or after the last
-  request; latency window [1, 400], per message length identical latency (not
-  required across lengths).  NOT checked: operands changing while busy.
+  request; latency within the window [1, 400] (the observed latencies, 68 for one
+  block and 135 for two, are printed, not compared).  NOT checked: equal latency
+  for equal message length, operands changing while busy.
 -/
 import IP.Crypto.SHA256
 import IP.Crypto.SHA256Stream

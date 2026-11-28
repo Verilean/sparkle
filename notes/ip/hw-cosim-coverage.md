@@ -42,10 +42,10 @@ Test classes:
 3. SLIP framer + deframer, if time allows (`slipFramerHW` / `slipDeframerHW`)
 
 Added (all in CI, with synthetic negative controls): `uart-hw-jit-test`
-(group ethernet), `spi-hw-jit-test` (group bus-hw), `slip-hw-jit-test` (group
-ethernet).  The three defects they found are fixed, and every probe is now in CI:
+(group usb-webserver), `spi-hw-jit-test` (group bus-hw), `slip-hw-jit-test` (group
+usb-webserver).  The three defects they found are fixed, and every probe is now in CI:
 - UART: `uartRxHW` waits for the idle line after a framing error;
-  `uart-rx-framing-error-hw-jit-test` is in CI (group ethernet).
+  `uart-rx-framing-error-hw-jit-test` is in CI (group usb-webserver).
 - SPI: `spiMasterHW` accepts start on any idle cycle, MOSI is valid at its sampling edge, CPHA 0/1 is
   implemented; the probe cases are folded into `spi-hw-jit-test` (MOSI/MISO at the sampling edge for
   modes 0-3).
