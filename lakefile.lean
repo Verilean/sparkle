@@ -1953,7 +1953,8 @@ lean_exe «uart-hw-jit-test» where
   root := `Tests.Drivers.UartHWJITTestMain
   supportInterpreter := true
 
--- NOT in CI: `uartRxHW` reports a phantom byte after a frame with a low stop bit.
+-- CI (group usb-webserver): after a frame with a low stop bit, `uartRxHW` must report no byte for it,
+-- no phantom byte, and the next frame intact (regression for the framing-error fix).
 lean_exe «uart-rx-framing-error-hw-jit-test» where
   root := `Tests.Drivers.UartRxFramingErrorHWJITTestMain
   supportInterpreter := true
