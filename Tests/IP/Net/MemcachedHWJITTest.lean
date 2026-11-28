@@ -28,7 +28,7 @@
   live controls: an oracle fed a different script must be rejected.
 
   Not checked: reply fields of non-VALUE replies (documented as don't-care), a
-  `start` pulsed while busy (see `probeMain`, NOT in CI).
+  `start` pulsed while busy is covered by `probeMain` (the probe exe, in CI).
 -/
 import IP.Net.MemcachedHW
 import IP.Net.Memcached
@@ -223,8 +223,8 @@ def lcg (x : Nat) : Nat := (x * 6364136223846793005 + 1442695040888963407) % 184
 
 /-- Drive the commands at the expected start cycles; non-start cycles carry
     garbage on the op inputs. -/
-def runKv (h : JITHandle) (cmds : Array Command) (exps : Array Exp) (extra : Nat := 12) :
-    IO (Array Cyc) := do
+def runKv (h : JITHandle) (cmds : Array Command) (exps : Array Exp) (extra : Nat := 12)
+    (inject : Option (Nat × Command) := none) : IO (Array Cyc) := do
   JIT.reset h
   let total := exps[exps.size - 1]!.emit + extra
   let mut tr : Array Cyc := #[]
@@ -238,15 +238,19 @@ def runKv (h : JITHandle) (cmds : Array Command) (exps : Array Exp) (extra : Nat
     let g2 := rnd
     let setWide := fun (base : UInt32) (x : Nat) (lo : Nat) =>
       (List.range 4).forM fun j => JIT.setInput h (base + UInt32.ofNat j) (UInt64.ofNat (((x >>> (32 * j)) + lo * j) % 4294967296))
-    if isStart then
-      let c := cmds[idx]!
+    let startCmd : Option Command :=
+      if isStart then some cmds[idx]!
+      else match inject with
+        | some (ti, c) => if ti == t then some c else none
+        | none => none
+    if let some c := startCmd then
       JIT.setInput h 0 1
       JIT.setInput h 1 (UInt64.ofNat (codeOf c))
       JIT.setInput h 2 (UInt64.ofNat (packMsb (keyOf c) 8))
       let vv := packMsb (valOf c) 16
       (List.range 4).forM fun j => JIT.setInput h (3 + UInt32.ofNat j) (UInt64.ofNat ((vv >>> (32 * j)) % 4294967296))
       JIT.setInput h 7 (UInt64.ofNat (flagsOf c))
-      idx := idx + 1
+      if isStart then idx := idx + 1
     else
       JIT.setInput h 0 0
       JIT.setInput h 1 (UInt64.ofNat (g1 % 4))
@@ -304,51 +308,78 @@ def main : IO Unit := do
     IO.Process.exit 1
   IO.println "\nALL PASS"
 
-/-! ## Probe: `opStart` while busy (NOT in CI) -/
+/-! ## Probe: `opStart` while busy (in CI, must pass) -/
 
-/-- A `get` of a stored key is started; one cycle later (the engine is busy)
-    `opStart` is pulsed again with a different command.  The first command's
-    reply must be unaffected (the pulse is a protocol violation, so the second
-    command may be ignored, but the in-flight one must still be answered with
-    its own kind / key). -/
+/-- Mutations of one trace cycle, one per checked reply field. -/
+def mutations (c : Nat) : Array (String × (Array Cyc → Array Cyc)) := #[
+  ("value", fun t => t.modify c fun x => { x with value := x.value + 1 }),
+  ("flags", fun t => t.modify c fun x => { x with flags := x.flags + 1 }),
+  ("key", fun t => t.modify c fun x => { x with key := x.key + 1 }),
+  ("kind", fun t => t.modify c fun x => { x with kind := x.kind + 1 }),
+  ("busy (low in the reply cycle)", fun t => t.modify c fun x => { x with busy := !x.busy }),
+  ("reply time (one cycle late)", fun t => (t.modify c fun x => { x with valid := false }).modify (c + 1) fun x => { x with valid := true })]
+
+/-- Stores three keys, then a `get` of the oldest one (`key1`, a deeper slot, so
+    the scan takes several cycles).  While that get is busy a start pulse with a
+    DIFFERENT command (other key / value / flags, `set`; or `del` of the in-flight
+    key) is driven at a few points: the first busy cycle, mid scan, the cycle before
+    the reply (decide boundary) and the reply cycle (emit).  The ignored request
+    must change nothing: the whole trace (all reply fields, busy, reply times) is
+    checked with `kvErrors` against the oracle that never sees the intruder, and
+    two later `get`s (the intruder's key, the in-flight key) show the store was
+    not touched.  Negative controls then mutate each checked field of the captured
+    trace and require the checker to reject it. -/
 def probeMain : IO Unit := do
-  IO.println "=== kvHw — opStart while busy (NOT in CI: expected to FAIL on the current design) ==="
+  IO.println "=== kvHw — opStart while busy (in CI, must pass: the extra start is ignored) ==="
   (← IO.getStdout).flush
   let sim ← kvTop.Sim.load
   let h := sim.handle
-  let cmds : Array Command := #[.set (k 1) 7 0 (v "hello"), .get (k 1)]
+  let cmds : Array Command := #[.set (k 1) 7 0 (v "hello"), .set (k 2) 8 0 (v "two"),
+    .set (k 3) 9 0 (v "three"), .get (k 1), .get (k 5), .get (k 1)]
   let exps := expectations cmds #[0]
-  let mut tr : Array Cyc := #[]
-  JIT.reset h
-  let s1 := exps[1]!.start
-  for t in [0:exps[1]!.emit + 40] do
-    let setCmd := fun (c : Command) => do
-      JIT.setInput h 0 1
-      JIT.setInput h 1 (UInt64.ofNat (codeOf c))
-      JIT.setInput h 2 (UInt64.ofNat (packMsb (keyOf c) 8))
-      let vv := packMsb (valOf c) 16
-      (List.range 4).forM fun j => JIT.setInput h (3 + UInt32.ofNat j) (UInt64.ofNat ((vv >>> (32 * j)) % 4294967296))
-      JIT.setInput h 7 (UInt64.ofNat (flagsOf c))
-    if t == exps[0]!.start then setCmd cmds[0]!
-    else if t == s1 then setCmd cmds[1]!
-    else if t == s1 + 3 then setCmd (.del (k 1))   -- start pulse while busy
-    else JIT.setInput h 0 0
-    JIT.eval h
-    let valid := (← JIT.getOutput h 0) != 0
-    let kind := (← JIT.getOutput h 1).toNat
-    let key := (← JIT.getOutput h 2).toNat
-    let busy := (← JIT.getOutput h 8) != 0
-    tr := tr.push { valid, kind, key, value := 0, flags := 0, busy }
-    JIT.tick h
-  JIT.destroy h
-  let vs := (List.range tr.size).filter fun c => tr[c]!.valid && c ≥ s1
-  let kinds := vs.map fun c => tr[c]!.kind
-  IO.println s!"  · get started at {s1}, extra start (del) at {s1 + 3}: replyValid at {vs}, kinds {kinds} (expected one reply, VALUE = 2, at {exps[1]!.emit})"
-  if vs == [exps[1]!.emit] && kinds == [2] then
-    IO.println "\nPROBE PASS"
+  let s1 := exps[3]!.start
+  let em := exps[3]!.emit
+  IO.println s!"  · in-flight get (key1) starts at {s1}, reply at {em} (busy {s1 + 1}..{em}); then get key5 (miss) at {exps[4]!.start}, get key1 at {exps[5]!.start}"
+  let points : Array (String × Nat) := #[("first busy cycle", s1 + 1), ("mid scan", s1 + 2),
+    ("decide boundary (reply cycle - 1)", em - 1), ("emit (reply cycle)", em)]
+  let intruders : Array (String × Command) := #[("set key5 flags=0xBEEF value=intruder", .set (k 5) 0xBEEF 0 (v "intruder")),
+    ("del key1", .del (k 1))]
+  let mut ok := true
+  let mut good : Array Cyc := #[]
+  for (iname, ic) in intruders do
+    for (pname, pt) in points do
+      let tr ← runKv h cmds exps 12 (some (pt, ic))
+      let errs := kvErrors tr exps
+      let r3 := tr[em]!
+      let r4 := tr[exps[4]!.emit]!
+      let r5 := tr[exps[5]!.emit]!
+      IO.println s!"  · {iname} @ {pname} (cycle {pt}): in-flight reply kind {r3.kind} key {hexN r3.key} value {hexN r3.value} flags {hexN r3.flags}; get key5 kind {r4.kind}; get key1 kind {r5.kind} value {hexN r5.value}"
+      if errs.isEmpty then
+        IO.println s!"  ✓ trace equals the oracle (all fields, busy, reply times; store unchanged)"
+        good := tr
+      else
+        for x in errs.toList.take 8 do IO.println s!"  ✗ {x}"
+        ok := false
+  IO.println "-- negative controls (mutate the captured trace; the checker must reject each)"
+  if good.isEmpty then
+    ok := false
   else
-    IO.println "  ✗ the in-flight get was disturbed by the start pulse while busy"
+    ok := (← check "unmutated captured trace accepted" (kvErrors good exps).isEmpty) && ok
+    for (name, f) in mutations em do
+      ok := (← check s!"in-flight reply: {name} rejected" (!(kvErrors (f good) exps).isEmpty)) && ok
+    -- the store checks: a later get that shows the intruder's effect
+    let e4 := exps[4]!.emit
+    let e5 := exps[5]!.emit
+    ok := (← check "get key5 answered VALUE (intruder stored) rejected"
+      (!(kvErrors (good.modify e4 fun x => { x with kind := 2, key := packMsb (k 5) 8, value := packMsb (v "intruder") 16, flags := 0xBEEF }) exps).isEmpty)) && ok
+    ok := (← check "get key1 answered END (in-flight key deleted) rejected"
+      (!(kvErrors (good.modify e5 fun x => { x with kind := 3 }) exps).isEmpty)) && ok
+    for (name, f) in mutations e5 do
+      ok := (← check s!"get key1 after the busy request: {name} rejected" (!(kvErrors (f good) exps).isEmpty)) && ok
+  JIT.destroy h
+  if !ok then
     IO.println "\nPROBE FAIL"
     IO.Process.exit 1
+  IO.println "\nPROBE PASS"
 
 end Sparkle.Tests.IP.Net.MemcachedHWJITTest
