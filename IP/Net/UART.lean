@@ -145,7 +145,11 @@ def uartTxHW {dom : DomainConfig}
     let dcDec := (dcSig - (Signal.pure 1#16 : Signal dom (BitVec 16))
                   : Signal dom (BitVec 16))
 
-    let shiftDown := (shiftSig >>> p1_10 : Signal dom (BitVec 10))
+    -- shift right, filling with 1 (line level after the stop bit): with a 0 fill
+    -- the register is 0 for the one cycle between the last stop-bit tick and the
+    -- idle reload, a 1-cycle low glitch on the line after every frame.
+    let pFill10 := (Signal.pure 0x200#10 : Signal dom (BitVec 10))
+    let shiftDown := ((shiftSig >>> p1_10) ||| pFill10 : Signal dom (BitVec 10))
     let bcDec := (bcSig - p1_4 : Signal dom (BitVec 4))
 
     -- Next-state logic.
