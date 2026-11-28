@@ -1,3 +1,4 @@
 import Tests.IP.Bus.I2CHWJITTest
 
-def main : IO Unit := Sparkle.Tests.IP.Bus.I2CHWJITTest.probeMain
+-- Alias of i2c-hw-jit-test (the bus-protocol probe is folded into it).
+def main : IO Unit := Sparkle.Tests.IP.Bus.I2CHWJITTest.main

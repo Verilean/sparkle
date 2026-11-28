@@ -62,19 +62,26 @@ loopback over every first byte.
 
 ### I2C master (`i2cMasterHW`) — `i2c-hw-jit-test` (group bus-hw)
 Checks, per cycle on the JIT: `busy` rises once per start at start+1 and is
-20 slots wide (never before the first / after the last start), state, SCL and SDA
-per slot against the documented FSM, extra start while busy ignored, start held
-3 cycles, back-to-back transactions, bitDiv 0/1/2/3/5; synthetic + live controls.
-Not checked: slave ACK (internal only), read data (none).
+39 half-periods wide (never before the first / after the last start); state, SCL
+and SDA per half-period against the documented FSM (START half, 18 bit slots of an
+SCL-low + SCL-high half, STOP); an independent I2C slave view of every live
+transaction (START = SDA falls while SCL high, 18 bits 101000001101001011 sampled at
+SCL rises, SDA stable while SCL high, STOP = SDA rises while SCL high); start pulse
+on every cycle of the divider period (bitDiv 1/3/5); extra start while busy
+ignored; start held 3 cycles; back-to-back transactions; bitDiv 0/1/2/3/5.
+Controls: synthetic (checker accepts ideal, rejects each defect incl. missing
+START / STOP, wrong bit, SDA changing while SCL high, the old toggling waveform) and
+live (the same defects injected into the real trace, bitDiv 1/3; at bitDiv 0 a
+one-sample SCL-high half cannot show a change inside it).
+Not checked: slave ACK (internal only, no SDA input), read data (none), hold time
+between SCL fall and SDA change (same cycle), clock stretching / arbitration.
 
-Defects found (design untouched; probes NOT in CI):
-- `i2c-bus-protocol-hw-jit-test`: the SDA/SCL waveform is not I2C. SCL toggles
-  once per slot and SDA changes on the same slot boundary, so 18 bits take 9 SCL
-  pulses (10 rises incl. start/stop slots); there is no START (SDA never falls while SCL
-  high) and no STOP (SDA never rises while SCL high).
-- same probe: with bitDiv > 0 a one-cycle `start` that is not on a divider tick
-  is lost (bitDiv=1/3, start one cycle after a tick: busy never rises); source
-  `stNext := mux tick stNextOnTick stSig` in IP/Bus/I2CHW.lean (idle leaves only on a tick).
+Fixed (was: probe `i2c-bus-protocol-hw-jit-test`, rc=1; now an alias of
+`i2c-hw-jit-test`, rc=0): SCL toggled at every slot boundary together with SDA
+(no START / STOP, 9 SCL pulses for 18 bits) → each bit slot is now an SCL-low and
+an SCL-high half, START/STOP slots added; and a one-cycle `start` off a divider
+tick was lost (`stNext := mux tick …` in idle) → idle accepts `start` on any cycle,
+reloads the divider and latches addr/rw/data at that pulse.
 
 ### Memcached KV engine (`kvHw`) — `memcached-hw-jit-test` (group memcached)
 63 commands (set/add/get/del, hits, misses, overwrite, FIFO wrap over 20 keys)
