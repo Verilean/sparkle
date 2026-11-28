@@ -118,7 +118,7 @@ jobs:
           - group: crypto
             exes: >-
               sha256-test sha256-jit-test sha512-check keccak256-test rlp-test
-              hmac-sha256-jit-test
+              sha256-stream-jit-test hmac-sha256-jit-test
               rfc6979-jit-test
               eip1559-tx-test erc20-abi-test bip39-test bip32-test
               eth-wallet-test
@@ -139,6 +139,7 @@ jobs:
               sha512-hw-test aes-hw-test aes-gcm-hw-test
               keccak256-hw-test
               ecdsa-sign-hw-jit-test p256-sign-hw-jit-test
+              ecdsa-sign-demo-hw-jit-test
 
           - group: zk
             exes: >-
