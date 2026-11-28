@@ -1254,22 +1254,19 @@ lean_exe «ecdsa-sign-demo-hw-jit-test» where
 
 -- JIT co-sim of the UART top `policySignDemo` (M1): accept path and policy
 -- refusals (0xEE reply + `rejected` strobe); checks start/stop bits and that
--- no extra reply bytes appear.  FAILS today (extra 0x00 frame + glitch after
--- every reply, a design defect) — deliberately NOT in ip-tests.yml.
+-- no extra reply bytes appear.
 lean_exe «policy-sign-demo-hw-jit-test» where
   root := `Tests.Drivers.PolicySignDemoHWJITTestMain
   supportInterpreter := true
 
 -- JIT co-sim of the UART top `policySignDemoM2` (real EIP-1559 preimage): same
--- checks as above.  FAILS today for the same extra-0x00-frame defect —
--- deliberately NOT in ip-tests.yml.
+-- checks as above.
 lean_exe «policy-sign-demo-m2-hw-jit-test» where
   root := `Tests.Drivers.PolicySignDemoM2HWJITTestMain
   supportInterpreter := true
 
--- JIT co-sim of the UART top `fido2Demo` (getAssertion, 133-byte frame → r‖s).
--- FAILS today for the same extra-0x00-frame defect — deliberately NOT in
--- ip-tests.yml.
+-- JIT co-sim of the UART top `fido2Demo` (getAssertion, 133-byte frame → r‖s),
+-- same serial-line checks.
 lean_exe «fido2-demo-hw-jit-test» where
   root := `Tests.Drivers.Fido2DemoHWJITTestMain
   supportInterpreter := true

@@ -140,6 +140,8 @@ jobs:
               keccak256-hw-test
               ecdsa-sign-hw-jit-test p256-sign-hw-jit-test
               ecdsa-sign-demo-hw-jit-test
+              policy-sign-demo-hw-jit-test policy-sign-demo-m2-hw-jit-test
+              fido2-demo-hw-jit-test
 
           - group: zk
             exes: >-
