@@ -203,6 +203,10 @@ partial def inferExprWidth (typeMap : TypeMap) : Expr → Nat
   -- only) truncated firtool's byte-lane writes — lane 4 of a 128-bit
   -- SRAM is `(wdata >> 16) << 48`, computed in a uint64 scalar, so
   -- every bit destined for words 2-3 was silently dropped.
+  --
+  -- A fixed-width shift (`Signal.<<<`, `BitVec <<<`) states its
+  -- truncation as an explicit `.slice` (Elab `fixShlWidths`), so a bare
+  -- `.shl` here is context-sized (Verilog-parsed IR) and grows.
   | .op .shl [a, .const k _] =>
     inferExprWidth typeMap a + (if k ≥ 0 then k.toNat else 0)
   -- A right shift only drops bits: the amount's width must not leak

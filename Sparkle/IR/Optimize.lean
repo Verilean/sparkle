@@ -618,13 +618,20 @@ partial def eliminateZeroBitInExpr (wm : WidthMap) : Expr → Expr
     -- still map to legal Verilog `name[hi:lo]` and the
     -- SoC-Verilog field indexer relies on them.
     let w := inferWidth wm e'
-    if hi == 0 && lo == 0 && w == 1 then e'
-    else
-      match e' with
-      | .op _ _ =>
-        if lo == 0 && w == hi + 1 then e'
-        else .slice e' hi lo
-      | _ => .slice e' hi lo
+    match e' with
+    -- A left shift is context-sized in the backends (it can grow past
+    -- its operand; `inferWidth` reports only the operand's width), so the
+    -- slice over it is the explicit truncation the elaborator emitted for a
+    -- fixed-width shift: keep it, also for a 1-bit operand.
+    | .op .shl _ => .slice e' hi lo
+    | _ =>
+      if hi == 0 && lo == 0 && w == 1 then e'
+      else
+        match e' with
+        | .op _ _ =>
+          if lo == 0 && w == hi + 1 then e'
+          else .slice e' hi lo
+        | _ => .slice e' hi lo
   | .index a i => .index (eliminateZeroBitInExpr wm a) (eliminateZeroBitInExpr wm i)
   | .sliceDim e hi lo =>
     .sliceDim (eliminateZeroBitInExpr wm e) hi lo

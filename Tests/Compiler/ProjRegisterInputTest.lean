@@ -53,8 +53,65 @@ elab "#assertRegReadsPort" id:ident port:str : command => do
 
 #assertRegReadsPort doneReg "done"
 
+/-- Field 0 taken straight off the call (no `let`), registered. -/
+@[hardware_module]
+def valDirectReg {dom : DomainConfig} (start : Signal dom Bool) : Signal dom (BitVec 8) := circuit do
+  let vR ← Signal.reg (0#8)
+  vR <~ (counter start).val
+  return (vR : Signal dom (BitVec 8))
+
+/-- Field 1 taken straight off the call (no `let`), registered. -/
+@[hardware_module]
+def doneDirectReg {dom : DomainConfig} (start : Signal dom Bool) : Signal dom Bool := circuit do
+  let dR ← Signal.reg false
+  dR <~ (counter start).done
+  return (dR : Signal dom Bool)
+
+#assertRegReadsPort valDirectReg "val"
+#assertRegReadsPort doneDirectReg "done"
+
+
+/-- Plain (non-attributed) def returning a 3-field structure (no `@[hardware_module]`):
+    inlining cannot express it as one wire, so the call is synthesised as an instance.
+    (Field `b` is reached by constructor reduction and was never wrong.) -/
+structure ThreeOut (dom : DomainConfig) where
+  a    : Signal dom (BitVec 8)
+  flag : Signal dom Bool
+  b    : Signal dom (BitVec 4)
+
+instance {dom : DomainConfig} : Sparkle.Core.HasDomain (ThreeOut dom) dom := ⟨⟩
+
+def plainThree {dom : DomainConfig} (x : Signal dom (BitVec 8)) : ThreeOut dom :=
+  { a := x + (Signal.pure 1#8 : Signal dom (BitVec 8)),
+    flag := (x === 5#8),
+    b := x.map (fun v => v.extractLsb' 0 4) }
+
+@[hardware_module]
+def plainLet {dom : DomainConfig} (x : Signal dom (BitVec 8)) : Signal dom Bool := circuit do
+  let fR ← Signal.reg false
+  let p := plainThree x
+  fR <~ p.flag
+  return (fR : Signal dom Bool)
+
+@[hardware_module]
+def plainFlag {dom : DomainConfig} (x : Signal dom (BitVec 8)) : Signal dom Bool := circuit do
+  let fR ← Signal.reg false
+  fR <~ (plainThree x).flag
+  return (fR : Signal dom Bool)
+
+@[hardware_module]
+def plainA {dom : DomainConfig} (x : Signal dom (BitVec 8)) : Signal dom (BitVec 8) := circuit do
+  let aR ← Signal.reg (0#8)
+  aR <~ (plainThree x).a
+  return (aR : Signal dom (BitVec 8))
+
+#assertRegReadsPort plainLet "flag"
+#assertRegReadsPort plainFlag "flag"
+#assertRegReadsPort plainA "a"
+
 def main : IO Unit := do
   IO.println "ProjRegisterInputTest: build-only regression test."
   IO.println "  ✓ doneReg latches the counter's `done` port (was `val[0:0]`)"
+  IO.println "  ✓ registers off a plain (non-attributed) 3-field def read their own field's port"
 
 end Sparkle.Tests.Compiler.ProjRegisterInputTest

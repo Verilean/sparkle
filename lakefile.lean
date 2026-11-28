@@ -1240,6 +1240,43 @@ lean_exe «ecdsa-sign-demo-test» where
   root := `Tests.Drivers.EcdsaSignDemoTestMain
   supportInterpreter := true
 
+-- JIT co-sim of the generated signCore hardware vs the pure-data
+-- `Secp256k1ECDSA.sign` (~1.8 M cycles per signature).
+lean_exe «ecdsa-sign-hw-jit-test» where
+  root := `Tests.Drivers.EcdsaSignHWJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the UART top `ecdsaSignDemo`: 96 request bytes in, 64 reply bytes out.
+-- Needs the map-lambda `!(c == k)` fix (before it, the TX streamer stopped after two bytes).
+lean_exe «ecdsa-sign-demo-hw-jit-test» where
+  root := `Tests.Drivers.EcdsaSignDemoHWJITTestMain
+  supportInterpreter := true
+
+-- Controls for the UART checker used by the UART-top JIT co-sims (synthetic
+-- traces, no JIT): each framing / reply / strobe check rejects its defect.
+lean_exe «uart-hw-jit-harness-test» where
+  root := `Tests.Drivers.UartHWJITHarnessTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the UART top `policySignDemo` (M1): accept path and policy
+-- refusals (0xEE reply + `rejected` strobe); checks start/stop bits and that
+-- no extra reply bytes appear.
+lean_exe «policy-sign-demo-hw-jit-test» where
+  root := `Tests.Drivers.PolicySignDemoHWJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the UART top `policySignDemoM2` (real EIP-1559 preimage): same
+-- checks as above.
+lean_exe «policy-sign-demo-m2-hw-jit-test» where
+  root := `Tests.Drivers.PolicySignDemoM2HWJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the UART top `fido2Demo` (getAssertion, 133-byte frame → r‖s),
+-- same serial-line checks.
+lean_exe «fido2-demo-hw-jit-test» where
+  root := `Tests.Drivers.Fido2DemoHWJITTestMain
+  supportInterpreter := true
+
 lean_exe «tx-policy-test» where
   root := `Tests.Drivers.TxPolicyTestMain
   supportInterpreter := true
@@ -1254,6 +1291,28 @@ lean_exe «keccak256-sponge-test» where
 -- the actual hardware cycle-by-cycle and reads the digest out.
 lean_exe «keccak256-sponge-jit-test» where
   root := `Tests.Drivers.Keccak256SpongeJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the SHA-256 block core (`sha256Block`): known digests of
+-- "abc" and multi-block messages, ports addressed by name.
+lean_exe «sha256-jit-test» where
+  root := `Tests.Drivers.SHA256JITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the multi-block streaming wrapper (`sha256StreamHW`):
+-- FIPS 180-4 vectors incl. the 448/896-bit two-block messages.
+lean_exe «sha256-stream-jit-test» where
+  root := `Tests.Drivers.SHA256StreamJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the HMAC-SHA256 FSM (`hmacSha256`): RFC 4231 cases 1-6.
+lean_exe «hmac-sha256-jit-test» where
+  root := `Tests.Drivers.HMACSHA256JITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the RFC 6979 nonce FSM (`rfc6979HW`, secp256k1 + SHA-256).
+lean_exe «rfc6979-jit-test» where
+  root := `Tests.Drivers.Rfc6979JITTestMain
   supportInterpreter := true
 
 -- Fixed-point control datapaths (IIR biquad / PID / LQR).  Each driver runs the
@@ -1293,6 +1352,12 @@ lean_exe «rtl-structure-test» where
 -- Concat lambda argument order: source value vs evaluated synthesised IR.
 lean_exe «concat-lambda-order-test» where
   root := `Tests.Drivers.ConcatLambdaOrderTestMain
+  supportInterpreter := true
+
+-- Unary `<$>` lambdas with `!` over a compound term (`!(c == 0#7)`):
+-- source value vs evaluated synthesised IR.
+lean_exe «map-not-eq-test» where
+  root := `Tests.Drivers.MapNotEqTestMain
   supportInterpreter := true
 
 lean_exe «policy-sign-demo-test» where
@@ -1341,6 +1406,11 @@ lean_exe «p256-ecdsa-hw-test» where
 
 lean_exe «p256-sign-core-test» where
   root := `Tests.Drivers.P256SignDemoTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the generated p256SignCore hardware vs `P256ECDSA.sign`.
+lean_exe «p256-sign-hw-jit-test» where
+  root := `Tests.Drivers.P256SignHWJITTestMain
   supportInterpreter := true
 
 lean_exe «sha256-stream-test» where
@@ -1556,6 +1626,10 @@ lean_exe «toplevel-sim-test» where
   root := `Tests.Synthesis.TopLevelSim
   supportInterpreter := true
 
+lean_exe «shl-width-test» where
+  root := `Tests.Drivers.ShlWidthTestMain
+  supportInterpreter := true
+
 lean_exe «svparser-test» where
   root := `Tests.SVParser.ParserTest
   supportInterpreter := true
@@ -1656,18 +1730,6 @@ lean_exe «signcore-jit» where
 
 lean_exe «signdemo-jit» where
   root := `Tests.Drivers.SignDemoJIT
-  supportInterpreter := true
-
-lean_exe «sha256stream-jit» where
-  root := `Tests.Drivers.Sha256StreamJIT
-  supportInterpreter := true
-
-lean_exe «hmac-jit» where
-  root := `Tests.Drivers.HmacJIT
-  supportInterpreter := true
-
-lean_exe «rfc6979-jit» where
-  root := `Tests.Drivers.Rfc6979JIT
   supportInterpreter := true
 
 lean_exe «keccak-sponge-jit» where

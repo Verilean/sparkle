@@ -16,6 +16,7 @@ import Sparkle.Backend.CSim
 import Sparkle.Backend.CudaSim
 import Sparkle.Backend.CudaIntra
 import Sparkle.IR.Optimize
+import Sparkle.IR.Semantics
 import Sparkle.IR.ZeroWidth
 import Sparkle.IR.RegDedup
 import Sparkle.Compiler.DRC
@@ -187,7 +188,28 @@ def freshName (hint : String) (named : Bool := false) : CompilerM String := do
   set cs'
   return name
 
+/-- Elaborated (Signal / BitVec) shifts are fixed-width: `x <<< k` keeps the
+    width of `x`, which `IR.Semantics` models by masking.  Backends size a
+    bare `.op .shl` from its context instead (Verilog-parsed IR relies on
+    that, so `x << k` may grow to `width(x) + k`), so state the truncation
+    explicitly, as a slice to the shifted operand's width.  `we` gives the
+    width of a wire. -/
+private partial def fixShlWidths (we : String → Nat) :
+    Sparkle.IR.AST.Expr → Sparkle.IR.AST.Expr
+  | .op .shl [a, b] =>
+    let a' := fixShlWidths we a
+    let b' := fixShlWidths we b
+    let wa := Sparkle.IR.Semantics.widthOf we a'
+    let e := Sparkle.IR.AST.Expr.op .shl [a', b']
+    if wa == 0 then e else .slice e (wa - 1) 0
+  | .op o args => .op o (args.map (fixShlWidths we))
+  | .concat args => .concat (args.map (fixShlWidths we))
+  | .slice e hi lo => .slice (fixShlWidths we e) hi lo
+  | e => e
+
 def emitAssign (lhs : String) (rhs : Sparkle.IR.AST.Expr) : CompilerM Unit := do
+  let cache ← liftMetaM (sparkleWireWidthCache.get : IO _)
+  let rhs := fixShlWidths (fun n => cache.getD n 0) rhs
   let cs ← get
   let ((), cs') := CircuitM.emitAssign lhs rhs cs
   set cs'
@@ -350,6 +372,13 @@ def isPrimitive (name : Name) : Bool :=
 
 def getOperator (name : Name) : Option Operator :=
   primitiveRegistry.lookup name
+
+/-- A lambda body `op p` whose operand is the lambda parameter itself
+    (`.bvar 0`).  The unary-primitive shortcuts may only lower such a body
+    as `op wire`; `!(c == 0#7)` also has head `not`, but its operand is a
+    compound term the shortcut would otherwise drop. -/
+def isUnaryOfParam (body : Lean.Expr) : Bool :=
+  body.getAppArgs.back? == some (.bvar 0)
 
 partial def inferHWType (type : Lean.Expr) : MetaM (Option HWType) := do
   -- Use `.all` transparency so reducible defs like `HList`
@@ -1746,7 +1775,7 @@ mutual
                -- through to the composite-body path below
                -- (Issue #73).
                if let some op := getOperator opName then
-                 let isUnary := op == .not || op == .neg
+                 let isUnary := (op == .not || op == .neg) && isUnaryOfParam body
                  if isUnary then
                    let wireS ← translateExprToWire s "s" (isTopLevel := false)
                    let exprType ← cachedInferType e
@@ -1793,7 +1822,17 @@ mutual
                        return none
                    let fn := e.getAppFn
                    let args := e.getAppArgs
-                   if let .const opNm _ := fn then
+                   if let .const opNm lvls := fn then
+                     -- Only the standard BitVec/Bool instances of the
+                     -- overloaded operators (`==`, `!=`, `~~~`, `-`, `+`, …)
+                     -- have the meaning the IR gives them; refuse others.
+                     -- `bne a b` is checked as `a == b` with the same
+                     -- `BEq` instance (same argument layout).
+                     let chkFn := if opNm == ``bne then Lean.mkConst ``BEq.beq lvls else fn
+                     if let some m ← CompilerM.liftMetaM (nonStandardOpMsg? chkFn args) then
+                       CompilerM.liftMetaM <| throwError
+                         "Unsupported lambda in unary `<$>`/`Signal.map`: {m} (the operator \
+                          must use the standard instance; lambda: {f})"
                      -- BitVec literal (`OfNat.ofNat n k` or
                      -- `BitVec.ofNat w n`).
                      if opNm == ``OfNat.ofNat ∨ opNm == ``BitVec.ofNat then
@@ -1809,6 +1848,22 @@ mutual
                        match (← toIR a), (← toIR b) with
                        | some ea, some eb => return some (.concat [ea, eb])
                        | _, _ => return none
+                     -- Bool literals.
+                     if opNm == ``Bool.true ∧ args.isEmpty then
+                       return some (.const 1 1)
+                     if opNm == ``Bool.false ∧ args.isEmpty then
+                       return some (.const 0 1)
+                     -- `a != b` is `!(a == b)`.
+                     if opNm == ``bne ∧ args.size ≥ 4 then
+                       match (← toIR args[args.size - 2]!), (← toIR args[args.size - 1]!) with
+                       | some ea, some eb => return some (.op .not [.op .eq [ea, eb]])
+                       | _, _ => return none
+                     -- Unary primitive (`!x`, `~~~x`, `-x`) over a compound term.
+                     if let some op := getOperator opNm then
+                       if (op == .not || op == .neg) && args.size ≥ 1 then
+                         match (← toIR args[args.size - 1]!) with
+                         | some ea => return some (.op op [ea])
+                         | none => return none
                      -- Binary primitive op (HOr / HAnd / ...).
                      if let some op := getOperator opNm then
                        if args.size ≥ 2 then
@@ -2061,7 +2116,7 @@ mutual
                      return ← lowerZeroExtendWire hint wireA targetWidth (isNamed := isNamed)
 
                  if let some op := getOperator opName then
-                   if op == .not || op == .neg then
+                   if (op == .not || op == .neg) && isUnaryOfParam bodyApp then
                      let wireA ← translateExprToWire a "a" (isTopLevel := false)
                      let exprType ← cachedInferType e
                      let hwType ← inferHWTypeFromSignal exprType
@@ -2101,7 +2156,8 @@ mutual
                          CompilerM.emitAssign resWire (.concat [.ref constWire, .ref wireA])
                          return resWire
                      -- Other binary primitives (add, sub, and, or, xor, etc.)
-                     if let some op := getOperator opName then
+                     -- (NOT/NEG are unary: their leading args are type/instance.)
+                     if let some op := (getOperator opName).filter (fun o => o != .not && o != .neg) then
                        let exprType ← cachedInferType e
                        let hwType ← inferHWTypeFromSignal exprType
                        if arg1HasBVar then
@@ -2126,7 +2182,10 @@ mutual
                    let bodyArgs := bodyApp.getAppArgs
                    -- Only if the body has exactly 1 loose-bvar arg (the lambda param)
                    let numBVarArgs := bodyArgs.toList.filter (·.hasLooseBVars) |>.length
-                   if numBVarArgs ≤ 1 then
+                   -- NOT/NEG over a compound operand (`!(c == 0#7)`) is not
+                   -- `op wire`: leave it to the Signal.map body lowering.
+                   let compoundUnary := (op == .not || op == .neg) && !isUnaryOfParam bodyApp
+                   if numBVarArgs ≤ 1 && !compoundUnary then
                      let wireA ← translateExprToWire a "a" (isTopLevel := false)
                      let exprType ← cachedInferType e
                      let hwType ← inferHWTypeFromSignal exprType
@@ -2256,6 +2315,18 @@ mutual
       -- `idx ≤ 1` needs no check at all.  Guarding on that first keeps the
       -- `inferType`+`whnf` off the hot path — running it on every `.proj`
       -- blew the 200k-heartbeat budget on the BLS12-381 Fp12 records.
+      -- A non-attributed def that inlining cannot express as one wire is
+      -- synthesised as a sub-module instance by the call itself (translating it
+      -- fills the port map).  Take the field from that instance's port, as the
+      -- `@[hardware_module]` branch above does, instead of slicing.
+      let wireS ← translateExprToWire eStruct "s"
+      if recArg.getAppFn.isConst then
+        let fields := Lean.getStructureFields (← CompilerM.liftMetaM getEnv) sName
+        if idx < fields.size then
+          let portMap ← CompilerM.liftMetaM (sparkleSubInstanceOutputs.get : IO _)
+          let callKey : UInt64 := hash (← canonHardwareKey recArg)
+          if let some w := portMap.get? (callKey, fields[idx]!.toString) then
+            return w
       let numFields ← if idx <= 1 then pure 2 else CompilerM.liftMetaM do
         let sTy ← Lean.Meta.inferType eStruct
         let sTy ← Lean.Meta.whnf sTy
@@ -2278,7 +2349,6 @@ mutual
              the sub-module's named output ports instead (call the \
              `@[hardware_module]` def directly, e.g. `let kf := wKeccakF …; kf.done`, \
              so the multi-output port map resolves the field by name)."
-      let wireS ← translateExprToWire eStruct "s"
       -- Infer result type from the expression type
       let exprType ← cachedInferType e
       let hwType ← inferHWTypeFromSignal exprType
@@ -4799,9 +4869,23 @@ elab "#sim" id:ident : command => do
       outputs.map fun p => s!"  {simLeanIdent p.name} : BitVec {p.ty.bitWidth}"
     elabSimStr s!"structure SimOutput where\n{fields}\n  deriving Repr, BEq, Inhabited"
   elabSimStr "structure Simulator where\n  handle : JITHandle"
-  let inputsIdx := (List.range userInputs.length).zip userInputs
-  let setCalls := inputsIdx.map fun (idx, p) =>
-    s!"  JIT.setInput sim.handle {idx} i.{simLeanIdent p.name}.toNat.toUInt64"
+  -- The C `set_input` numbers a > 64-bit input as ⌈w/32⌉ consecutive
+  -- 32-bit slots (low word first), like the output side below.  Indexing
+  -- one slot per port set only the low 64 bits of a wide input and shifted
+  -- every later port's index (e.g. `sha256Block`'s `first` landed on a
+  -- `blockIn` word).
+  let (setCalls, _) := userInputs.foldl
+    (fun (acc : List String × Nat) (p : Port) =>
+      let w := p.ty.bitWidth
+      let nm := simLeanIdent p.name
+      if w ≤ 64 then
+        (acc.1 ++ [s!"  JIT.setInput sim.handle {acc.2} i.{nm}.toNat.toUInt64"], acc.2 + 1)
+      else
+        let nWords := (w + 31) / 32
+        let calls := (List.range nWords).map fun j =>
+          s!"  JIT.setInput sim.handle {acc.2 + j} ((i.{nm}.toNat >>> {32 * j}) &&& 0xFFFFFFFF).toUInt64"
+        (acc.1 ++ calls, acc.2 + nWords))
+    ([], 0)
   let stepBody := String.intercalate "\n" setCalls
   elabSimStr s!"def Simulator.step (sim : Simulator) (i : SimInput) : IO Unit := do\n{stepBody}\n  JIT.evalTick sim.handle"
   -- For each output port: when the port width is > 64 bits,

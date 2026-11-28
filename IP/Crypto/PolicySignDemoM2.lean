@@ -208,7 +208,9 @@ def policySignDemoM2 {dom : DomainConfig}
                      (Signal.pure 1#8 : Signal dom (BitVec 8))
     txCntR <~ Signal.mux loadEvt loadCnt
                 (Signal.mux txAccept txDec txCntSig)
-    let txMore := ((fun c => !(c == 0#8)) <$> txCntSig : Signal dom Bool)
+    -- busy while bytes remain AFTER this one: test the decremented count (the count
+    -- itself is still 1 on the last byte, which sent one extra 0x00 frame).
+    let txMore := ((fun c => !(c == 0#8)) <$> txDec : Signal dom Bool)
     txBusyR <~ Signal.mux loadEvt (Signal.pure true : Signal dom Bool)
                 (Signal.mux txAccept txMore txBusySig)
 
