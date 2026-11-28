@@ -84,11 +84,11 @@ start+19 (miss), nothing before the first start / after the last reply, `busy`
 window per command, kind and VALUE key/flags/value; synthetic + live controls.
 Not checked: reply fields of non-VALUE replies (don't care), `memcachedServer`
 byte stream (MemcachedServerJITTest).
-Probe `memcached-hw-busy-start-probe` (NOT in CI): an `opStart` pulse while busy
-disturbs the in-flight command (op fields are latched and the scan reset on every
-`opStart`, not only in idle; source `opCodeNext/opKeyNext/scanNext` in
-IP/Net/MemcachedHW.lean).  Contract says the host waits for `busy` low, so this is
-a robustness finding, not a failure of the intended use.
+`memcached-hw-busy-start-probe` (CI group memcached): an `opStart` pulse while busy
+must be ignored.  Cause of the former failure: op fields, scan index and hit flags
+were reloaded on every `opStart`, not only in idle.  Fix: all `opStart` uses in
+`kvHw` (IP/Net/MemcachedHW.lean) are gated by `startOk = opStart && isIdle`.  Probe: get
+key1 started, del key1 pulse mid-command -> still one reply of kind VALUE.
 
 ### CAN family — `can-family-hw-jit-test` (group bus-hw)
 `IP/Bus/CANHW.lean` holds only the CRC-15 LFSR (no frame controller). Covered per
