@@ -6,8 +6,12 @@
   HMAC-SHA256, NOT P-256, so the RFC 6979 A.2.5 (P-256) vectors do not apply.
   The private key `d` is an elaboration-time constant, hence one `#sim` top
   per key.  The nonce is checked against the pure-data `Rfc6979.rfc6979` and,
-  where a published value is known, against it too (the widely used
-  secp256k1 / SHA-256 RFC 6979 vectors, z = SHA-256(message)).  An extra pass
+  for three cases, against a fixed expected value (`pub`, z = SHA-256(message)).
+  These are reference regression fixtures: they match the secp256k1 / SHA-256
+  values that circulate in other RFC 6979 test suites, but no single source and
+  version is pinned here, so they are not a citation of RFC 6979 (whose own
+  vectors are for other curves).  Nonce retry (a candidate `k ≥ n` or `k = 0`)
+  is not exercised.  An extra pass
   feeds a hash `z ≥ n` (the `z mod n` step) and compares with the reference.
 -/
 import Sparkle
@@ -67,7 +71,7 @@ private def checkCase (c : Case) (got : Nat) (cyc : Nat) : IO Bool := do
     IO.println s!"  ✓ {c.label}: k = {hex got}  ({cyc} cycles)"
     return true
   IO.println s!"  ✗ {c.label}: HW {hex got} ≠ ref {hex ref}"
-  if let some p := c.pub then IO.println s!"      published {hex p}"
+  if let some p := c.pub then IO.println s!"      fixture   {hex p}"
   return false
 
 def cases1 : List Case :=
