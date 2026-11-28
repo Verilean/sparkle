@@ -253,6 +253,10 @@ def uartRxHW {dom : DomainConfig}
     let stInc := (stSig + p1_4 : Signal dom (BitVec 4))
     let dvDec := (dvSig - p1_16 : Signal dom (BitVec 16))
     let stIsStop := (stSig === p10_4 : Signal dom Bool)
+    -- State 11: framing-error recovery.  Entered when the stop bit samples
+    -- low; waits for the line to return high before re-arming for a start.
+    let p11_4 := (Signal.pure 11#4 : Signal dom (BitVec 4))
+    let stIsWait := (stSig === p11_4 : Signal dom Bool)
 
     -- Sample-and-shift: when divider hits zero (and we're not idle),
     -- we cross into the next bit slot.  For data bits (state in 2..9),
@@ -263,7 +267,7 @@ def uartRxHW {dom : DomainConfig}
     let inData2_9 :=
       ((· && ·) <$>
         (~~~stIsOne : Signal dom Bool) <*>
-        (~~~stIsStop : Signal dom Bool) : Signal dom Bool)
+        (~~~(stIsStop ||| stIsWait) : Signal dom Bool) : Signal dom Bool)
     let inDataAndTick := (inData2_9 &&& bitTick : Signal dom Bool)
     let shiftRight1 := ((· >>> ·) <$> shSig <*>
                         (Signal.pure 1#8 : Signal dom (BitVec 8)) : Signal dom (BitVec 8))
@@ -276,13 +280,17 @@ def uartRxHW {dom : DomainConfig}
     -- State transitions:
     --   idle → 1 on start edge, reload halfDiv (sample midpoint)
     --   1..9 → +1 on tick, reload bitDiv
-    --   10 (stop) → 0 on tick (back to idle); emit valid if stop=1
+    --   10 (stop) → 0 on tick (back to idle) if stop=1, emitting valid;
+    --               → 11 (wait for idle line) if stop=0 (framing error)
+    --   11 → 0 once the line is high again
     --   else hold
+    let stopNext := Signal.mux rxLine p0_4 p11_4
     let stateNext :=
       Signal.mux startEdge p1_4
-        (Signal.mux bitTick
-           (Signal.mux stIsStop p0_4 stInc)
-           stSig)
+        (Signal.mux stIsWait stopNext
+           (Signal.mux bitTick
+              (Signal.mux stIsStop stopNext stInc)
+              stSig))
     let divNext :=
       Signal.mux startEdge halfDiv
         (Signal.mux bitTick bitDiv

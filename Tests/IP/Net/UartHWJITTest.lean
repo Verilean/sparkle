@@ -312,11 +312,11 @@ def main : IO Unit := do
     IO.Process.exit 1
   IO.println "\nALL PASS"
 
-/-- NOT in CI: a frame with a low stop bit must produce no `rxValid`; the
-    receiver restarts on the still-low line and reports a phantom byte
+/-- A frame with a low stop bit must produce no `rxValid`; the receiver waits
+    for the line to return high, so no phantom byte follows
     (see the header of Tests/Drivers/UartRxFramingErrorHWJITTestMain.lean). -/
 def mainFramingError : IO Unit := do
-  IO.println "=== uartRxHW — framing error (stop bit low) — NOT in CI, known defect ==="
+  IO.println "=== uartRxHW — framing error (stop bit low) ==="
   (← IO.getStdout).flush
   let rx ← rxTop.Sim.load
   let fe : Array (Nat × Bool) := #[(0x5A, true), (0x3C, false), (0xA5, true)]
