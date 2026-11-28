@@ -77,8 +77,10 @@ def runProbe (tag : String) (declName : Name) (mode expected : String)
   | .ok (none, _) => record tag "(d) no register/output to inspect"
   | .ok (some got, stmts) =>
     let dump := "\n      " ++ "\n      ".intercalate (stmts.take 40)
-    let ok := if expected.startsWith "~" then (got.splitOn ((expected.drop 1).toString)).length > 1
-              else got == expected
+    -- `expected` may list alternatives separated by `|` (each exact, or `~sub` = contains `sub`).
+    let okOne := fun (e : String) => if e.startsWith "~" then (got.splitOn ((e.drop 1).toString)).length > 1
+              else got == e
+    let ok := (expected.splitOn "|").any okOne
     if ok then record tag s!"(c) correct: {got}"
     else record tag s!"(a) SILENT WRONG: wired {got}, expected {expected}{dump}"
 
