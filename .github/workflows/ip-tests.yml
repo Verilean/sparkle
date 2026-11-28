@@ -80,7 +80,7 @@ jobs:
             # trajectory sanity for FSMs) and ships a
             # `#synthesizeVerilog` check inside its Test file.
             exes: >-
-              lin-hw-test i2c-hw-test spi-hw-test
+              lin-hw-test i2c-hw-test spi-hw-test spi-hw-jit-test
               sbus-hw-test crsf-hw-test mil1553-hw-test
               canopen-hw-test dronecan-hw-test
 
@@ -102,7 +102,7 @@ jobs:
             # which exercises the same end-to-end coverage via the
             # `#sim` flow at hardware speed.
             exes: >-
-              uart-test slip-test usb-webserver-jit-test
+              uart-test uart-hw-jit-test uart-rx-framing-error-hw-jit-test slip-test slip-hw-jit-test usb-webserver-jit-test
 
           - group: memcached
             # `memcached-server-test` has the same O(t)

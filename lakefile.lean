@@ -1945,3 +1945,29 @@ lean_lib «Tests.Ved.VedSharedRefsCheck» where
 
 lean_lib «Tests.Ved.VedSharedRefsEnvCheck» where
   roots := #[`Tests.Ved.VedSharedRefsEnvCheck]
+
+-- JIT co-sim of the plain UART blocks `uartTxHW` / `uartRxHW`: frame
+-- bit slots, txReady busy window per frame, one 1-cycle rxValid per frame in
+-- its stop window with the right byte; synthetic controls for both checkers.
+lean_exe «uart-hw-jit-test» where
+  root := `Tests.Drivers.UartHWJITTestMain
+  supportInterpreter := true
+
+-- CI (group usb-webserver): after a frame with a low stop bit, `uartRxHW` must report no byte for it,
+-- no phantom byte, and the next frame intact (regression for the framing-error fix).
+lean_exe «uart-rx-framing-error-hw-jit-test» where
+  root := `Tests.Drivers.UartRxFramingErrorHWJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the SPI master `spiMasterHW`: cs / done per transfer, 16 SCLK
+-- toggles, MOSI at the sampling edge, misoByte vs a slave model, modes 0-3,
+-- bitDiv 0/1/3, starts on arbitrary cycles; checker + live negative controls.
+lean_exe «spi-hw-jit-test» where
+  root := `Tests.Drivers.SpiHWJITTestMain
+  supportInterpreter := true
+
+-- JIT co-sim of the SLIP framer / deframer: per-cycle txValid/txByte/txReady and
+-- outValid/outByte/frameDone against the pure encoder/decoder; checker controls.
+lean_exe «slip-hw-jit-test» where
+  root := `Tests.Drivers.SlipHWJITTestMain
+  supportInterpreter := true
