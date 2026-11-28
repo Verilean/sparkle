@@ -1390,6 +1390,14 @@ def projStep? (env : Lean.Environment) : Lean.Expr → Option (Lean.Name × Nat 
       | _, _ => none
     | none => none
 
+/-- Slice guard for `Prod.fst/snd` and `Signal.fst/snd`: the emitted wire's width must equal
+    the width derived from the Prod type.  A mismatch means an upstream wire has the wrong
+    width, so refuse instead of clamping the slice onto it. -/
+def checkProjWireWidth (what wireName : String) (wireWidth typeTotal : Nat) : CompilerM Unit := do
+  if wireWidth != typeTotal then
+    CompilerM.liftMetaM $ throwError
+      s!"{what}: wire '{wireName}' is {wireWidth} bits wide but its Prod type is {typeTotal} bits; refusing to clamp the slice"
+
 /-- `(hi, lo)` of field `idx` in a genuine packed two-field product held in a
     wire of width `wireW` (field 0 high, field 1 low).  Throws unless the
     record has exactly two fields, both widths are known, and they add up to
@@ -1767,7 +1775,8 @@ mutual
                -- Issue #67 step 2: clamp slice to wire's
                -- declared width (see the matching comment in
                -- `handleTupleProjections`).
-               let totalWidth := min wireWidth typeTotal
+               checkProjWireWidth "Signal.map Prod.fst" wireS wireWidth typeTotal
+               let totalWidth := wireWidth
                let lo : Nat := if totalWidth ≥ width then totalWidth - width else 0
                let hi : Nat := if totalWidth ≥ 1 then totalWidth - 1 else 0
                CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
@@ -1779,7 +1788,11 @@ mutual
                let hwType ← inferHWTypeFromSignal exprType
                let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
                let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-               let actualWidth := min width wireWidth
+               let sTypeSnd ← cachedInferType s
+               let sHWTypeSnd ← inferHWTypeFromSignal sTypeSnd
+               let typeTotalSnd := match sHWTypeSnd with | .bitVector w => w | .bit => 1 | _ => 8
+               checkProjWireWidth "Signal.map Prod.snd" wireS wireWidth typeTotalSnd
+               let actualWidth := width
                let hi : Nat := if actualWidth ≥ 1 then actualWidth - 1 else 0
                CompilerM.emitAssign resWire (.slice (.ref wireS) hi 0)
                return resWire
@@ -2661,7 +2674,8 @@ mutual
       let sType ← cachedInferType s
       let sHWType ← inferHWTypeFromSignal sType
       let typeTotal := match sHWType with | .bitVector w => w | .bit => 1 | _ => 8
-      let totalWidth := min wireWidth typeTotal
+      checkProjWireWidth "Signal.fst" wireS wireWidth typeTotal
+      let totalWidth := wireWidth
       let lo : Nat := if totalWidth ≥ width then totalWidth - width else 0
       let hi : Nat := if totalWidth ≥ 1 then totalWidth - 1 else 0
       CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
@@ -2678,7 +2692,11 @@ mutual
       let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
       let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
       -- snd takes lower `width` bits, clamped to wire's declared width.
-      let actualWidth := min width wireWidth
+      let sTypeSnd ← cachedInferType s
+      let sHWTypeSnd ← inferHWTypeFromSignal sTypeSnd
+      let typeTotalSnd := match sHWTypeSnd with | .bitVector w => w | .bit => 1 | _ => 8
+      checkProjWireWidth "Signal.snd" wireS wireWidth typeTotalSnd
+      let actualWidth := width
       let hi : Nat := if actualWidth ≥ 1 then actualWidth - 1 else 0
       CompilerM.emitAssign resWire (.slice (.ref wireS) hi 0)
       return some resWire
@@ -2720,7 +2738,8 @@ mutual
         -- below the Prod-type-implied total — slicing
         -- `[typeTotal-1:typeTotal-width]` then points past
         -- the wire's last bit.
-        let totalWidth := min wireWidth typeTotal
+        checkProjWireWidth "Signal.map Prod.fst" wireS wireWidth typeTotal
+        let totalWidth := wireWidth
         let lo : Nat := if totalWidth ≥ width then totalWidth - width else 0
         let hi : Nat := if totalWidth ≥ 1 then totalWidth - 1 else 0
         CompilerM.emitAssign resWire (.slice (.ref wireS) hi lo)
@@ -2733,7 +2752,11 @@ mutual
         let hwType ← inferHWTypeFromSignal exprType
         let resWire ← CompilerM.makeWire hint hwType (named := isNamed)
         let width := match hwType with | .bitVector w => w | .bit => 1 | _ => 8
-        let actualWidth := min width wireWidth
+        let sTypeSnd ← cachedInferType s
+        let sHWTypeSnd ← inferHWTypeFromSignal sTypeSnd
+        let typeTotalSnd := match sHWTypeSnd with | .bitVector w => w | .bit => 1 | _ => 8
+        checkProjWireWidth "Signal.map Prod.snd" wireS wireWidth typeTotalSnd
+        let actualWidth := width
         let hi : Nat := if actualWidth ≥ 1 then actualWidth - 1 else 0
         CompilerM.emitAssign resWire (.slice (.ref wireS) hi 0)
         return some resWire
