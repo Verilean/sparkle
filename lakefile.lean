@@ -1252,6 +1252,14 @@ lean_exe «ecdsa-sign-demo-hw-jit-test» where
   root := `Tests.Drivers.EcdsaSignDemoHWJITTestMain
   supportInterpreter := true
 
+-- JIT co-sim of the UART top `policySignDemo` (M1): accept path and policy
+-- refusals (0xEE reply + `rejected` strobe); checks start/stop bits and that
+-- no extra reply bytes appear.  FAILS today (extra 0x00 frame + glitch after
+-- every reply, a design defect) — deliberately NOT in ip-tests.yml.
+lean_exe «policy-sign-demo-hw-jit-test» where
+  root := `Tests.Drivers.PolicySignDemoHWJITTestMain
+  supportInterpreter := true
+
 lean_exe «tx-policy-test» where
   root := `Tests.Drivers.TxPolicyTestMain
   supportInterpreter := true
