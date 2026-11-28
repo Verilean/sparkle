@@ -82,7 +82,7 @@ jobs:
             exes: >-
               lin-hw-test i2c-hw-test i2c-hw-jit-test spi-hw-test spi-hw-jit-test
               sbus-hw-test crsf-hw-test mil1553-hw-test
-              canopen-hw-test dronecan-hw-test
+              canopen-hw-test dronecan-hw-test can-family-hw-jit-test
 
           - group: ethernet
             exes: >-

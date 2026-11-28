@@ -19,7 +19,8 @@ Test classes:
 | IP/Bus/SPIHW.lean | `spiMasterHW` | `done`, `cs` | SPIHWTest (S: "done seen"); **spi-hw-jit-test (C)** | C | was **high** (multi-cycle FSM, `done` exactly-once never checked) |
 | IP/Net/SLIP.lean | `slipFramerHW`, `slipDeframerHW` | `txValid`, `txReady`, `outValid`, `frameDone` | SLIPTest (P + S loopback); **slip-hw-jit-test (C)** | C | was **high** (framing/escape protocol) |
 | IP/Bus/I2CHW.lean | `i2cMasterHW` | `busy` | I2CHWTest (S state trajectory, eyeballed); **i2c-hw-jit-test (C)** | C | was medium |
-| IP/Bus/CANHW, CANopenHW, DroneCANHW, LINHW, MIL1553HW, SBUSHW, CRSFHW | per file | frame-done / error strobes | `*HWTest` (S) | S | medium |
+| IP/Bus/CANHW, CANopenHW, DroneCANHW | `crc15HW`, `nmtStateFsmHW`, `transferIdTrackerHW` (no CAN frame controller exists) | crc start/valid, NMT state, tracker `error` strobe | `*HWTest` (S); **can-family-hw-jit-test (C)** | C | was medium |
+| IP/Bus/LINHW, MIL1553HW, SBUSHW, CRSFHW | per file | frame-done / error strobes | `*HWTest` (S) | S | medium |
 | IP/Net/MemcachedHW.lean | memcached HW | `replyValid`, `busy` | MemcachedHWTest (S), MultiOutputSubModuleHangRepro; **memcached-hw-jit-test (C)** | C | was medium |
 | IP/Net/MemcachedServer.lean | server top | `outValid` | MemcachedServerJITTest | J | medium |
 | IP/Net/UsbWebServer.lean | web server top | `valid` | UsbWebServerSimTest (S), UsbWebServerJITTest (J) | J | medium |
@@ -88,3 +89,14 @@ disturbs the in-flight command (op fields are latched and the scan reset on ever
 `opStart`, not only in idle; source `opCodeNext/opKeyNext/scanNext` in
 IP/Net/MemcachedHW.lean).  Contract says the host waits for `busy` low, so this is
 a robustness finding, not a failure of the intended use.
+
+### CAN family — `can-family-hw-jit-test` (group bus-hw)
+`IP/Bus/CANHW.lean` holds only the CRC-15 LFSR (no frame controller). Covered per
+cycle on the JIT: `crc15HW` (start priority, valid gating, hold; 4x3000 random
+cycles vs `crc15Step`; 7 real classic frames: CRC field and residue 0),
+`nmtStateFsmHW` (vs the `NmtCommand` table, reset priority, unknown bytes hold),
+`transferIdTrackerHW` (sticky `error` strobe by construction: rises the cycle
+after the first bad mid frame incl. lost frame, cleared by the next SOT, ignores
+garbage while `valid` is low; plus 3x3000 random cycles vs the documented model).
+Synthetic + live controls for each.  Not checked: CAN-FD CRCs (no HW), frame
+parsing (no HW).  No defect found.

@@ -1997,3 +1997,10 @@ lean_exe «memcached-hw-jit-test» where
 lean_exe «memcached-hw-busy-start-probe» where
   root := `Tests.Drivers.MemcachedHWBusyStartProbeMain
   supportInterpreter := true
+
+-- JIT co-sim of the CAN-family HW blocks: crc15HW (start/valid/hold vs crc15Step, real
+-- frames incl. residue), nmtStateFsmHW (vs the NmtCommand table) and the DroneCAN
+-- transferIdTrackerHW error strobe (by-construction timeline); controls for each.
+lean_exe «can-family-hw-jit-test» where
+  root := `Tests.Drivers.CanFamilyHWJITTestMain
+  supportInterpreter := true
