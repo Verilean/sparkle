@@ -8,8 +8,9 @@ lake build Tools.VedU1Entry
 lake env lean docs/research/examples/Delay8.lean ; echo "exit $?"
 ```
 
-The outputs quoted on this page are pinned in that file with `#guard_msgs`, so the file fails if
-they change.
+The `#check` output and the `U1Stmt` expansion in section 3 are pinned in that file with
+`#guard_msgs`, so the file fails if they change. The other output shown (section 2) is copied from
+one run and is not pinned.
 
 ## 1. The circuit
 
