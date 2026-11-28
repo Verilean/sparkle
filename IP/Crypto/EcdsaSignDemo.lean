@@ -404,7 +404,9 @@ def ecdsaSignDemo {dom : DomainConfig}
     txCntR <~ Signal.mux core.done (Signal.pure 64#7 : Signal dom (BitVec 7))
                 (Signal.mux txAccept txDec txCntSig)
     -- busy while there are still bytes to send.
-    let txMore := ((fun c => !(c == 0#7)) <$> txCntSig : Signal dom Bool)
+    -- busy while bytes remain AFTER this one: test the decremented count (the count
+    -- itself is still 1 on the last byte, which sent one extra 0x00 frame).
+    let txMore := ((fun c => !(c == 0#7)) <$> txDec : Signal dom Bool)
     txBusyR <~ Signal.mux core.done (Signal.pure true : Signal dom Bool)
                 (Signal.mux txAccept txMore txBusySig)
 

@@ -1,8 +1,11 @@
 /-
   JIT co-sim of the generated hardware for the UART top
   `EcdsaSignDemo.ecdsaSignDemo`: send d ‖ k ‖ z (96 bytes, big-endian)
-  over `uartRx`, record the `uartTx` line, decode the 64 reply bytes
-  r ‖ s, and compare with the pure-data `Secp256k1ECDSA.sign d k z`.
+  over `uartRx`, record the whole `uartTx` line, decode it like a receiver
+  (`UartHWJITHarness.runSteps`: start/stop bits of every frame, glitches,
+  exactly 64 reply bytes and no extra frame for 10000 idle cycles after the
+  reply, `signDone` fires once) and compare r ‖ s with the pure-data
+  `Secp256k1ECDSA.sign d k z`.  Two requests back to back.
 
   Ports after `#sim` lowering: inputs uartRx = 0, bitDiv = 1;
   outputs uartTx = 0, signDone = 1.  bitDiv = 15 → 16 cycles per bit.
@@ -10,13 +13,13 @@
 import IP.Crypto.Proof.Secp256k1ECDSA
 import IP.Crypto.EcdsaSignDemo
 import Sparkle.Compiler.Elab
-import Tests.IP.Crypto.SignHWJITHarness
+import Tests.IP.Crypto.UartHWJITHarness
 
 open Sparkle.Core.Domain
 open Sparkle.Core.Signal
 open Sparkle.Core.JIT
 open Sparkle.IP.Crypto.EcdsaSignDemo
-open Sparkle.Tests.IP.Crypto.SignHWJIT
+open Sparkle.Tests.IP.Crypto.UartHWJIT
 
 namespace Sparkle.Tests.IP.Crypto.EcdsaSignDemoHWJITTest
 
@@ -34,62 +37,34 @@ def ecdsaSignDemoTop
 open ecdsaSignDemoTop.Sim
 
 def bitDiv : Nat := 15
-def cpb : Nat := bitDiv + 1
-/-- cycles recorded after the last request byte: one signature (≈ 1.8 M) +
+/-- strobe watch: signDone = output 1 (index 0) -/
+def watch : Array Nat := #[1]
+/-- cycles allowed per request after its last byte: one signature (≈ 1.8 M) +
     64 reply bytes (10 bits each) with margin. -/
-def cap : Nat := 4000000
+def cap : Nat := 3000000
+def tail : Nat := 10000
+
+/-- One request d ‖ k ‖ z and the expected r ‖ s. -/
+def request (label : String) (d k z : Nat) : Step :=
+  let frame := beBytes d 32 ++ beBytes k 32 ++ beBytes z 32
+  match Sparkle.IP.Crypto.Secp256k1ECDSA.sign d k z with
+  | some (r, s) => { label, frame, strobe := 0, reply := beBytes r 32 ++ beBytes s 32 }
+  | none => { label := label ++ " (reference sign = none)", frame, strobe := 0, reply := #[] }
 
 def main : IO Unit := do
   IO.println "=== secp256k1 ecdsaSignDemo (UART top) — JIT co-sim vs Secp256k1ECDSA.sign ==="
   (← IO.getStdout).flush
   let sim ← load
   let h := sim.handle
-  let d := 0xC9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721
-  let k := 0x9E56F509196784D963D1C0A401510EE7ADA3DCC5DEE04B154BF61AF1D5A6DECE
-  let z := 0xAF2BDBE1AA9B6EC1E2ADE1D694F41FC71A831D0268E9891562113D8A62ADD1BF
-  JIT.reset h
-  JIT.setInput h 1 (UInt64.ofNat bitDiv)
-  -- one cycle with the given RX level; returns (uartTx, signDone) sampled before the edge
-  let step (rx : Bool) : IO (Bool × Bool) := do
-    JIT.setInput h 0 (if rx then 1 else 0)
-    JIT.eval h
-    let t ← JIT.getOutput h 0
-    let sd ← JIT.getOutput h 1
-    JIT.tick h
-    pure (t != 0, sd != 0)
-  for _ in [0:20] do let _ ← step true
-  let sendByte (b : Nat) : IO Unit := do
-    for _ in [0:cpb] do let _ ← step false
-    for i in [0:8] do
-      for _ in [0:cpb] do let _ ← step (((b >>> i) &&& 1) == 1)
-    for _ in [0:cpb] do let _ ← step true
-  for v in [d, k, z] do
-    for i in [0:32] do sendByte ((v >>> (8 * (31 - i))) &&& 0xFF)
-  let mut samples : Array Bool := Array.mkEmpty cap
-  let mut doneAt : Option Nat := none
-  for c in [0:cap] do
-    let (t, sd) ← step true
-    samples := samples.push t
-    if sd && doneAt.isNone then doneAt := some c
+  let b ← Bench.create h bitDiv watch
+  let ok ← runSteps b #[
+      request "sign 1" 0xC9AFA9D845BA75166B5C215767B1D6934E50C3DB36E89B127B8A622B120F6721
+        0x9E56F509196784D963D1C0A401510EE7ADA3DCC5DEE04B154BF61AF1D5A6DECE
+        0xAF2BDBE1AA9B6EC1E2ADE1D694F41FC71A831D0268E9891562113D8A62ADD1BF
+    , request "sign 2 (other d/k/z)" 0x1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF1234567890ABCDEF
+        0xA6E3C57DD01ABE90086538398355DD4C3B17AA873382B0F24D6129493D8AAD60
+        0x4B688DF40BCEDBE641DDB16FF0A1842D9C67EA1C3BF63F3E0471BAA664531D1A] cap tail
   JIT.destroy h
-  let bytes := Uart.decode samples cpb 64
-  IO.println s!"  signDone after {doneAt} cycles from the last request byte; {bytes.size} reply bytes"
-  let mut ok := true
-  if bytes.size != 64 then
-    IO.println s!"  ✗ expected 64 reply bytes within {cap} cycles; decoded {bytes}"
-    let falls := (List.range (samples.size - 1)).filter (fun i => samples[i]! && !samples[i+1]!)
-    IO.println s!"    TX falling edges: {falls.length}, first {falls.take 12}"
-    ok := false
-  else
-    let r := Uart.beNat bytes 0 32
-    let s := Uart.beNat bytes 32 32
-    match Sparkle.IP.Crypto.Secp256k1ECDSA.sign d k z with
-    | some (er, es) =>
-      if r == er && s == es then IO.println "  ✓ UART reply r‖s = reference"
-      else
-        IO.println s!"  ✗ got r={r}\n        s={s}\n    exp r={er}\n        s={es}"
-        ok := false
-    | none => IO.println "  ✗ reference none"; ok := false
   if !ok then
     IO.println "\nFAIL"
     IO.Process.exit 1
