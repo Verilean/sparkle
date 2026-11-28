@@ -42,7 +42,9 @@ Test classes:
 
 Added (all in CI, with synthetic negative controls): `uart-hw-jit-test`
 (group ethernet), `spi-hw-jit-test` (group bus-hw), `slip-hw-jit-test` (group
-ethernet).  Defects they found are kept in separate exes that are NOT in CI:
-`uart-rx-framing-error-hw-jit-test`, `spi-hw-jit-defects-test`,
+ethernet).  Defects they found are kept in separate exes that are NOT in CI (the SPI
+ones were fixed and their cases folded into `spi-hw-jit-test`, now covering
+MOSI/MISO at the sampling edge for modes 0-3 and starts on any cycle):
+`uart-rx-framing-error-hw-jit-test` and
 `slip-hw-jit-defects-test` (each header describes inputs, cycle, expected vs
 observed and the suspected source).
